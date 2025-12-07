@@ -6,6 +6,7 @@ import { GameStats } from './GameStats';
 import { GameOverModal } from './GameOverModal';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { useConfetti } from '@/hooks/useConfetti';
 import { useState } from 'react';
 import { Difficulty, DIFFICULTY_CONFIG } from '@/data/animals';
 
@@ -15,7 +16,7 @@ interface GameScreenProps {
 }
 
 export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
-  const { gameState, startGame, flipCard, checkMatch, totalPairs, gridSize } = useGameState(difficulty);
+  const { gameState, startGame, flipCard, checkMatch, totalPairs } = useGameState(difficulty);
   const {
     playAnimalSound,
     playFlipSound,
@@ -27,6 +28,7 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
     playComboSound,
     setMuted,
   } = useSoundEffects();
+  const { fireMatchConfetti, fireComboConfetti, fireWinConfetti } = useConfetti();
 
   const [isMuted, setIsMuted] = useState(false);
   const config = DIFFICULTY_CONFIG[difficulty];
@@ -36,16 +38,17 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
     startGame();
   }, [startGame]);
 
-  // Play win/lose sounds
+  // Play win/lose sounds and confetti
   useEffect(() => {
     if (gameState.isGameOver) {
       if (gameState.isWin) {
         playWinSound();
+        fireWinConfetti();
       } else {
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound]);
+  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -60,8 +63,11 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
     playMatchSound();
     if (gameState.combo > 0) {
       playComboSound();
+      fireComboConfetti(gameState.combo);
+    } else {
+      fireMatchConfetti();
     }
-  }, [playMatchSound, playComboSound, gameState.combo]);
+  }, [playMatchSound, playComboSound, gameState.combo, fireMatchConfetti, fireComboConfetti]);
 
   const handleNoMatch = useCallback(() => {
     playNoMatchSound();
@@ -138,7 +144,6 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
         onMatch={handleMatch}
         onNoMatch={handleNoMatch}
         disabled={!gameState.isPlaying}
-        gridSize={gridSize}
       />
 
       {/* Game Over Modal */}
