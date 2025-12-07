@@ -22,6 +22,7 @@ export interface GameState {
   isGameOver: boolean;
   isWin: boolean;
   score: number;
+  isPaused: boolean;
 }
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -74,13 +75,14 @@ export function useGameState(difficulty: Difficulty = '4x4') {
     isGameOver: false,
     isWin: false,
     score: 0,
+    isPaused: false,
   }));
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const totalPairs = (gridSize * gridSize) / 2;
 
   useEffect(() => {
-    if (gameState.isPlaying && !gameState.isGameOver) {
+    if (gameState.isPlaying && !gameState.isGameOver && !gameState.isPaused) {
       timerRef.current = setInterval(() => {
         setGameState((prev) => {
           if (prev.timeRemaining <= 1) {
@@ -102,7 +104,7 @@ export function useGameState(difficulty: Difficulty = '4x4') {
         clearInterval(timerRef.current);
       }
     };
-  }, [gameState.isPlaying, gameState.isGameOver]);
+  }, [gameState.isPlaying, gameState.isGameOver, gameState.isPaused]);
 
   const startGame = useCallback(() => {
     setGameState({
@@ -117,12 +119,27 @@ export function useGameState(difficulty: Difficulty = '4x4') {
       isGameOver: false,
       isWin: false,
       score: 0,
+      isPaused: false,
     });
   }, [gridSize, gameTime]);
 
+  const pauseGame = useCallback(() => {
+    setGameState((prev) => ({
+      ...prev,
+      isPaused: true,
+    }));
+  }, []);
+
+  const resumeGame = useCallback(() => {
+    setGameState((prev) => ({
+      ...prev,
+      isPaused: false,
+    }));
+  }, []);
+
   const flipCard = useCallback((cardId: number) => {
     setGameState((prev) => {
-      if (!prev.isPlaying || prev.flippedCards.length >= 2) return prev;
+      if (!prev.isPlaying || prev.flippedCards.length >= 2 || prev.isPaused) return prev;
       
       const card = prev.cards.find((c) => c.id === cardId);
       if (!card || card.isFlipped || card.isMatched) return prev;
@@ -206,6 +223,8 @@ export function useGameState(difficulty: Difficulty = '4x4') {
     startGame,
     flipCard,
     checkMatch,
+    pauseGame,
+    resumeGame,
     totalPairs,
     gridSize,
   };

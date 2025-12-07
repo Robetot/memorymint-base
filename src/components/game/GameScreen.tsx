@@ -1,25 +1,29 @@
 import { useEffect, useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Volume2, VolumeX, Music, Music2 } from 'lucide-react';
+import { ArrowLeft, Volume2, VolumeX, Music, Music2, Pause, Lightbulb } from 'lucide-react';
 import { GameBoard } from './GameBoard';
 import { GameStats } from './GameStats';
 import { GameOverModal } from './GameOverModal';
 import { ScoreSubmitModal } from './ScoreSubmitModal';
+import { PauseMenu } from './PauseMenu';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useConfetti } from '@/hooks/useConfetti';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
+import { useHints } from '@/hooks/useHints';
 import { Difficulty, DIFFICULTY_CONFIG } from '@/data/animals';
+import { calculateRarity, RarityResult } from '@/utils/rarityCalculator';
+import { cn } from '@/lib/utils';
 
 interface GameScreenProps {
   onBackToMenu: () => void;
   difficulty: Difficulty;
-  onCreateArt?: (score: number) => void;
+  onCreateArt?: (score: number, rarity: RarityResult) => void;
 }
 
 export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreenProps) {
-  const { gameState, startGame, flipCard, checkMatch, totalPairs } = useGameState(difficulty);
+  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame } = useGameState(difficulty);
   const {
     playAnimalSound,
     playFlipSound,
@@ -34,32 +38,58 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
   const { fireMatchConfetti, fireComboConfetti, fireWinConfetti } = useConfetti();
   const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
   const { addEntry, getTopScore } = useLeaderboard();
+  const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(difficulty);
 
   const [isMuted, setIsMuted] = useState(false);
   const [showScoreSubmit, setShowScoreSubmit] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [rarity, setRarity] = useState<RarityResult | null>(null);
+  const [perfectGame, setPerfectGame] = useState(true);
   const config = DIFFICULTY_CONFIG[difficulty];
+
+  // Track perfect game (no wrong matches)
+  useEffect(() => {
+    if (gameState.combo === 0 && gameState.moves > 0 && gameState.matchedPairs < totalPairs) {
+      setPerfectGame(false);
+    }
+  }, [gameState.combo, gameState.moves, gameState.matchedPairs, totalPairs]);
 
   // Start game on mount
   useEffect(() => {
     startGame();
-  }, [startGame]);
+    setPerfectGame(true);
+    resetHints(difficulty);
+  }, [startGame, resetHints, difficulty]);
 
-  // Play win/lose sounds and confetti
+  // Play win/lose sounds and calculate rarity
   useEffect(() => {
     if (gameState.isGameOver) {
       if (gameState.isWin) {
         playWinSound();
         fireWinConfetti();
+        
+        // Calculate rarity
+        const rarityResult = calculateRarity(
+          difficulty,
+          gameState.timeRemaining,
+          config.time,
+          gameState.moves,
+          totalPairs,
+          gameState.maxCombo,
+          perfectGame
+        );
+        setRarity(rarityResult);
+        
         // Check if it's a high score
         const topScore = getTopScore(difficulty);
-        if (gameState.score > topScore) {
+        if (gameState.score > topScore || topScore === 0) {
           setShowScoreSubmit(true);
         }
       } else {
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, difficulty]);
+  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, difficulty, gameState.timeRemaining, config.time, gameState.moves, totalPairs, gameState.maxCombo, perfectGame]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -94,6 +124,9 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
   const handlePlayAgain = () => {
     playClickSound();
     startGame();
+    setPerfectGame(true);
+    setRarity(null);
+    resetHints(difficulty);
   };
 
   const handleBackToMenu = () => {
@@ -118,9 +151,35 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
   };
 
   const handleCreateArt = () => {
-    if (onCreateArt) {
-      onCreateArt(gameState.score);
+    if (onCreateArt && rarity) {
+      onCreateArt(gameState.score, rarity);
     }
+  };
+
+  const handlePause = () => {
+    if (gameState.isPlaying) {
+      pauseGame();
+      setIsPaused(true);
+    }
+  };
+
+  const handleResume = () => {
+    resumeGame();
+    setIsPaused(false);
+  };
+
+  const handleRestart = () => {
+    setIsPaused(false);
+    handlePlayAgain();
+  };
+
+  const handleUseHint = () => {
+    const hinted = useHint(gameState.cards);
+    if (hinted.length > 0) {
+      playClickSound();
+    }
+    setIsPaused(false);
+    resumeGame();
   };
 
   return (
@@ -144,6 +203,35 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
         </div>
 
         <div className="flex gap-1">
+          {/* Hint Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              handlePause();
+              setIsPaused(true);
+            }}
+            disabled={!gameState.isPlaying || hintsRemaining <= 0}
+            className={cn(
+              'rounded-full',
+              hintsRemaining > 0 && 'text-accent'
+            )}
+          >
+            <Lightbulb className="w-5 h-5" />
+          </Button>
+          
+          {/* Pause Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handlePause}
+            disabled={!gameState.isPlaying}
+            className="rounded-full"
+          >
+            <Pause className="w-5 h-5" />
+          </Button>
+          
+          {/* Music Toggle */}
           <Button
             variant="ghost"
             size="icon"
@@ -156,6 +244,8 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
               <Music2 className="w-5 h-5" />
             )}
           </Button>
+          
+          {/* Sound Toggle */}
           <Button
             variant="ghost"
             size="icon"
@@ -190,7 +280,18 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
         onAnimalRevealed={handleAnimalRevealed}
         onMatch={handleMatch}
         onNoMatch={handleNoMatch}
-        disabled={!gameState.isPlaying}
+        disabled={!gameState.isPlaying || isPaused}
+        hintedCardIds={hintedCardIds}
+      />
+
+      {/* Pause Menu */}
+      <PauseMenu
+        isOpen={isPaused}
+        onResume={handleResume}
+        onRestart={handleRestart}
+        onQuit={handleBackToMenu}
+        onUseHint={handleUseHint}
+        hintsRemaining={hintsRemaining}
       />
 
       {/* Score Submit Modal */}
@@ -214,6 +315,7 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
           onBackToMenu={handleBackToMenu}
           onCreateArt={gameState.isWin ? handleCreateArt : undefined}
           gameTime={config.time}
+          rarity={rarity}
         />
       )}
     </div>

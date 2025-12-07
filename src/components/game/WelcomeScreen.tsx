@@ -1,7 +1,6 @@
 import { Button } from '@/components/ui/button';
-import { Sparkles, Play, Wallet, Trophy } from 'lucide-react';
+import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3 } from 'lucide-react';
 
-// Import animal preview images
 import calfImg from '@/assets/animals/calf.jpg';
 import puppyImg from '@/assets/animals/puppy.jpg';
 import ducklingImg from '@/assets/animals/duckling.jpg';
@@ -11,6 +10,8 @@ interface WelcomeScreenProps {
   onStartGame: () => void;
   onConnectWallet: () => void;
   onViewLeaderboard?: () => void;
+  onViewSettings?: () => void;
+  onViewStats?: () => void;
 }
 
 const previewAnimals = [
@@ -20,102 +21,94 @@ const previewAnimals = [
   { img: tigerImg, name: 'Tiger' },
 ];
 
-export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard }: WelcomeScreenProps) {
+export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard, onViewSettings, onViewStats }: WelcomeScreenProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-background via-muted to-background overflow-hidden relative">
-      {/* Animated background elements */}
+      {/* Animated background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-20 h-20 bg-primary/20 rounded-full blur-xl animate-float" />
         <div className="absolute top-40 right-20 w-32 h-32 bg-secondary/20 rounded-full blur-xl animate-float" style={{ animationDelay: '1s' }} />
         <div className="absolute bottom-32 left-1/4 w-24 h-24 bg-accent/20 rounded-full blur-xl animate-float" style={{ animationDelay: '2s' }} />
-        <div className="absolute bottom-20 right-1/3 w-16 h-16 bg-primary/20 rounded-full blur-xl animate-float" style={{ animationDelay: '0.5s' }} />
       </div>
 
-      {/* Logo and Title */}
-      <div className="relative z-10 text-center mb-12">
+      {/* Settings button */}
+      {onViewSettings && (
+        <div className="absolute top-4 right-4 z-10">
+          <Button variant="ghost" size="icon" onClick={onViewSettings} className="rounded-full">
+            <Settings className="w-5 h-5" />
+          </Button>
+        </div>
+      )}
+
+      {/* Logo */}
+      <div className="relative z-10 text-center mb-10">
         <div className="flex items-center justify-center gap-3 mb-4">
           <div className="w-16 h-16 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center shadow-lg glow-primary animate-pulse-glow">
             <Sparkles className="w-8 h-8 text-primary-foreground" />
           </div>
         </div>
-        
         <h1 className="text-5xl md:text-7xl font-display font-bold bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent mb-4 text-glow">
           MemoryMint
         </h1>
-        
         <p className="text-lg md:text-xl text-muted-foreground max-w-md mx-auto font-body">
           Classic Skill. Modern Creation. On-Chain Ownership.
         </p>
       </div>
 
-      {/* Animal preview cards with real images */}
-      <div className="flex gap-4 mb-12 relative z-10">
+      {/* Animal cards */}
+      <div className="flex gap-4 mb-10 relative z-10">
         {previewAnimals.map((animal, i) => (
           <div
             key={animal.name}
-            className="w-16 h-16 md:w-20 md:h-20 bg-card rounded-xl shadow-lg flex items-center justify-center overflow-hidden animate-bounce-in border-2 border-border hover:border-primary transition-colors hover:scale-110"
+            className="w-16 h-16 md:w-20 md:h-20 bg-card rounded-xl shadow-lg overflow-hidden animate-bounce-in border-2 border-border hover:border-primary transition-all hover:scale-110"
             style={{ animationDelay: `${i * 0.1}s` }}
           >
-            <img 
-              src={animal.img} 
-              alt={animal.name}
-              className="w-full h-full object-cover"
-            />
+            <img src={animal.img} alt={animal.name} className="w-full h-full object-cover" />
           </div>
         ))}
       </div>
 
-      {/* Action buttons */}
-      <div className="relative z-10 flex flex-col gap-4 items-center">
+      {/* Main buttons */}
+      <div className="relative z-10 flex flex-col gap-4 items-center w-full max-w-sm">
         <Button
           onClick={onStartGame}
           size="lg"
-          className="text-xl px-12 py-8 rounded-2xl font-display bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 shadow-lg hover:shadow-xl transition-all hover:scale-105 glow-primary"
+          className="w-full text-xl py-8 rounded-2xl font-display bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 shadow-lg hover:shadow-xl transition-all hover:scale-105 glow-primary"
         >
           <Play className="w-6 h-6 mr-2" />
-          Play Demo
+          Play Now
         </Button>
         
-        <div className="flex gap-3">
-          <Button
-            onClick={onConnectWallet}
-            variant="outline"
-            size="lg"
-            className="text-lg px-6 py-6 rounded-xl font-display hover:bg-primary/10 transition-all"
-          >
+        <div className="flex gap-3 w-full">
+          <Button onClick={onConnectWallet} variant="outline" size="lg" className="flex-1 py-6 rounded-xl font-display">
             <Wallet className="w-5 h-5 mr-2" />
-            Connect Wallet
+            Wallet
           </Button>
-          
           {onViewLeaderboard && (
-            <Button
-              onClick={onViewLeaderboard}
-              variant="outline"
-              size="lg"
-              className="text-lg px-6 py-6 rounded-xl font-display hover:bg-accent/10 transition-all"
-            >
+            <Button onClick={onViewLeaderboard} variant="outline" size="lg" className="flex-1 py-6 rounded-xl font-display">
               <Trophy className="w-5 h-5 mr-2" />
-              Leaderboard
+              Ranks
+            </Button>
+          )}
+          {onViewStats && (
+            <Button onClick={onViewStats} variant="outline" size="lg" className="flex-1 py-6 rounded-xl font-display">
+              <BarChart3 className="w-5 h-5 mr-2" />
+              Stats
             </Button>
           )}
         </div>
       </div>
 
-      {/* Features preview */}
-      <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl w-full relative z-10">
+      {/* Features */}
+      <div className="mt-12 grid grid-cols-3 gap-4 max-w-lg w-full relative z-10">
         {[
-          { icon: '🎮', title: 'Match & Win', desc: 'Classic memory gameplay' },
-          { icon: '🎨', title: 'Create Art', desc: 'AI-powered image forge' },
-          { icon: '💎', title: 'Mint NFTs', desc: 'Own your creations on Base' },
+          { icon: '🎮', title: 'Match & Win' },
+          { icon: '🎨', title: 'Create Art' },
+          { icon: '💎', title: 'Mint NFTs' },
         ].map((feature, i) => (
-          <div
-            key={feature.title}
-            className="bg-card/50 backdrop-blur-sm border border-border rounded-2xl p-6 text-center hover:bg-card/80 transition-all hover:scale-105 animate-bounce-in"
-            style={{ animationDelay: `${0.3 + i * 0.1}s` }}
-          >
-            <div className="text-4xl mb-3">{feature.icon}</div>
-            <h3 className="font-display font-semibold text-foreground mb-1">{feature.title}</h3>
-            <p className="text-sm text-muted-foreground font-body">{feature.desc}</p>
+          <div key={feature.title} className="bg-card/50 backdrop-blur-sm border border-border rounded-xl p-4 text-center animate-bounce-in" style={{ animationDelay: `${0.3 + i * 0.1}s` }}>
+            <div className="text-3xl mb-2">{feature.icon}</div>
+            <p className="text-xs font-display font-medium text-foreground">{feature.title}</p>
           </div>
         ))}
       </div>
