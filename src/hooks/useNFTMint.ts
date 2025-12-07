@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-const NFT_CONTRACT_ADDRESS = '0x73c505573E2A86f29eD0a990280477872b3c6c45';
+const NFT_CONTRACT_ADDRESS = '0xA4952804C10a2eA5cF8ae0AD683364901186395b';
 
 export interface MintState {
   isMinting: boolean;
