@@ -121,8 +121,8 @@ export function AIImageGenerator({
 
     toast.success('Metadata uploaded! Starting mint...');
 
-    // Now mint with the token URI
-    const mintResult = await mintNFT(generatedImage, score, rarity.tier, prompt, style.name, address);
+    // Mint with the short token URI from IPFS upload
+    const mintResult = await mintNFT(result.tokenURI, address!);
     
     if (mintResult) {
       toast.success('NFT minted successfully!');
