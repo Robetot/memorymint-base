@@ -7,13 +7,15 @@ import { GameOverModal } from './GameOverModal';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useState } from 'react';
+import { Difficulty, DIFFICULTY_CONFIG } from '@/data/animals';
 
 interface GameScreenProps {
   onBackToMenu: () => void;
+  difficulty: Difficulty;
 }
 
-export function GameScreen({ onBackToMenu }: GameScreenProps) {
-  const { gameState, startGame, flipCard, checkMatch, totalPairs } = useGameState(4);
+export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
+  const { gameState, startGame, flipCard, checkMatch, totalPairs, gridSize } = useGameState(difficulty);
   const {
     playAnimalSound,
     playFlipSound,
@@ -27,6 +29,7 @@ export function GameScreen({ onBackToMenu }: GameScreenProps) {
   } = useSoundEffects();
 
   const [isMuted, setIsMuted] = useState(false);
+  const config = DIFFICULTY_CONFIG[difficulty];
 
   // Start game on mount
   useEffect(() => {
@@ -82,9 +85,9 @@ export function GameScreen({ onBackToMenu }: GameScreenProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background py-6 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background py-4 px-2 md:py-6 md:px-4">
       {/* Header */}
-      <div className="max-w-lg mx-auto flex items-center justify-between mb-6">
+      <div className="max-w-2xl mx-auto flex items-center justify-between mb-4">
         <Button
           variant="ghost"
           size="icon"
@@ -94,9 +97,12 @@ export function GameScreen({ onBackToMenu }: GameScreenProps) {
           <ArrowLeft className="w-5 h-5" />
         </Button>
 
-        <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-          MemoryMint
-        </h1>
+        <div className="text-center">
+          <h1 className="text-xl md:text-2xl font-display font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            MemoryMint
+          </h1>
+          <p className="text-xs text-muted-foreground">{config.label} • {difficulty}</p>
+        </div>
 
         <Button
           variant="ghost"
@@ -132,6 +138,7 @@ export function GameScreen({ onBackToMenu }: GameScreenProps) {
         onMatch={handleMatch}
         onNoMatch={handleNoMatch}
         disabled={!gameState.isPlaying}
+        gridSize={gridSize}
       />
 
       {/* Game Over Modal */}

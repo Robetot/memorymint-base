@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { ANIMALS, DIFFICULTY_CONFIG, Difficulty, AnimalData } from '@/data/animals';
 
 export interface CardData {
   id: number;
@@ -23,19 +24,6 @@ export interface GameState {
   score: number;
 }
 
-const ANIMALS = [
-  { id: 'duck', name: 'Duckling', emoji: '🦆' },
-  { id: 'dog', name: 'Puppy', emoji: '🐕' },
-  { id: 'cat', name: 'Kitten', emoji: '🐱' },
-  { id: 'cow', name: 'Calf', emoji: '🐄' },
-  { id: 'pig', name: 'Piglet', emoji: '🐷' },
-  { id: 'chicken', name: 'Chick', emoji: '🐔' },
-  { id: 'sheep', name: 'Lamb', emoji: '🐑' },
-  { id: 'horse', name: 'Foal', emoji: '🐴' },
-];
-
-const GAME_TIME = 120; // 2 minutes
-
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -45,21 +33,21 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-function createCards(gridSize: number = 4): CardData[] {
+function createCards(gridSize: number): CardData[] {
   const pairsNeeded = (gridSize * gridSize) / 2;
-  const selectedAnimals = ANIMALS.slice(0, pairsNeeded);
+  const shuffledAnimals = shuffleArray(ANIMALS);
+  const selectedAnimals = shuffledAnimals.slice(0, pairsNeeded);
   
   const cards: CardData[] = [];
   let cardId = 0;
   
-  selectedAnimals.forEach((animal) => {
-    // Create a pair
+  selectedAnimals.forEach((animal: AnimalData) => {
     for (let i = 0; i < 2; i++) {
       cards.push({
         id: cardId++,
         animalId: animal.id,
         animalName: animal.name,
-        imageUrl: animal.emoji, // Using emoji as placeholder
+        imageUrl: animal.image,
         isFlipped: false,
         isMatched: false,
       });
@@ -69,7 +57,11 @@ function createCards(gridSize: number = 4): CardData[] {
   return shuffleArray(cards);
 }
 
-export function useGameState(gridSize: number = 4) {
+export function useGameState(difficulty: Difficulty = '4x4') {
+  const config = DIFFICULTY_CONFIG[difficulty];
+  const gridSize = config.gridSize;
+  const gameTime = config.time;
+  
   const [gameState, setGameState] = useState<GameState>(() => ({
     cards: createCards(gridSize),
     flippedCards: [],
@@ -77,7 +69,7 @@ export function useGameState(gridSize: number = 4) {
     moves: 0,
     combo: 0,
     maxCombo: 0,
-    timeRemaining: GAME_TIME,
+    timeRemaining: gameTime,
     isPlaying: false,
     isGameOver: false,
     isWin: false,
@@ -87,7 +79,6 @@ export function useGameState(gridSize: number = 4) {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const totalPairs = (gridSize * gridSize) / 2;
 
-  // Timer effect
   useEffect(() => {
     if (gameState.isPlaying && !gameState.isGameOver) {
       timerRef.current = setInterval(() => {
@@ -121,17 +112,16 @@ export function useGameState(gridSize: number = 4) {
       moves: 0,
       combo: 0,
       maxCombo: 0,
-      timeRemaining: GAME_TIME,
+      timeRemaining: gameTime,
       isPlaying: true,
       isGameOver: false,
       isWin: false,
       score: 0,
     });
-  }, [gridSize]);
+  }, [gridSize, gameTime]);
 
   const flipCard = useCallback((cardId: number) => {
     setGameState((prev) => {
-      // Can't flip if game not playing or already 2 cards flipped
       if (!prev.isPlaying || prev.flippedCards.length >= 2) return prev;
       
       const card = prev.cards.find((c) => c.id === cardId);
@@ -194,7 +184,6 @@ export function useGameState(gridSize: number = 4) {
           isPlaying: !isWin,
         };
       } else {
-        // No match - flip cards back after delay
         const newCards = prev.cards.map((c) =>
           c.id === firstId || c.id === secondId
             ? { ...c, isFlipped: false }
@@ -218,5 +207,6 @@ export function useGameState(gridSize: number = 4) {
     flipCard,
     checkMatch,
     totalPairs,
+    gridSize,
   };
 }
