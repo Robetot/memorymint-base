@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { HfInference } from 'https://esm.sh/@huggingface/inference@2.3.2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,21 +30,46 @@ serve(async (req) => {
       )
     }
 
-    console.log(`Generating image with prompt: "${prompt}" and style: "${style}"`)
-
-    const hf = new HfInference(accessToken)
-
     // Combine user prompt with style prompt
     const fullPrompt = `${prompt}, ${style}, high quality, detailed, masterpiece`
+    console.log(`Generating image with prompt: "${fullPrompt}"`)
 
-    const image = await hf.textToImage({
-      inputs: fullPrompt,
-      model: 'black-forest-labs/FLUX.1-schnell',
-    })
+    // Use the new Hugging Face router endpoint
+    const response = await fetch(
+      'https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          inputs: fullPrompt,
+        }),
+      }
+    )
 
-    // Convert the blob to a base64 string
-    const arrayBuffer = await image.arrayBuffer()
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Hugging Face API error:', response.status, errorText)
+      return new Response(
+        JSON.stringify({ error: 'Image generation failed', details: errorText }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Get the image as array buffer
+    const arrayBuffer = await response.arrayBuffer()
+    const uint8Array = new Uint8Array(arrayBuffer)
+    
+    // Convert to base64
+    let binary = ''
+    const chunkSize = 8192
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length))
+      binary += String.fromCharCode(...chunk)
+    }
+    const base64 = btoa(binary)
     const imageData = `data:image/png;base64,${base64}`
 
     console.log('Image generated successfully')
