@@ -1,13 +1,20 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X } from 'lucide-react';
+import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useWallet } from '@/hooks/useWallet';
+import { useNFTMint } from '@/hooks/useNFTMint';
+import { calculateRarity } from '@/utils/rarityCalculator';
 
 interface AIImageGeneratorProps {
   score: number;
   onBack: () => void;
   onComplete: () => void;
+  moves?: number;
+  time?: number;
+  maxCombo?: number;
+  difficulty?: 'easy' | 'medium' | 'hard';
 }
 
 const STYLE_OPTIONS = [
@@ -20,12 +27,36 @@ const STYLE_OPTIONS = [
   { id: 'fantasy', name: 'Mythic Fantasy', prompt: 'fantasy art style, magical, ethereal, epic composition' },
 ];
 
-export function AIImageGenerator({ score, onBack, onComplete }: AIImageGeneratorProps) {
+export function AIImageGenerator({ 
+  score, 
+  onBack, 
+  onComplete,
+  moves = 0,
+  time = 0,
+  maxCombo = 0,
+  difficulty = 'medium'
+}: AIImageGeneratorProps) {
   const [prompt, setPrompt] = useState('');
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [rollsRemaining, setRollsRemaining] = useState(3);
+  
+  const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
+  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress } = useNFTMint();
+
+  // Calculate rarity based on game performance
+  const difficultyMap = { easy: '4x4' as const, medium: '6x6' as const, hard: '8x8' as const };
+  const totalPairs = difficulty === 'easy' ? 8 : difficulty === 'medium' ? 18 : 32;
+  const rarity = calculateRarity(
+    difficultyMap[difficulty],
+    time, // timeRemaining
+    time > 0 ? time * 2 : 60, // totalTime estimate
+    moves,
+    totalPairs,
+    maxCombo,
+    moves === totalPairs // perfectGame
+  );
 
   const handleGenerate = async () => {
     if (!prompt.trim() || !selectedStyle) return;
@@ -63,6 +94,19 @@ export function AIImageGenerator({ score, onBack, onComplete }: AIImageGenerator
     link.click();
   };
 
+  const handleMint = async () => {
+    if (!generatedImage || !selectedStyle) return;
+    
+    const style = STYLE_OPTIONS.find(s => s.id === selectedStyle);
+    if (!style) return;
+
+    await mintNFT(generatedImage, score, rarity.tier, prompt, style.name);
+  };
+
+  const handleConnectWallet = async (type: 'metamask' | 'coinbase') => {
+    await connectWallet(type);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background py-6 px-4">
       <div className="max-w-2xl mx-auto">
@@ -75,12 +119,57 @@ export function AIImageGenerator({ score, onBack, onComplete }: AIImageGenerator
             <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-accent to-primary bg-clip-text text-transparent">
               Create Your NFT Art
             </h1>
-            <p className="text-xs text-muted-foreground">Score: {score.toLocaleString()}</p>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              <p className="text-xs text-muted-foreground">Score: {score.toLocaleString()}</p>
+              <span className={cn(
+                'text-xs px-2 py-0.5 rounded-full font-medium',
+                rarity.tier === 'Mythic' && 'bg-gradient-to-r from-purple-500 to-pink-500 text-white',
+                rarity.tier === 'Legendary' && 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white',
+                rarity.tier === 'Epic' && 'bg-purple-500/20 text-purple-400',
+                rarity.tier === 'Rare' && 'bg-blue-500/20 text-blue-400',
+                rarity.tier === 'Common' && 'bg-muted text-muted-foreground'
+              )}>
+                {rarity.tier}
+              </span>
+            </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onBack} className="rounded-full">
             <X className="w-5 h-5" />
           </Button>
         </div>
+
+        {/* Wallet Connection Status */}
+        {isConnected && address ? (
+          <div className="mb-4 p-3 rounded-xl bg-success/10 border border-success/20 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-success" />
+            <span className="text-sm text-foreground font-mono">{formatAddress(address)}</span>
+            <span className="text-xs text-muted-foreground ml-auto">Base Network</span>
+          </div>
+        ) : (
+          <div className="mb-4 p-4 rounded-xl bg-muted/50 border border-border">
+            <p className="text-sm text-muted-foreground mb-3 text-center">Connect wallet to mint your NFT</p>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => handleConnectWallet('metamask')}
+                disabled={isConnecting}
+              >
+                {isConnecting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Wallet className="w-4 h-4 mr-2" />}
+                MetaMask
+              </Button>
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => handleConnectWallet('coinbase')}
+                disabled={isConnecting}
+              >
+                {isConnecting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Wallet className="w-4 h-4 mr-2" />}
+                Coinbase
+              </Button>
+            </div>
+          </div>
+        )}
 
         {!generatedImage ? (
           <>
@@ -160,12 +249,50 @@ export function AIImageGenerator({ score, onBack, onComplete }: AIImageGenerator
               </div>
             </div>
 
+            {/* Mint Status */}
+            {isMinting && (
+              <div className="mb-4 p-4 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-3">
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                <div>
+                  <p className="font-medium text-foreground">Minting your NFT...</p>
+                  <p className="text-sm text-muted-foreground">Please confirm the transaction in your wallet</p>
+                </div>
+              </div>
+            )}
+
+            {success && txHash && (
+              <div className="mb-4 p-4 rounded-xl bg-success/10 border border-success/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle className="w-5 h-5 text-success" />
+                  <p className="font-medium text-foreground">NFT Minted Successfully!</p>
+                </div>
+                <a 
+                  href={`https://basescan.org/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-primary hover:underline flex items-center gap-1"
+                >
+                  View on BaseScan <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+
+            {mintError && (
+              <div className="mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-destructive" />
+                <p className="text-sm text-destructive">{mintError}</p>
+                <Button variant="ghost" size="sm" onClick={resetMintState} className="ml-auto">
+                  Retry
+                </Button>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="space-y-3">
               <div className="flex gap-3">
                 <Button
                   onClick={handleReroll}
-                  disabled={rollsRemaining <= 0 || isGenerating}
+                  disabled={rollsRemaining <= 0 || isGenerating || isMinting}
                   variant="outline"
                   size="lg"
                   className="flex-1 font-display"
@@ -184,20 +311,45 @@ export function AIImageGenerator({ score, onBack, onComplete }: AIImageGenerator
                 </Button>
               </div>
 
-              <Button
-                onClick={onComplete}
-                size="lg"
-                className="w-full text-lg font-display bg-gradient-to-r from-primary to-secondary"
-                disabled
-              >
-                <Sparkles className="w-5 h-5 mr-2" />
-                Mint as NFT (Coming Soon)
-              </Button>
+              {!success ? (
+                <Button
+                  onClick={handleMint}
+                  size="lg"
+                  className="w-full text-lg font-display bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90"
+                  disabled={!isConnected || isMinting}
+                >
+                  {isMinting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Minting...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5 mr-2" />
+                      {isConnected ? 'Mint as NFT' : 'Connect Wallet to Mint'}
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={onComplete}
+                  size="lg"
+                  className="w-full text-lg font-display bg-gradient-to-r from-success to-primary"
+                >
+                  <CheckCircle className="w-5 h-5 mr-2" />
+                  Complete
+                </Button>
+              )}
+
+              <div className="text-center text-xs text-muted-foreground">
+                <p>Contract: <a href={`https://basescan.org/address/${contractAddress}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{contractAddress.slice(0, 10)}...</a></p>
+              </div>
 
               <Button
                 onClick={onBack}
                 variant="ghost"
                 className="w-full font-body text-muted-foreground"
+                disabled={isMinting}
               >
                 Back to Menu
               </Button>
