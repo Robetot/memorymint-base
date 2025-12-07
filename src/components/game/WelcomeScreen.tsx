@@ -1,11 +1,25 @@
 import { Button } from '@/components/ui/button';
 import { Sparkles, Play, Wallet } from 'lucide-react';
 
+// Import animal preview images
+import calfImg from '@/assets/animals/calf.jpg';
+import puppyImg from '@/assets/animals/puppy.jpg';
+import ducklingImg from '@/assets/animals/duckling.jpg';
+import tigerImg from '@/assets/animals/tiger.jpg';
+
 interface WelcomeScreenProps {
   onStartGame: () => void;
+  onConnectWallet: () => void;
 }
 
-export function WelcomeScreen({ onStartGame }: WelcomeScreenProps) {
+const previewAnimals = [
+  { img: calfImg, name: 'Calf' },
+  { img: puppyImg, name: 'Puppy' },
+  { img: ducklingImg, name: 'Duckling' },
+  { img: tigerImg, name: 'Tiger' },
+];
+
+export function WelcomeScreen({ onStartGame, onConnectWallet }: WelcomeScreenProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-background via-muted to-background overflow-hidden relative">
       {/* Animated background elements */}
@@ -33,20 +47,24 @@ export function WelcomeScreen({ onStartGame }: WelcomeScreenProps) {
         </p>
       </div>
 
-      {/* Animal preview cards */}
+      {/* Animal preview cards with real images */}
       <div className="flex gap-4 mb-12 relative z-10">
-        {['🦆', '🐕', '🐱', '🐄'].map((emoji, i) => (
+        {previewAnimals.map((animal, i) => (
           <div
-            key={emoji}
-            className="w-16 h-16 md:w-20 md:h-20 bg-card rounded-xl shadow-lg flex items-center justify-center text-3xl md:text-4xl animate-bounce-in border-2 border-border hover:border-primary transition-colors hover:scale-110"
+            key={animal.name}
+            className="w-16 h-16 md:w-20 md:h-20 bg-card rounded-xl shadow-lg flex items-center justify-center overflow-hidden animate-bounce-in border-2 border-border hover:border-primary transition-colors hover:scale-110"
             style={{ animationDelay: `${i * 0.1}s` }}
           >
-            {emoji}
+            <img 
+              src={animal.img} 
+              alt={animal.name}
+              className="w-full h-full object-cover"
+            />
           </div>
         ))}
       </div>
 
-      {/* Start button */}
+      {/* Action buttons */}
       <div className="relative z-10 flex flex-col gap-4 items-center">
         <Button
           onClick={onStartGame}
@@ -57,10 +75,15 @@ export function WelcomeScreen({ onStartGame }: WelcomeScreenProps) {
           Play Demo
         </Button>
         
-        <p className="text-sm text-muted-foreground flex items-center gap-2 font-body">
-          <Wallet className="w-4 h-4" />
-          Wallet connection coming soon
-        </p>
+        <Button
+          onClick={onConnectWallet}
+          variant="outline"
+          size="lg"
+          className="text-lg px-8 py-6 rounded-xl font-display hover:bg-primary/10 transition-all"
+        >
+          <Wallet className="w-5 h-5 mr-2" />
+          Connect Wallet
+        </Button>
       </div>
 
       {/* Features preview */}
