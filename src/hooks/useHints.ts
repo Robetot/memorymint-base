@@ -6,16 +6,24 @@ export interface HintState {
   hintedCardIds: number[];
 }
 
-const MAX_HINTS_BY_DIFFICULTY: Record<string, number> = {
-  '2x2': 1,
-  '4x4': 3,
-  '6x6': 5,
-  '8x8': 7,
+const getMaxHints = (levelOrDifficulty: number | string): number => {
+  // Handle level numbers
+  if (typeof levelOrDifficulty === 'number') {
+    if (levelOrDifficulty <= 2) return 1; // 2x2 levels
+    if (levelOrDifficulty <= 5) return 3; // 4x4 levels
+    if (levelOrDifficulty <= 7) return 5; // 6x6 levels
+    return 7; // 8x8 levels
+  }
+  // Handle difficulty strings for backwards compatibility
+  const hints: Record<string, number> = {
+    '2x2': 1, '4x4': 3, '6x6': 5, '8x8': 7,
+  };
+  return hints[levelOrDifficulty] || 3;
 };
 
-export function useHints(difficulty: string) {
+export function useHints(levelOrDifficulty: number | string) {
   const [hintsRemaining, setHintsRemaining] = useState(
-    MAX_HINTS_BY_DIFFICULTY[difficulty] || 3
+    getMaxHints(levelOrDifficulty)
   );
   const [isHintActive, setIsHintActive] = useState(false);
   const [hintedCardIds, setHintedCardIds] = useState<number[]>([]);
@@ -52,8 +60,8 @@ export function useHints(difficulty: string) {
     return [];
   }, [hintsRemaining, isHintActive]);
 
-  const resetHints = useCallback((newDifficulty: string) => {
-    setHintsRemaining(MAX_HINTS_BY_DIFFICULTY[newDifficulty] || 3);
+  const resetHints = useCallback((newLevelOrDifficulty: number | string) => {
+    setHintsRemaining(getMaxHints(newLevelOrDifficulty));
     setIsHintActive(false);
     setHintedCardIds([]);
   }, []);

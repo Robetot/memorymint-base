@@ -1,6 +1,6 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Unique animal sound URLs from free sound libraries
+// Unique animal sound URLs from free sound libraries - each animal has its own distinct sound
 const ANIMAL_SOUNDS: Record<string, string> = {
   calf: 'https://cdn.freesound.org/previews/58/58277_634166-lq.mp3',
   puppy: 'https://cdn.freesound.org/previews/351/351879_3248244-lq.mp3',
@@ -12,16 +12,16 @@ const ANIMAL_SOUNDS: Record<string, string> = {
   parrot: 'https://cdn.freesound.org/previews/106/106546_909642-lq.mp3',
   swan: 'https://cdn.freesound.org/previews/416/416017_4284968-lq.mp3',
   owl: 'https://cdn.freesound.org/previews/398/398318_7573900-lq.mp3',
-  polarbear: 'https://cdn.freesound.org/previews/275/275552_4486188-lq.mp3',
+  polarbear: 'https://cdn.freesound.org/previews/169/169365_2590910-lq.mp3',
   seal: 'https://cdn.freesound.org/previews/131/131186_2398403-lq.mp3',
   squirrel: 'https://cdn.freesound.org/previews/430/430093_6399487-lq.mp3',
   tiger: 'https://cdn.freesound.org/previews/323/323601_5260872-lq.mp3',
-  leopard: 'https://cdn.freesound.org/previews/323/323601_5260872-lq.mp3',
+  leopard: 'https://cdn.freesound.org/previews/416/416472_4058875-lq.mp3',
   deer: 'https://cdn.freesound.org/previews/210/210433_3162678-lq.mp3',
   fox: 'https://cdn.freesound.org/previews/244/244910_3162678-lq.mp3',
-  panda: 'https://cdn.freesound.org/previews/275/275552_4486188-lq.mp3',
+  panda: 'https://cdn.freesound.org/previews/382/382735_5674468-lq.mp3',
   dolphin: 'https://cdn.freesound.org/previews/317/317727_5121236-lq.mp3',
-  koala: 'https://cdn.freesound.org/previews/275/275552_4486188-lq.mp3',
+  koala: 'https://cdn.freesound.org/previews/466/466649_9497060-lq.mp3',
 };
 
 // UI sound effects

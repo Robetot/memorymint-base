@@ -81,14 +81,17 @@ export function GameBoard({
   const gridSize = Math.sqrt(cards.length);
 
   return (
-    <div className="w-full max-w-lg mx-auto p-4">
+    <div className={cn(
+      'w-full mx-auto p-2 md:p-4',
+      gridSize === 8 ? 'max-w-[95vw] md:max-w-2xl' : 'max-w-lg'
+    )}>
       <div
         className={cn(
-          'grid gap-2 md:gap-3',
-          gridSize === 2 && 'grid-cols-2 max-w-[200px] mx-auto',
-          gridSize === 4 && 'grid-cols-4',
+          'grid',
+          gridSize === 2 && 'grid-cols-2 max-w-[200px] mx-auto gap-3',
+          gridSize === 4 && 'grid-cols-4 gap-2 md:gap-3',
           gridSize === 6 && 'grid-cols-6 gap-1 md:gap-2',
-          gridSize === 8 && 'grid-cols-8 gap-1'
+          gridSize === 8 && 'grid-cols-8 gap-[2px] md:gap-1'
         )}
       >
         {cards.map((card) => (
