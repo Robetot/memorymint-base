@@ -122,7 +122,7 @@ export function AIImageGenerator({
     toast.success('Metadata uploaded! Starting mint...');
 
     // Now mint with the token URI
-    const mintResult = await mintNFT(generatedImage, score, rarity.tier, prompt, style.name);
+    const mintResult = await mintNFT(generatedImage, score, rarity.tier, prompt, style.name, address);
     
     if (mintResult) {
       toast.success('NFT minted successfully!');
