@@ -2,21 +2,20 @@ import { useState, useEffect } from 'react';
 import { WelcomeScreen } from '@/components/game/WelcomeScreen';
 import { GameScreen } from '@/components/game/GameScreen';
 import { WalletScreen } from '@/components/game/WalletScreen';
-import { DifficultySelector } from '@/components/game/DifficultySelector';
+import { LevelSelector } from '@/components/game/LevelSelector';
 import { Leaderboard } from '@/components/game/Leaderboard';
 import { AIImageGenerator } from '@/components/game/AIImageGenerator';
 import { Tutorial } from '@/components/game/Tutorial';
 import { SettingsScreen } from '@/components/game/SettingsScreen';
 import { StatsScreen } from '@/components/game/StatsScreen';
 import { useSettings } from '@/hooks/useSettings';
-import { Difficulty } from '@/data/animals';
 import { RarityResult } from '@/utils/rarityCalculator';
 
-type GameView = 'welcome' | 'wallet' | 'difficulty' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats';
+type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<GameView>('welcome');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>('4x4');
+  const [selectedLevel, setSelectedLevel] = useState<number>(1);
   const [lastScore, setLastScore] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
   const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
@@ -29,7 +28,7 @@ const Index = () => {
   }, []);
 
   const handleStartGame = () => {
-    setCurrentView('difficulty');
+    setCurrentView('levels');
   };
 
   const handleConnectWallet = () => {
@@ -37,11 +36,11 @@ const Index = () => {
   };
 
   const handleWalletConnected = () => {
-    setCurrentView('difficulty');
+    setCurrentView('levels');
   };
 
-  const handleSelectDifficulty = (difficulty: Difficulty) => {
-    setSelectedDifficulty(difficulty);
+  const handleSelectLevel = (level: number) => {
+    setSelectedLevel(level);
     setCurrentView('game');
   };
 
@@ -64,6 +63,11 @@ const Index = () => {
   const handleCreateArt = (score: number, rarity: RarityResult) => {
     setLastScore(score);
     setCurrentView('ai-art');
+  };
+
+  const handleNextLevel = (nextLevel: number) => {
+    setSelectedLevel(nextLevel);
+    // Game will restart with new level
   };
 
   const handleTutorialComplete = () => {
@@ -90,17 +94,18 @@ const Index = () => {
           onConnected={handleWalletConnected}
         />
       )}
-      {currentView === 'difficulty' && (
-        <DifficultySelector
-          onSelectDifficulty={handleSelectDifficulty}
+      {currentView === 'levels' && (
+        <LevelSelector
+          onSelectLevel={handleSelectLevel}
           onBack={handleBackToMenu}
         />
       )}
       {currentView === 'game' && (
         <GameScreen 
           onBackToMenu={handleBackToMenu}
-          difficulty={selectedDifficulty}
+          level={selectedLevel}
           onCreateArt={handleCreateArt}
+          onNextLevel={handleNextLevel}
         />
       )}
       {currentView === 'leaderboard' && (

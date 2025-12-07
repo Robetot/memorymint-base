@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Trophy, Clock, Target, Zap, RotateCcw, Sparkles } from 'lucide-react';
+import { Trophy, Clock, Target, Zap, RotateCcw, Sparkles, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { RarityDisplay } from './RarityDisplay';
 import { RarityResult } from '@/utils/rarityCalculator';
@@ -15,8 +15,10 @@ interface GameOverModalProps {
   onPlayAgain: () => void;
   onBackToMenu: () => void;
   onCreateArt?: () => void;
+  onNextLevel?: () => void;
   gameTime: number;
   rarity?: RarityResult | null;
+  currentLevel?: number;
 }
 
 function Confetti() {
@@ -59,8 +61,10 @@ export function GameOverModal({
   onPlayAgain,
   onBackToMenu,
   onCreateArt,
+  onNextLevel,
   gameTime,
   rarity,
+  currentLevel,
 }: GameOverModalProps) {
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -110,7 +114,9 @@ export function GameOverModal({
             </h2>
             <p className="text-muted-foreground font-body text-sm">
               {isWin
-                ? 'Amazing memory skills! You matched all pairs!'
+                ? currentLevel 
+                  ? `Level ${currentLevel} complete! Amazing memory skills!`
+                  : 'Amazing memory skills! You matched all pairs!'
                 : 'Don\'t give up! Try again to beat the clock!'}
             </p>
           </div>
@@ -140,13 +146,30 @@ export function GameOverModal({
 
           {/* Actions */}
           <div className="flex flex-col gap-3">
+            {/* Next Level button (primary for wins with more levels) */}
+            {isWin && onNextLevel && (
+              <Button
+                onClick={onNextLevel}
+                size="lg"
+                className="w-full text-lg font-display bg-gradient-to-r from-success to-primary hover:from-success/90 hover:to-primary/90"
+              >
+                Next Level
+                <ChevronRight className="w-5 h-5 ml-2" />
+              </Button>
+            )}
+
             <Button
               onClick={onPlayAgain}
               size="lg"
-              className="w-full text-lg font-display bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90"
+              className={cn(
+                'w-full text-lg font-display',
+                isWin && onNextLevel
+                  ? 'bg-muted text-foreground hover:bg-muted/80'
+                  : 'bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90'
+              )}
             >
               <RotateCcw className="w-5 h-5 mr-2" />
-              Play Again
+              {isWin && onNextLevel ? 'Replay Level' : 'Play Again'}
             </Button>
 
             {isWin && onCreateArt && (

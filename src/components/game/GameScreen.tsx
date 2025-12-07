@@ -12,18 +12,20 @@ import { useConfetti } from '@/hooks/useConfetti';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
 import { useHints } from '@/hooks/useHints';
-import { Difficulty, DIFFICULTY_CONFIG } from '@/data/animals';
+import { getLevel, saveUnlockedLevel, getMaxLevel } from '@/data/levels';
 import { calculateRarity, RarityResult } from '@/utils/rarityCalculator';
 import { cn } from '@/lib/utils';
 
 interface GameScreenProps {
   onBackToMenu: () => void;
-  difficulty: Difficulty;
+  level: number;
   onCreateArt?: (score: number, rarity: RarityResult) => void;
+  onNextLevel?: (nextLevel: number) => void;
 }
 
-export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreenProps) {
-  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame } = useGameState(difficulty);
+export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: GameScreenProps) {
+  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame } = useGameState(level);
+  const config = getLevel(level);
   const {
     playAnimalSound,
     playFlipSound,
@@ -38,14 +40,13 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
   const { fireMatchConfetti, fireComboConfetti, fireWinConfetti } = useConfetti();
   const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
   const { addEntry, getTopScore } = useLeaderboard();
-  const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(difficulty);
+  const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(level);
 
   const [isMuted, setIsMuted] = useState(false);
   const [showScoreSubmit, setShowScoreSubmit] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rarity, setRarity] = useState<RarityResult | null>(null);
   const [perfectGame, setPerfectGame] = useState(true);
-  const config = DIFFICULTY_CONFIG[difficulty];
 
   // Track perfect game (no wrong matches)
   useEffect(() => {
@@ -58,8 +59,8 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
   useEffect(() => {
     startGame();
     setPerfectGame(true);
-    resetHints(difficulty);
-  }, [startGame, resetHints, difficulty]);
+    resetHints(level);
+  }, [startGame, resetHints, level]);
 
   // Play win/lose sounds and calculate rarity
   useEffect(() => {
@@ -68,7 +69,16 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
         playWinSound();
         fireWinConfetti();
         
-        // Calculate rarity
+        // Unlock next level
+        const nextLevel = Math.min(level + 1, getMaxLevel());
+        saveUnlockedLevel(nextLevel);
+        
+        // Calculate rarity based on level
+        const difficultyMap: Record<number, '2x2' | '4x4' | '6x6' | '8x8'> = {
+          2: '2x2', 4: '4x4', 6: '6x6', 8: '8x8'
+        };
+        const difficulty = difficultyMap[config.gridSize] || '4x4';
+        
         const rarityResult = calculateRarity(
           difficulty,
           gameState.timeRemaining,
@@ -81,7 +91,7 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
         setRarity(rarityResult);
         
         // Check if it's a high score
-        const topScore = getTopScore(difficulty);
+        const topScore = getTopScore(level);
         if (gameState.score > topScore || topScore === 0) {
           setShowScoreSubmit(true);
         }
@@ -89,7 +99,7 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, difficulty, gameState.timeRemaining, config.time, gameState.moves, totalPairs, gameState.maxCombo, perfectGame]);
+  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -126,7 +136,7 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
     startGame();
     setPerfectGame(true);
     setRarity(null);
-    resetHints(difficulty);
+    resetHints(level);
   };
 
   const handleBackToMenu = () => {
@@ -140,7 +150,7 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
       score: gameState.score,
       moves: gameState.moves,
       time: config.time - gameState.timeRemaining,
-      difficulty,
+      difficulty: `Level ${level}`,
       maxCombo: gameState.maxCombo,
     });
     setShowScoreSubmit(false);
@@ -153,6 +163,13 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
   const handleCreateArt = () => {
     if (onCreateArt && rarity) {
       onCreateArt(gameState.score, rarity);
+    }
+  };
+
+  const handleNextLevel = () => {
+    if (onNextLevel && level < getMaxLevel()) {
+      playClickSound();
+      onNextLevel(level + 1);
     }
   };
 
@@ -199,7 +216,7 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
           <h1 className="text-xl md:text-2xl font-display font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
             MemoryMint
           </h1>
-          <p className="text-xs text-muted-foreground">{config.label} • {difficulty}</p>
+          <p className="text-xs text-muted-foreground">{config.label} • {config.gridSize}x{config.gridSize}</p>
         </div>
 
         <div className="flex gap-1">
@@ -314,8 +331,10 @@ export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreen
           onPlayAgain={handlePlayAgain}
           onBackToMenu={handleBackToMenu}
           onCreateArt={gameState.isWin ? handleCreateArt : undefined}
+          onNextLevel={gameState.isWin && level < getMaxLevel() ? handleNextLevel : undefined}
           gameTime={config.time}
           rarity={rarity}
+          currentLevel={level}
         />
       )}
     </div>

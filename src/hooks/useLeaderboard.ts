@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Difficulty } from '@/data/animals';
 
 export interface LeaderboardEntry {
   id: string;
@@ -7,7 +6,7 @@ export interface LeaderboardEntry {
   score: number;
   moves: number;
   time: number;
-  difficulty: Difficulty;
+  difficulty: string; // Now supports both "Level X" and difficulty strings
   maxCombo: number;
   date: string;
 }
@@ -52,11 +51,11 @@ export function useLeaderboard() {
         if (!acc[e.difficulty]) acc[e.difficulty] = [];
         acc[e.difficulty].push(e);
         return acc;
-      }, {} as Record<Difficulty, LeaderboardEntry[]>);
+      }, {} as Record<string, LeaderboardEntry[]>);
 
       const result: LeaderboardEntry[] = [];
       Object.keys(grouped).forEach((diff) => {
-        const sorted = grouped[diff as Difficulty]
+        const sorted = grouped[diff]
           .sort((a, b) => b.score - a.score)
           .slice(0, MAX_ENTRIES_PER_DIFFICULTY);
         result.push(...sorted);
@@ -69,13 +68,14 @@ export function useLeaderboard() {
     return newEntry;
   }, []);
 
-  const getEntriesByDifficulty = useCallback((difficulty: Difficulty) => {
+  const getEntriesByDifficulty = useCallback((difficulty: string | number) => {
+    const key = typeof difficulty === 'number' ? `Level ${difficulty}` : difficulty;
     return entries
-      .filter((e) => e.difficulty === difficulty)
+      .filter((e) => e.difficulty === key)
       .sort((a, b) => b.score - a.score);
   }, [entries]);
 
-  const getTopScore = useCallback((difficulty: Difficulty) => {
+  const getTopScore = useCallback((difficulty: string | number) => {
     const diffEntries = getEntriesByDifficulty(difficulty);
     return diffEntries[0]?.score ?? 0;
   }, [getEntriesByDifficulty]);

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ANIMALS, DIFFICULTY_CONFIG, Difficulty, AnimalData } from '@/data/animals';
+import { ANIMALS, AnimalData } from '@/data/animals';
+import { LevelConfig, getLevel } from '@/data/levels';
 
 export interface CardData {
   id: number;
@@ -58,8 +59,8 @@ function createCards(gridSize: number): CardData[] {
   return shuffleArray(cards);
 }
 
-export function useGameState(difficulty: Difficulty = '4x4') {
-  const config = DIFFICULTY_CONFIG[difficulty];
+export function useGameState(level: number = 1) {
+  const config: LevelConfig = getLevel(level);
   const gridSize = config.gridSize;
   const gameTime = config.time;
   
