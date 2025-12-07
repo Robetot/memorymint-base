@@ -1,28 +1,6 @@
 import { useState, useCallback } from 'react';
-import { useWallet } from './useWallet';
 
 const NFT_CONTRACT_ADDRESS = '0x73c505573E2A86f29eD0a990280477872b3c6c45';
-
-// Minimal ERC721 ABI for minting
-const MINT_ABI = [
-  {
-    inputs: [
-      { name: 'to', type: 'address' },
-      { name: 'tokenURI', type: 'string' }
-    ],
-    name: 'mint',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'payable',
-    type: 'function'
-  },
-  {
-    inputs: [{ name: 'tokenURI', type: 'string' }],
-    name: 'safeMint',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'payable',
-    type: 'function'
-  }
-];
 
 export interface MintState {
   isMinting: boolean;
@@ -43,12 +21,10 @@ interface NFTMetadata {
 }
 
 function encodeABI(method: string, params: unknown[]): string {
-  // Simple ABI encoding for mint function
   const methodSignature = method === 'safeMint' 
     ? 'safeMint(string)' 
     : 'mint(address,string)';
   
-  // Calculate function selector (first 4 bytes of keccak256 hash)
   const selector = keccak256(methodSignature).slice(0, 10);
   
   if (method === 'safeMint') {
@@ -75,9 +51,7 @@ function encodeString(str: string): string {
   return length + data;
 }
 
-// Simple keccak256 function selector calculation
 function keccak256(input: string): string {
-  // Pre-computed selectors for our methods
   const selectors: Record<string, string> = {
     'mint(address,string)': '0xd85d3d27',
     'safeMint(string)': '0xa1448194',
@@ -86,7 +60,6 @@ function keccak256(input: string): string {
 }
 
 export function useNFTMint() {
-  const { isConnected, address, isCorrectChain } = useWallet();
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
     txHash: null,
@@ -120,9 +93,32 @@ export function useNFTMint() {
     score: number,
     rarity: string,
     prompt: string,
-    style: string
+    style: string,
+    walletAddress?: string | null
   ): Promise<boolean> => {
-    if (!isConnected || !address) {
+    // Check wallet directly from window.ethereum
+    if (!window.ethereum) {
+      setMintState(prev => ({
+        ...prev,
+        error: 'No wallet detected',
+      }));
+      return false;
+    }
+
+    // Get current accounts
+    let address = walletAddress;
+    if (!address) {
+      try {
+        const accounts = await window.ethereum.request({
+          method: 'eth_accounts',
+        }) as string[];
+        address = accounts?.[0];
+      } catch (err) {
+        console.error('Error getting accounts:', err);
+      }
+    }
+
+    if (!address) {
       setMintState(prev => ({
         ...prev,
         error: 'Wallet not connected',
@@ -130,20 +126,18 @@ export function useNFTMint() {
       return false;
     }
 
-    if (!isCorrectChain) {
-      setMintState(prev => ({
-        ...prev,
-        error: 'Please switch to Base network',
-      }));
-      return false;
-    }
-
-    if (!window.ethereum) {
-      setMintState(prev => ({
-        ...prev,
-        error: 'No wallet detected',
-      }));
-      return false;
+    // Check chain
+    try {
+      const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
+      if (chainId.toLowerCase() !== '0x2105') {
+        setMintState(prev => ({
+          ...prev,
+          error: 'Please switch to Base network',
+        }));
+        return false;
+      }
+    } catch (err) {
+      console.error('Error checking chain:', err);
     }
 
     setMintState({
@@ -155,17 +149,10 @@ export function useNFTMint() {
     });
 
     try {
-      // Create metadata
       const metadata = createMetadata(imageUrl, score, rarity, prompt, style);
-      
-      // For now, we'll use the image URL directly as the tokenURI
-      // In production, you'd upload metadata to IPFS first
       const tokenURI = `data:application/json;base64,${btoa(JSON.stringify(metadata))}`;
-
-      // Encode the transaction data
       const data = encodeABI('safeMint', [tokenURI]);
 
-      // Estimate gas
       let gasEstimate: string;
       try {
         gasEstimate = await window.ethereum.request({
@@ -177,11 +164,9 @@ export function useNFTMint() {
           }],
         }) as string;
       } catch {
-        // Default gas limit if estimation fails
-        gasEstimate = '0x186A0'; // 100000
+        gasEstimate = '0x186A0';
       }
 
-      // Send transaction
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [{
@@ -197,7 +182,6 @@ export function useNFTMint() {
         txHash,
       }));
 
-      // Wait for transaction receipt
       let receipt = null;
       let attempts = 0;
       const maxAttempts = 60;
@@ -220,12 +204,10 @@ export function useNFTMint() {
       if (receipt) {
         const status = (receipt as { status: string }).status;
         if (status === '0x1') {
-          // Extract token ID from logs if available
           const logs = (receipt as { logs: Array<{ topics: string[] }> }).logs;
           let tokenId = null;
           
           if (logs && logs.length > 0) {
-            // Token ID is typically in the third topic of Transfer event
             const transferLog = logs.find(log => log.topics.length >= 4);
             if (transferLog) {
               tokenId = parseInt(transferLog.topics[3], 16).toString();
@@ -244,7 +226,6 @@ export function useNFTMint() {
           throw new Error('Transaction failed');
         }
       } else {
-        // Transaction submitted but not yet confirmed
         setMintState({
           isMinting: false,
           txHash,
@@ -257,7 +238,6 @@ export function useNFTMint() {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Minting failed';
       
-      // Handle user rejection
       if ((error as { code?: number })?.code === 4001) {
         setMintState(prev => ({
           ...prev,
@@ -273,7 +253,7 @@ export function useNFTMint() {
       }
       return false;
     }
-  }, [isConnected, address, isCorrectChain, createMetadata]);
+  }, [createMetadata]);
 
   const resetMintState = useCallback(() => {
     setMintState({
