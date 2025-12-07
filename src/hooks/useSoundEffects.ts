@@ -1,26 +1,38 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Free sound URLs from various sources
+// Unique animal sound URLs from free sound libraries
 const ANIMAL_SOUNDS: Record<string, string> = {
-  duck: 'https://www.soundjay.com/animal/duck-quack-1.mp3',
-  dog: 'https://www.soundjay.com/animal/dog-barking-1.mp3',
-  cat: 'https://www.soundjay.com/animal/cat-meow-1.mp3',
-  cow: 'https://www.soundjay.com/animal/cow-moo-1.mp3',
-  pig: 'https://www.soundjay.com/animal/pig-oink-1.mp3',
-  chicken: 'https://www.soundjay.com/animal/rooster-crow-1.mp3',
-  sheep: 'https://www.soundjay.com/animal/sheep-bleat-1.mp3',
-  horse: 'https://www.soundjay.com/animal/horse-neigh-1.mp3',
+  calf: 'https://cdn.freesound.org/previews/58/58277_634166-lq.mp3',
+  puppy: 'https://cdn.freesound.org/previews/351/351879_3248244-lq.mp3',
+  duckling: 'https://cdn.freesound.org/previews/111/111949_1890469-lq.mp3',
+  chick: 'https://cdn.freesound.org/previews/316/316920_5123451-lq.mp3',
+  cat: 'https://cdn.freesound.org/previews/110/110011_511637-lq.mp3',
+  lamb: 'https://cdn.freesound.org/previews/192/192322_3291925-lq.mp3',
+  piggy: 'https://cdn.freesound.org/previews/131/131025_2398403-lq.mp3',
+  parrot: 'https://cdn.freesound.org/previews/106/106546_909642-lq.mp3',
+  swan: 'https://cdn.freesound.org/previews/416/416017_4284968-lq.mp3',
+  owl: 'https://cdn.freesound.org/previews/398/398318_7573900-lq.mp3',
+  polarbear: 'https://cdn.freesound.org/previews/275/275552_4486188-lq.mp3',
+  seal: 'https://cdn.freesound.org/previews/131/131186_2398403-lq.mp3',
+  squirrel: 'https://cdn.freesound.org/previews/430/430093_6399487-lq.mp3',
+  tiger: 'https://cdn.freesound.org/previews/323/323601_5260872-lq.mp3',
+  leopard: 'https://cdn.freesound.org/previews/323/323601_5260872-lq.mp3',
+  deer: 'https://cdn.freesound.org/previews/210/210433_3162678-lq.mp3',
+  fox: 'https://cdn.freesound.org/previews/244/244910_3162678-lq.mp3',
+  panda: 'https://cdn.freesound.org/previews/275/275552_4486188-lq.mp3',
+  dolphin: 'https://cdn.freesound.org/previews/317/317727_5121236-lq.mp3',
+  koala: 'https://cdn.freesound.org/previews/275/275552_4486188-lq.mp3',
 };
 
 // UI sound effects
 const UI_SOUNDS = {
-  flip: 'https://www.soundjay.com/button/button-09.mp3',
-  match: 'https://www.soundjay.com/misc/magic-chime-02.mp3',
-  noMatch: 'https://www.soundjay.com/button/button-10.mp3',
-  win: 'https://www.soundjay.com/misc/trumpet-fanfare.mp3',
-  lose: 'https://www.soundjay.com/misc/fail-buzzer-03.mp3',
-  click: 'https://www.soundjay.com/button/button-16.mp3',
-  combo: 'https://www.soundjay.com/misc/magic-chime-03.mp3',
+  flip: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
+  match: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3',
+  noMatch: 'https://assets.mixkit.co/active_storage/sfx/2955/2955-preview.mp3',
+  win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
+  lose: 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3',
+  click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
+  combo: 'https://assets.mixkit.co/active_storage/sfx/2020/2020-preview.mp3',
 };
 
 export function useSoundEffects() {
