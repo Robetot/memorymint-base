@@ -12,6 +12,8 @@ interface GameOverModalProps {
   maxCombo: number;
   onPlayAgain: () => void;
   onBackToMenu: () => void;
+  onCreateArt?: () => void;
+  gameTime: number;
 }
 
 function Confetti() {
@@ -53,6 +55,8 @@ export function GameOverModal({
   maxCombo,
   onPlayAgain,
   onBackToMenu,
+  onCreateArt,
+  gameTime,
 }: GameOverModalProps) {
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -71,6 +75,8 @@ export function GameOverModal({
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const timeTaken = gameTime - timeRemaining;
 
   return (
     <>
@@ -119,7 +125,7 @@ export function GameOverModal({
             </div>
             <div className="bg-muted/50 rounded-xl p-4 text-center">
               <Clock className="w-6 h-6 mx-auto mb-2 text-primary" />
-              <p className="text-2xl font-display font-bold text-foreground">{formatTime(120 - timeRemaining)}</p>
+              <p className="text-2xl font-display font-bold text-foreground">{formatTime(timeTaken)}</p>
               <p className="text-xs text-muted-foreground font-body">Time Taken</p>
             </div>
             <div className="bg-muted/50 rounded-xl p-4 text-center">
@@ -140,16 +146,15 @@ export function GameOverModal({
               Play Again
             </Button>
 
-            {isWin && (
+            {isWin && onCreateArt && (
               <Button
-                onClick={() => {}}
+                onClick={onCreateArt}
                 size="lg"
                 variant="outline"
                 className="w-full text-lg font-display border-accent text-accent hover:bg-accent/10"
-                disabled
               >
                 <Sparkles className="w-5 h-5 mr-2" />
-                Create NFT (Coming Soon)
+                Create NFT Art
               </Button>
             )}
 

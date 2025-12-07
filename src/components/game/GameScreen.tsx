@@ -1,21 +1,24 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Volume2, VolumeX } from 'lucide-react';
+import { ArrowLeft, Volume2, VolumeX, Music, Music2 } from 'lucide-react';
 import { GameBoard } from './GameBoard';
 import { GameStats } from './GameStats';
 import { GameOverModal } from './GameOverModal';
+import { ScoreSubmitModal } from './ScoreSubmitModal';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useConfetti } from '@/hooks/useConfetti';
-import { useState } from 'react';
+import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
+import { useLeaderboard } from '@/hooks/useLeaderboard';
 import { Difficulty, DIFFICULTY_CONFIG } from '@/data/animals';
 
 interface GameScreenProps {
   onBackToMenu: () => void;
   difficulty: Difficulty;
+  onCreateArt?: (score: number) => void;
 }
 
-export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
+export function GameScreen({ onBackToMenu, difficulty, onCreateArt }: GameScreenProps) {
   const { gameState, startGame, flipCard, checkMatch, totalPairs } = useGameState(difficulty);
   const {
     playAnimalSound,
@@ -29,8 +32,11 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
     setMuted,
   } = useSoundEffects();
   const { fireMatchConfetti, fireComboConfetti, fireWinConfetti } = useConfetti();
+  const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
+  const { addEntry, getTopScore } = useLeaderboard();
 
   const [isMuted, setIsMuted] = useState(false);
+  const [showScoreSubmit, setShowScoreSubmit] = useState(false);
   const config = DIFFICULTY_CONFIG[difficulty];
 
   // Start game on mount
@@ -44,11 +50,16 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
       if (gameState.isWin) {
         playWinSound();
         fireWinConfetti();
+        // Check if it's a high score
+        const topScore = getTopScore(difficulty);
+        if (gameState.score > topScore) {
+          setShowScoreSubmit(true);
+        }
       } else {
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti]);
+  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, difficulty]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -90,6 +101,28 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
     onBackToMenu();
   };
 
+  const handleScoreSubmit = (name: string) => {
+    addEntry({
+      playerName: name,
+      score: gameState.score,
+      moves: gameState.moves,
+      time: config.time - gameState.timeRemaining,
+      difficulty,
+      maxCombo: gameState.maxCombo,
+    });
+    setShowScoreSubmit(false);
+  };
+
+  const handleScoreSkip = () => {
+    setShowScoreSubmit(false);
+  };
+
+  const handleCreateArt = () => {
+    if (onCreateArt) {
+      onCreateArt(gameState.score);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background py-4 px-2 md:py-6 md:px-4">
       {/* Header */}
@@ -110,18 +143,32 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
           <p className="text-xs text-muted-foreground">{config.label} • {difficulty}</p>
         </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleMute}
-          className="rounded-full"
-        >
-          {isMuted ? (
-            <VolumeX className="w-5 h-5" />
-          ) : (
-            <Volume2 className="w-5 h-5" />
-          )}
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleMusic}
+            className="rounded-full"
+          >
+            {isMusicPlaying ? (
+              <Music className="w-5 h-5 text-primary" />
+            ) : (
+              <Music2 className="w-5 h-5" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleMute}
+            className="rounded-full"
+          >
+            {isMuted ? (
+              <VolumeX className="w-5 h-5" />
+            ) : (
+              <Volume2 className="w-5 h-5" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -146,17 +193,29 @@ export function GameScreen({ onBackToMenu, difficulty }: GameScreenProps) {
         disabled={!gameState.isPlaying}
       />
 
-      {/* Game Over Modal */}
-      <GameOverModal
-        isOpen={gameState.isGameOver}
-        isWin={gameState.isWin}
+      {/* Score Submit Modal */}
+      <ScoreSubmitModal
+        isOpen={showScoreSubmit}
         score={gameState.score}
-        moves={gameState.moves}
-        timeRemaining={gameState.timeRemaining}
-        maxCombo={gameState.maxCombo}
-        onPlayAgain={handlePlayAgain}
-        onBackToMenu={handleBackToMenu}
+        onSubmit={handleScoreSubmit}
+        onSkip={handleScoreSkip}
       />
+
+      {/* Game Over Modal */}
+      {!showScoreSubmit && (
+        <GameOverModal
+          isOpen={gameState.isGameOver}
+          isWin={gameState.isWin}
+          score={gameState.score}
+          moves={gameState.moves}
+          timeRemaining={gameState.timeRemaining}
+          maxCombo={gameState.maxCombo}
+          onPlayAgain={handlePlayAgain}
+          onBackToMenu={handleBackToMenu}
+          onCreateArt={gameState.isWin ? handleCreateArt : undefined}
+          gameTime={config.time}
+        />
+      )}
     </div>
   );
 }
