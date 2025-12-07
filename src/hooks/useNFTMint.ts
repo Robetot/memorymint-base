@@ -151,7 +151,13 @@ export function useNFTMint() {
     try {
       const metadata = createMetadata(imageUrl, score, rarity, prompt, style);
       const tokenURI = `data:application/json;base64,${btoa(JSON.stringify(metadata))}`;
-      const data = encodeABI('safeMint', [tokenURI]);
+      
+      console.log('Minting NFT with address:', address);
+      console.log('Token URI length:', tokenURI.length);
+      
+      // Use mint(address,string) function instead of safeMint
+      const data = encodeABI('mint', [address, tokenURI]);
+      console.log('Encoded data (first 100 chars):', data.slice(0, 100));
 
       let gasEstimate: string;
       try {
@@ -163,10 +169,14 @@ export function useNFTMint() {
             data,
           }],
         }) as string;
-      } catch {
-        gasEstimate = '0x186A0';
+        console.log('Gas estimate:', gasEstimate);
+      } catch (gasError) {
+        console.error('Gas estimation failed:', gasError);
+        // Use higher default gas for complex operations
+        gasEstimate = '0x30D40'; // 200000
       }
 
+      console.log('Sending transaction...');
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [{
