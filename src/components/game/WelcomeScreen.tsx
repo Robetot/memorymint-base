@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Sparkles, Play, Wallet } from 'lucide-react';
+import { Sparkles, Play, Wallet, Trophy } from 'lucide-react';
 
 // Import animal preview images
 import calfImg from '@/assets/animals/calf.jpg';
@@ -10,6 +10,7 @@ import tigerImg from '@/assets/animals/tiger.jpg';
 interface WelcomeScreenProps {
   onStartGame: () => void;
   onConnectWallet: () => void;
+  onViewLeaderboard?: () => void;
 }
 
 const previewAnimals = [
@@ -19,7 +20,7 @@ const previewAnimals = [
   { img: tigerImg, name: 'Tiger' },
 ];
 
-export function WelcomeScreen({ onStartGame, onConnectWallet }: WelcomeScreenProps) {
+export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard }: WelcomeScreenProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-background via-muted to-background overflow-hidden relative">
       {/* Animated background elements */}
@@ -75,15 +76,29 @@ export function WelcomeScreen({ onStartGame, onConnectWallet }: WelcomeScreenPro
           Play Demo
         </Button>
         
-        <Button
-          onClick={onConnectWallet}
-          variant="outline"
-          size="lg"
-          className="text-lg px-8 py-6 rounded-xl font-display hover:bg-primary/10 transition-all"
-        >
-          <Wallet className="w-5 h-5 mr-2" />
-          Connect Wallet
-        </Button>
+        <div className="flex gap-3">
+          <Button
+            onClick={onConnectWallet}
+            variant="outline"
+            size="lg"
+            className="text-lg px-6 py-6 rounded-xl font-display hover:bg-primary/10 transition-all"
+          >
+            <Wallet className="w-5 h-5 mr-2" />
+            Connect Wallet
+          </Button>
+          
+          {onViewLeaderboard && (
+            <Button
+              onClick={onViewLeaderboard}
+              variant="outline"
+              size="lg"
+              className="text-lg px-6 py-6 rounded-xl font-display hover:bg-accent/10 transition-all"
+            >
+              <Trophy className="w-5 h-5 mr-2" />
+              Leaderboard
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Features preview */}
