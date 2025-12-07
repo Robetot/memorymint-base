@@ -12,6 +12,7 @@ interface GameBoardProps {
   onMatch: () => void;
   onNoMatch: () => void;
   disabled: boolean;
+  hintedCardIds?: number[];
 }
 
 export function GameBoard({
@@ -23,6 +24,7 @@ export function GameBoard({
   onMatch,
   onNoMatch,
   disabled,
+  hintedCardIds = [],
 }: GameBoardProps) {
   const [matchedCardIds, setMatchedCardIds] = useState<Set<number>>(new Set());
   const [showMatchAnimation, setShowMatchAnimation] = useState(false);
@@ -82,10 +84,11 @@ export function GameBoard({
     <div className="w-full max-w-lg mx-auto p-4">
       <div
         className={cn(
-          'grid gap-3 md:gap-4',
+          'grid gap-2 md:gap-3',
+          gridSize === 2 && 'grid-cols-2 max-w-[200px] mx-auto',
           gridSize === 4 && 'grid-cols-4',
-          gridSize === 6 && 'grid-cols-6',
-          gridSize === 8 && 'grid-cols-8'
+          gridSize === 6 && 'grid-cols-6 gap-1 md:gap-2',
+          gridSize === 8 && 'grid-cols-8 gap-1'
         )}
       >
         {cards.map((card) => (
@@ -95,6 +98,8 @@ export function GameBoard({
             onClick={() => onCardClick(card.id)}
             disabled={disabled || flippedCards.length >= 2}
             showMatchAnimation={showMatchAnimation && matchedCardIds.has(card.id)}
+            isHinted={hintedCardIds.includes(card.id)}
+            gridSize={gridSize}
           />
         ))}
       </div>

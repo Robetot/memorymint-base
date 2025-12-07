@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Trophy, Clock, Target, Zap, RotateCcw, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { RarityDisplay } from './RarityDisplay';
+import { RarityResult } from '@/utils/rarityCalculator';
 
 interface GameOverModalProps {
   isOpen: boolean;
@@ -14,6 +16,7 @@ interface GameOverModalProps {
   onBackToMenu: () => void;
   onCreateArt?: () => void;
   gameTime: number;
+  rarity?: RarityResult | null;
 }
 
 function Confetti() {
@@ -57,6 +60,7 @@ export function GameOverModal({
   onBackToMenu,
   onCreateArt,
   gameTime,
+  rarity,
 }: GameOverModalProps) {
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -81,59 +85,58 @@ export function GameOverModal({
   return (
     <>
       {showConfetti && <Confetti />}
-      <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 flex items-center justify-center p-4 overflow-y-auto">
         <div className={cn(
-          'bg-card border-2 rounded-3xl p-8 max-w-md w-full shadow-2xl animate-bounce-in',
+          'bg-card border-2 rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl animate-bounce-in my-4',
           isWin ? 'border-success' : 'border-destructive'
         )}>
           {/* Header */}
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <div className={cn(
-              'w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-4',
+              'w-16 h-16 md:w-20 md:h-20 mx-auto rounded-full flex items-center justify-center mb-4',
               isWin ? 'bg-success/20' : 'bg-destructive/20'
             )}>
               {isWin ? (
-                <Trophy className="w-10 h-10 text-success" />
+                <Trophy className="w-8 h-8 md:w-10 md:h-10 text-success" />
               ) : (
-                <Clock className="w-10 h-10 text-destructive" />
+                <Clock className="w-8 h-8 md:w-10 md:h-10 text-destructive" />
               )}
             </div>
             <h2 className={cn(
-              'text-3xl font-display font-bold mb-2',
+              'text-2xl md:text-3xl font-display font-bold mb-2',
               isWin ? 'text-success' : 'text-destructive'
             )}>
               {isWin ? 'Victory!' : 'Time\'s Up!'}
             </h2>
-            <p className="text-muted-foreground font-body">
+            <p className="text-muted-foreground font-body text-sm">
               {isWin
                 ? 'Amazing memory skills! You matched all pairs!'
                 : 'Don\'t give up! Try again to beat the clock!'}
             </p>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <Trophy className="w-6 h-6 mx-auto mb-2 text-accent" />
-              <p className="text-2xl font-display font-bold text-foreground">{score.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground font-body">Final Score</p>
+          {/* Rarity Display (for wins) */}
+          {isWin && rarity && (
+            <div className="mb-6">
+              <RarityDisplay rarity={rarity} />
             </div>
-            <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <Target className="w-6 h-6 mx-auto mb-2 text-secondary" />
-              <p className="text-2xl font-display font-bold text-foreground">{moves}</p>
-              <p className="text-xs text-muted-foreground font-body">Total Moves</p>
+          )}
+
+          {/* Quick Stats (for losses) */}
+          {!isWin && (
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <div className="bg-muted/50 rounded-xl p-3 text-center">
+                <Trophy className="w-5 h-5 mx-auto mb-1 text-accent" />
+                <p className="text-xl font-display font-bold text-foreground">{score.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground font-body">Score</p>
+              </div>
+              <div className="bg-muted/50 rounded-xl p-3 text-center">
+                <Target className="w-5 h-5 mx-auto mb-1 text-secondary" />
+                <p className="text-xl font-display font-bold text-foreground">{moves}</p>
+                <p className="text-xs text-muted-foreground font-body">Moves</p>
+              </div>
             </div>
-            <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <Clock className="w-6 h-6 mx-auto mb-2 text-primary" />
-              <p className="text-2xl font-display font-bold text-foreground">{formatTime(timeTaken)}</p>
-              <p className="text-xs text-muted-foreground font-body">Time Taken</p>
-            </div>
-            <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <Zap className="w-6 h-6 mx-auto mb-2 text-success" />
-              <p className="text-2xl font-display font-bold text-foreground">x{maxCombo}</p>
-              <p className="text-xs text-muted-foreground font-body">Max Combo</p>
-            </div>
-          </div>
+          )}
 
           {/* Actions */}
           <div className="flex flex-col gap-3">
