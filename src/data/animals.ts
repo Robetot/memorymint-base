@@ -27,7 +27,7 @@ export interface AnimalData {
 }
 
 export const ANIMALS: AnimalData[] = [
-  { id: 'calf', name: 'Calf', image: calfImg },
+  { id: 'calf', name: 'Cow', image: calfImg },
   { id: 'puppy', name: 'Puppy', image: puppyImg },
   { id: 'duckling', name: 'Duckling', image: ducklingImg },
   { id: 'chick', name: 'Chick', image: chickImg },

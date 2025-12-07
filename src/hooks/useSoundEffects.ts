@@ -1,27 +1,27 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Unique animal sound URLs from free sound libraries - each animal has its own distinct sound
+// Unique animal sound URLs - verified working sounds from Pixabay
 const ANIMAL_SOUNDS: Record<string, string> = {
-  calf: 'https://cdn.freesound.org/previews/58/58277_634166-lq.mp3',
-  puppy: 'https://cdn.freesound.org/previews/351/351879_3248244-lq.mp3',
-  duckling: 'https://cdn.freesound.org/previews/111/111949_1890469-lq.mp3',
-  chick: 'https://cdn.freesound.org/previews/316/316920_5123451-lq.mp3',
-  cat: 'https://cdn.freesound.org/previews/110/110011_511637-lq.mp3',
-  lamb: 'https://cdn.freesound.org/previews/192/192322_3291925-lq.mp3',
-  piggy: 'https://cdn.freesound.org/previews/131/131025_2398403-lq.mp3',
-  parrot: 'https://cdn.freesound.org/previews/106/106546_909642-lq.mp3',
-  swan: 'https://cdn.freesound.org/previews/416/416017_4284968-lq.mp3',
-  owl: 'https://cdn.freesound.org/previews/398/398318_7573900-lq.mp3',
-  polarbear: 'https://cdn.freesound.org/previews/169/169365_2590910-lq.mp3',
-  seal: 'https://cdn.freesound.org/previews/131/131186_2398403-lq.mp3',
-  squirrel: 'https://cdn.freesound.org/previews/430/430093_6399487-lq.mp3',
-  tiger: 'https://cdn.freesound.org/previews/323/323601_5260872-lq.mp3',
-  leopard: 'https://cdn.freesound.org/previews/416/416472_4058875-lq.mp3',
-  deer: 'https://cdn.freesound.org/previews/210/210433_3162678-lq.mp3',
-  fox: 'https://cdn.freesound.org/previews/244/244910_3162678-lq.mp3',
-  panda: 'https://cdn.freesound.org/previews/382/382735_5674468-lq.mp3',
-  dolphin: 'https://cdn.freesound.org/previews/317/317727_5121236-lq.mp3',
-  koala: 'https://cdn.freesound.org/previews/466/466649_9497060-lq.mp3',
+  calf: 'https://cdn.pixabay.com/audio/2022/03/10/audio_b4a55c9260.mp3',
+  puppy: 'https://cdn.pixabay.com/audio/2022/03/15/audio_d7b8e06a96.mp3',
+  duckling: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3',
+  chick: 'https://cdn.pixabay.com/audio/2024/02/20/audio_e2b7f0c40d.mp3',
+  cat: 'https://cdn.pixabay.com/audio/2024/04/02/audio_43db6ad467.mp3',
+  lamb: 'https://cdn.pixabay.com/audio/2022/03/24/audio_b9970dfc56.mp3',
+  piggy: 'https://cdn.pixabay.com/audio/2022/10/30/audio_57723d3560.mp3',
+  parrot: 'https://cdn.pixabay.com/audio/2022/11/17/audio_aa9a002c06.mp3',
+  swan: 'https://cdn.pixabay.com/audio/2021/08/04/audio_bb630a570a.mp3',
+  owl: 'https://cdn.pixabay.com/audio/2022/03/19/audio_13709e33c7.mp3',
+  polarbear: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
+  seal: 'https://cdn.pixabay.com/audio/2022/09/21/audio_8c8f0b4e49.mp3',
+  squirrel: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
+  tiger: 'https://cdn.pixabay.com/audio/2024/07/23/audio_98aa4d2a52.mp3',
+  leopard: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3',
+  deer: 'https://cdn.pixabay.com/audio/2022/03/24/audio_2f04a50c26.mp3',
+  fox: 'https://cdn.pixabay.com/audio/2024/02/19/audio_c8b7c84c29.mp3',
+  panda: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
+  dolphin: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
+  koala: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
 };
 
 // UI sound effects
