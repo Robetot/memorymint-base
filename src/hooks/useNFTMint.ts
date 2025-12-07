@@ -10,53 +10,46 @@ export interface MintState {
   success: boolean;
 }
 
-interface NFTMetadata {
-  name: string;
-  description: string;
-  image: string;
-  attributes: Array<{
-    trait_type: string;
-    value: string | number;
-  }>;
-}
+// Pre-computed function selectors
+const FUNCTION_SELECTORS: Record<string, string> = {
+  'safeMint(address,string)': '0xd204c45e',
+  'mint(address,string)': '0xd85d3d27',
+  'mint(string)': '0xd0def521',
+};
 
-function encodeABI(method: string, params: unknown[]): string {
-  const methodSignature = method === 'safeMint' 
-    ? 'safeMint(string)' 
-    : 'mint(address,string)';
-  
-  const selector = keccak256(methodSignature).slice(0, 10);
-  
-  if (method === 'safeMint') {
-    const [tokenURI] = params as [string];
-    const encoded = encodeString(tokenURI);
-    return selector + encoded;
-  } else {
-    const [to, tokenURI] = params as [string, string];
-    const addressEncoded = to.toLowerCase().replace('0x', '').padStart(64, '0');
-    const stringOffset = '0000000000000000000000000000000000000000000000000000000000000040';
-    const stringEncoded = encodeString(tokenURI);
-    return selector + addressEncoded + stringOffset + stringEncoded;
-  }
+function padAddress(address: string): string {
+  return address.toLowerCase().replace('0x', '').padStart(64, '0');
 }
 
 function encodeString(str: string): string {
-  const utf8 = new TextEncoder().encode(str);
-  const length = utf8.length.toString(16).padStart(64, '0');
-  const paddedLength = Math.ceil(utf8.length / 32) * 32;
-  const data = Array.from(utf8)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-    .padEnd(paddedLength * 2, '0');
-  return length + data;
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(str);
+  const length = bytes.length.toString(16).padStart(64, '0');
+  const paddedLength = Math.ceil(bytes.length / 32) * 32;
+  
+  let hexData = '';
+  for (const byte of bytes) {
+    hexData += byte.toString(16).padStart(2, '0');
+  }
+  hexData = hexData.padEnd(paddedLength * 2, '0');
+  
+  return length + hexData;
 }
 
-function keccak256(input: string): string {
-  const selectors: Record<string, string> = {
-    'mint(address,string)': '0xd85d3d27',
-    'safeMint(string)': '0xa1448194',
-  };
-  return selectors[input] || '0x00000000';
+function encodeCallData(functionSig: string, address: string, tokenURI: string): string {
+  const selector = FUNCTION_SELECTORS[functionSig];
+  if (!selector) {
+    console.error('Unknown function signature:', functionSig);
+    return '';
+  }
+  
+  // For safeMint(address,string) and mint(address,string)
+  // Layout: selector + address (32 bytes) + string offset (32 bytes) + string data
+  const paddedAddress = padAddress(address);
+  const stringOffset = '0000000000000000000000000000000000000000000000000000000000000040'; // 64 in hex
+  const stringData = encodeString(tokenURI);
+  
+  return selector + paddedAddress + stringOffset + stringData;
 }
 
 export function useNFTMint() {
@@ -68,72 +61,25 @@ export function useNFTMint() {
     success: false,
   });
 
-  const createMetadata = useCallback((
-    imageUrl: string,
-    score: number,
-    rarity: string,
-    prompt: string,
-    style: string
-  ): NFTMetadata => {
-    return {
-      name: `MemoryMint #${Date.now()}`,
-      description: `A skill-based NFT from MemoryMint. Created with prompt: "${prompt}"`,
-      image: imageUrl,
-      attributes: [
-        { trait_type: 'Score', value: score },
-        { trait_type: 'Rarity', value: rarity },
-        { trait_type: 'Art Style', value: style },
-        { trait_type: 'Created', value: new Date().toISOString() },
-      ],
-    };
-  }, []);
-
   const mintNFT = useCallback(async (
-    imageUrl: string,
-    score: number,
-    rarity: string,
-    prompt: string,
-    style: string,
-    walletAddress?: string | null
+    tokenURI: string,
+    walletAddress: string
   ): Promise<boolean> => {
-    // Check wallet directly from window.ethereum
     if (!window.ethereum) {
-      setMintState(prev => ({
-        ...prev,
-        error: 'No wallet detected',
-      }));
+      setMintState(prev => ({ ...prev, error: 'No wallet detected' }));
       return false;
     }
 
-    // Get current accounts
-    let address = walletAddress;
-    if (!address) {
-      try {
-        const accounts = await window.ethereum.request({
-          method: 'eth_accounts',
-        }) as string[];
-        address = accounts?.[0];
-      } catch (err) {
-        console.error('Error getting accounts:', err);
-      }
-    }
-
-    if (!address) {
-      setMintState(prev => ({
-        ...prev,
-        error: 'Wallet not connected',
-      }));
+    if (!walletAddress) {
+      setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
       return false;
     }
 
-    // Check chain
+    // Verify chain
     try {
       const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
       if (chainId.toLowerCase() !== '0x2105') {
-        setMintState(prev => ({
-          ...prev,
-          error: 'Please switch to Base network',
-        }));
+        setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
         return false;
       }
     } catch (err) {
@@ -149,49 +95,73 @@ export function useNFTMint() {
     });
 
     try {
-      const metadata = createMetadata(imageUrl, score, rarity, prompt, style);
-      const tokenURI = `data:application/json;base64,${btoa(JSON.stringify(metadata))}`;
+      console.log('Minting NFT...');
+      console.log('Address:', walletAddress);
+      console.log('TokenURI length:', tokenURI.length);
       
-      console.log('Minting NFT with address:', address);
-      console.log('Token URI length:', tokenURI.length);
-      
-      // Use mint(address,string) function instead of safeMint
-      const data = encodeABI('mint', [address, tokenURI]);
-      console.log('Encoded data (first 100 chars):', data.slice(0, 100));
+      // Try safeMint(address,string) first - common pattern
+      let data = encodeCallData('safeMint(address,string)', walletAddress, tokenURI);
+      console.log('Using safeMint(address,string)');
 
+      // Try to estimate gas
       let gasEstimate: string;
+      let gasError: unknown = null;
+      
       try {
         gasEstimate = await window.ethereum.request({
           method: 'eth_estimateGas',
           params: [{
-            from: address,
+            from: walletAddress,
             to: NFT_CONTRACT_ADDRESS,
             data,
           }],
         }) as string;
-        console.log('Gas estimate:', gasEstimate);
-      } catch (gasError) {
-        console.error('Gas estimation failed:', gasError);
-        // Use higher default gas for complex operations
-        gasEstimate = '0x30D40'; // 200000
+        console.log('Gas estimate successful:', gasEstimate);
+      } catch (err) {
+        gasError = err;
+        console.log('safeMint failed, trying mint(address,string)...');
+        
+        // Try mint(address,string)
+        data = encodeCallData('mint(address,string)', walletAddress, tokenURI);
+        
+        try {
+          gasEstimate = await window.ethereum.request({
+            method: 'eth_estimateGas',
+            params: [{
+              from: walletAddress,
+              to: NFT_CONTRACT_ADDRESS,
+              data,
+            }],
+          }) as string;
+          console.log('mint(address,string) gas estimate:', gasEstimate);
+          gasError = null;
+        } catch (err2) {
+          console.error('Both mint functions failed:', err2);
+          // Use default gas
+          gasEstimate = '0x4C4B40'; // 5000000
+        }
       }
 
-      console.log('Sending transaction...');
+      if (gasError) {
+        console.warn('Gas estimation failed, using default:', gasError);
+      }
+
+      console.log('Sending transaction with gas:', gasEstimate);
+      
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [{
-          from: address,
+          from: walletAddress,
           to: NFT_CONTRACT_ADDRESS,
           data,
           gas: gasEstimate,
         }],
       }) as string;
 
-      setMintState(prev => ({
-        ...prev,
-        txHash,
-      }));
+      console.log('Transaction submitted:', txHash);
+      setMintState(prev => ({ ...prev, txHash }));
 
+      // Wait for confirmation
       let receipt = null;
       let attempts = 0;
       const maxAttempts = 60;
@@ -233,9 +203,10 @@ export function useNFTMint() {
           });
           return true;
         } else {
-          throw new Error('Transaction failed');
+          throw new Error('Transaction failed on-chain');
         }
       } else {
+        // Transaction pending but submitted
         setMintState({
           isMinting: false,
           txHash,
@@ -246,24 +217,23 @@ export function useNFTMint() {
         return true;
       }
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Minting failed';
+      console.error('Minting error:', error);
       
+      let errorMessage = 'Minting failed';
       if ((error as { code?: number })?.code === 4001) {
-        setMintState(prev => ({
-          ...prev,
-          isMinting: false,
-          error: 'Transaction rejected by user',
-        }));
-      } else {
-        setMintState(prev => ({
-          ...prev,
-          isMinting: false,
-          error: errorMessage,
-        }));
+        errorMessage = 'Transaction rejected by user';
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
       }
+      
+      setMintState(prev => ({
+        ...prev,
+        isMinting: false,
+        error: errorMessage,
+      }));
       return false;
     }
-  }, [createMetadata]);
+  }, []);
 
   const resetMintState = useCallback(() => {
     setMintState({
