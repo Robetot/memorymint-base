@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet } from 'lucide-react';
+import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/hooks/useWallet';
 import { useNFTMint } from '@/hooks/useNFTMint';
+import { useAIGenerate } from '@/hooks/useAIGenerate';
+import { useIPFSUpload } from '@/hooks/useIPFSUpload';
 import { calculateRarity } from '@/utils/rarityCalculator';
+import { toast } from 'sonner';
 
 interface AIImageGeneratorProps {
   score: number;
@@ -38,24 +41,25 @@ export function AIImageGenerator({
 }: AIImageGeneratorProps) {
   const [prompt, setPrompt] = useState('');
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [rollsRemaining, setRollsRemaining] = useState(3);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
   const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress } = useNFTMint();
+  const { isGenerating, generateImage, error: generateError } = useAIGenerate();
+  const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
 
   // Calculate rarity based on game performance
   const difficultyMap = { easy: '4x4' as const, medium: '6x6' as const, hard: '8x8' as const };
   const totalPairs = difficulty === 'easy' ? 8 : difficulty === 'medium' ? 18 : 32;
   const rarity = calculateRarity(
     difficultyMap[difficulty],
-    time, // timeRemaining
-    time > 0 ? time * 2 : 60, // totalTime estimate
+    time,
+    time > 0 ? time * 2 : 60,
     moves,
     totalPairs,
     maxCombo,
-    moves === totalPairs // perfectGame
+    moves === totalPairs
   );
 
   const handleGenerate = async () => {
@@ -64,21 +68,15 @@ export function AIImageGenerator({
     const style = STYLE_OPTIONS.find(s => s.id === selectedStyle);
     if (!style) return;
 
-    setIsGenerating(true);
+    const image = await generateImage(prompt, style.prompt);
     
-    // Simulate AI generation (replace with actual API call when backend is connected)
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // For demo, use a placeholder image
-    const placeholderImages = [
-      'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=512&h=512&fit=crop',
-      'https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=512&h=512&fit=crop',
-      'https://images.unsplash.com/photo-1557672172-298e090bd0f1?w=512&h=512&fit=crop',
-    ];
-    
-    setGeneratedImage(placeholderImages[Math.floor(Math.random() * placeholderImages.length)]);
-    setRollsRemaining(prev => prev - 1);
-    setIsGenerating(false);
+    if (image) {
+      setGeneratedImage(image);
+      setRollsRemaining(prev => prev - 1);
+      toast.success('Image generated successfully!');
+    } else if (generateError) {
+      toast.error(generateError);
+    }
   };
 
   const handleReroll = async () => {
@@ -100,11 +98,42 @@ export function AIImageGenerator({
     const style = STYLE_OPTIONS.find(s => s.id === selectedStyle);
     if (!style) return;
 
-    await mintNFT(generatedImage, score, rarity.tier, prompt, style.name);
+    // First upload to IPFS
+    toast.info('Uploading metadata to IPFS...');
+    
+    const metadata = {
+      name: `MemoryMint #${Date.now()}`,
+      description: `A skill-based NFT from MemoryMint. Created with prompt: "${prompt}"`,
+      attributes: [
+        { trait_type: 'Score', value: score },
+        { trait_type: 'Rarity', value: rarity.tier },
+        { trait_type: 'Art Style', value: style.name },
+        { trait_type: 'Created', value: new Date().toISOString() },
+      ],
+    };
+
+    const result = await uploadToIPFS(generatedImage, metadata);
+    
+    if (!result) {
+      toast.error(uploadError || 'Failed to upload metadata');
+      return;
+    }
+
+    toast.success('Metadata uploaded! Starting mint...');
+
+    // Now mint with the token URI
+    const mintResult = await mintNFT(generatedImage, score, rarity.tier, prompt, style.name);
+    
+    if (mintResult) {
+      toast.success('NFT minted successfully!');
+    }
   };
 
   const handleConnectWallet = async (type: 'metamask' | 'coinbase') => {
-    await connectWallet(type);
+    const success = await connectWallet(type);
+    if (success) {
+      toast.success('Wallet connected!');
+    }
   };
 
   return (
@@ -221,7 +250,7 @@ export function AIImageGenerator({
               {isGenerating ? (
                 <>
                   <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-                  Generating...
+                  Generating with AI...
                 </>
               ) : (
                 <>
@@ -230,6 +259,10 @@ export function AIImageGenerator({
                 </>
               )}
             </Button>
+
+            {generateError && (
+              <p className="mt-3 text-sm text-destructive text-center">{generateError}</p>
+            )}
           </>
         ) : (
           <>
@@ -250,12 +283,16 @@ export function AIImageGenerator({
             </div>
 
             {/* Mint Status */}
-            {isMinting && (
+            {(isMinting || isUploading) && (
               <div className="mb-4 p-4 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-3">
                 <Loader2 className="w-5 h-5 animate-spin text-primary" />
                 <div>
-                  <p className="font-medium text-foreground">Minting your NFT...</p>
-                  <p className="text-sm text-muted-foreground">Please confirm the transaction in your wallet</p>
+                  <p className="font-medium text-foreground">
+                    {isUploading ? 'Uploading to IPFS...' : 'Minting your NFT...'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {isUploading ? 'Preparing metadata' : 'Please confirm the transaction in your wallet'}
+                  </p>
                 </div>
               </div>
             )}
@@ -277,10 +314,10 @@ export function AIImageGenerator({
               </div>
             )}
 
-            {mintError && (
+            {(mintError || uploadError) && (
               <div className="mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-destructive" />
-                <p className="text-sm text-destructive">{mintError}</p>
+                <p className="text-sm text-destructive">{mintError || uploadError}</p>
                 <Button variant="ghost" size="sm" onClick={resetMintState} className="ml-auto">
                   Retry
                 </Button>
@@ -292,7 +329,7 @@ export function AIImageGenerator({
               <div className="flex gap-3">
                 <Button
                   onClick={handleReroll}
-                  disabled={rollsRemaining <= 0 || isGenerating || isMinting}
+                  disabled={rollsRemaining <= 0 || isGenerating || isMinting || isUploading}
                   variant="outline"
                   size="lg"
                   className="flex-1 font-display"
@@ -316,12 +353,12 @@ export function AIImageGenerator({
                   onClick={handleMint}
                   size="lg"
                   className="w-full text-lg font-display bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90"
-                  disabled={!isConnected || isMinting}
+                  disabled={!isConnected || isMinting || isUploading}
                 >
-                  {isMinting ? (
+                  {isMinting || isUploading ? (
                     <>
                       <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Minting...
+                      {isUploading ? 'Uploading...' : 'Minting...'}
                     </>
                   ) : (
                     <>
@@ -349,7 +386,7 @@ export function AIImageGenerator({
                 onClick={onBack}
                 variant="ghost"
                 className="w-full font-body text-muted-foreground"
-                disabled={isMinting}
+                disabled={isMinting || isUploading}
               >
                 Back to Menu
               </Button>

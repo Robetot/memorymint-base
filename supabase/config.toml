@@ -1,1 +1,7 @@
 project_id = "rftfmolkahlmhobdztya"
+
+[functions.generate-image]
+verify_jwt = false
+
+[functions.upload-to-ipfs]
+verify_jwt = false
