@@ -103,7 +103,7 @@ export function useNFTMint() {
       let data = encodeCallData('safeMint(address,string)', walletAddress, tokenURI);
       console.log('Using safeMint(address,string)');
 
-      // Try to estimate gas
+      // Try to estimate gas with optimized approach
       let gasEstimate: string;
       let gasError: unknown = null;
       
@@ -137,8 +137,8 @@ export function useNFTMint() {
           gasError = null;
         } catch (err2) {
           console.error('Both mint functions failed:', err2);
-          // Use default gas
-          gasEstimate = '0x4C4B40'; // 5000000
+          // Use reasonable default for NFT mint (150k gas)
+          gasEstimate = '0x249F0'; // 150000
         }
       }
 
@@ -146,16 +146,45 @@ export function useNFTMint() {
         console.warn('Gas estimation failed, using default:', gasError);
       }
 
-      console.log('Sending transaction with gas:', gasEstimate);
+      // Add 20% buffer to gas estimate for safety
+      const gasWithBuffer = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
+      console.log('Sending transaction with gas:', gasWithBuffer);
+
+      // Get current gas prices for EIP-1559 transaction (more efficient)
+      let txParams: Record<string, string> = {
+        from: walletAddress,
+        to: NFT_CONTRACT_ADDRESS,
+        data,
+        gas: gasWithBuffer,
+      };
+
+      try {
+        // Try to get EIP-1559 gas prices for better pricing
+        const feeHistory = await window.ethereum.request({
+          method: 'eth_feeHistory',
+          params: ['0x1', 'latest', [25]],
+        }) as { baseFeePerGas: string[]; reward: string[][] };
+        
+        if (feeHistory?.baseFeePerGas?.[0]) {
+          const baseFee = parseInt(feeHistory.baseFeePerGas[0], 16);
+          // Set max fee slightly above base fee, priority fee at minimum
+          const maxPriorityFeePerGas = '0x5F5E100'; // 0.1 gwei
+          const maxFeePerGas = '0x' + Math.floor(baseFee * 1.5).toString(16);
+          
+          txParams = {
+            ...txParams,
+            maxFeePerGas,
+            maxPriorityFeePerGas,
+          };
+          console.log('Using EIP-1559 with baseFee:', baseFee);
+        }
+      } catch {
+        console.log('EIP-1559 not available, using legacy transaction');
+      }
       
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
-        params: [{
-          from: walletAddress,
-          to: NFT_CONTRACT_ADDRESS,
-          data,
-          gas: gasEstimate,
-        }],
+        params: [txParams],
       }) as string;
 
       console.log('Transaction submitted:', txHash);
