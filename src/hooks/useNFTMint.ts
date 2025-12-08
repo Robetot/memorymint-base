@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 
+// Update this after deploying MemoryMintOptimized.sol
 const NFT_CONTRACT_ADDRESS = '0xA4952804C10a2eA5cF8ae0AD683364901186395b';
 
 export interface MintState {
@@ -10,11 +11,14 @@ export interface MintState {
   success: boolean;
 }
 
-// Pre-computed function selectors
-const FUNCTION_SELECTORS: Record<string, string> = {
+// Function selectors for optimized contract
+const FUNCTION_SELECTORS = {
+  // New optimized contract functions
+  'mint()': '0x1249c58b',
+  'safeMint()': '0xa0712d68',
+  // Legacy contract functions (fallback)
   'safeMint(address,string)': '0xd204c45e',
   'mint(address,string)': '0xd85d3d27',
-  'mint(string)': '0xd0def521',
 };
 
 function padAddress(address: string): string {
@@ -36,17 +40,15 @@ function encodeString(str: string): string {
   return length + hexData;
 }
 
-function encodeCallData(functionSig: string, address: string, tokenURI: string): string {
-  const selector = FUNCTION_SELECTORS[functionSig];
+function encodeLegacyCallData(functionSig: string, address: string, tokenURI: string): string {
+  const selector = FUNCTION_SELECTORS[functionSig as keyof typeof FUNCTION_SELECTORS];
   if (!selector) {
     console.error('Unknown function signature:', functionSig);
     return '';
   }
   
-  // For safeMint(address,string) and mint(address,string)
-  // Layout: selector + address (32 bytes) + string offset (32 bytes) + string data
   const paddedAddress = padAddress(address);
-  const stringOffset = '0000000000000000000000000000000000000000000000000000000000000040'; // 64 in hex
+  const stringOffset = '0000000000000000000000000000000000000000000000000000000000000040';
   const stringData = encodeString(tokenURI);
   
   return selector + paddedAddress + stringOffset + stringData;
@@ -75,7 +77,7 @@ export function useNFTMint() {
       return false;
     }
 
-    // Verify chain
+    // Verify chain is Base Mainnet
     try {
       const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
       if (chainId.toLowerCase() !== '0x2105') {
@@ -95,17 +97,13 @@ export function useNFTMint() {
     });
 
     try {
-      console.log('Minting NFT...');
-      console.log('Address:', walletAddress);
-      console.log('TokenURI length:', tokenURI.length);
+      console.log('Minting NFT on optimized contract...');
+      console.log('Wallet:', walletAddress);
       
-      // Try safeMint(address,string) first - common pattern
-      let data = encodeCallData('safeMint(address,string)', walletAddress, tokenURI);
-      console.log('Using safeMint(address,string)');
-
-      // Try to estimate gas with optimized approach
+      // Try optimized mint() first (no parameters, lowest gas)
+      let data = FUNCTION_SELECTORS['mint()'];
       let gasEstimate: string;
-      let gasError: unknown = null;
+      let useOptimized = true;
       
       try {
         gasEstimate = await window.ethereum.request({
@@ -116,13 +114,13 @@ export function useNFTMint() {
             data,
           }],
         }) as string;
-        console.log('Gas estimate successful:', gasEstimate);
+        console.log('Optimized mint() gas estimate:', gasEstimate);
       } catch (err) {
-        gasError = err;
-        console.log('safeMint failed, trying mint(address,string)...');
+        console.log('Optimized contract not detected, falling back to legacy...');
+        useOptimized = false;
         
-        // Try mint(address,string)
-        data = encodeCallData('mint(address,string)', walletAddress, tokenURI);
+        // Fallback to legacy contract with tokenURI
+        data = encodeLegacyCallData('safeMint(address,string)', walletAddress, tokenURI);
         
         try {
           gasEstimate = await window.ethereum.request({
@@ -133,24 +131,32 @@ export function useNFTMint() {
               data,
             }],
           }) as string;
-          console.log('mint(address,string) gas estimate:', gasEstimate);
-          gasError = null;
+          console.log('Legacy safeMint gas estimate:', gasEstimate);
         } catch (err2) {
-          console.error('Both mint functions failed:', err2);
-          // Use reasonable default for NFT mint (150k gas)
-          gasEstimate = '0x249F0'; // 150000
+          // Try mint(address,string)
+          data = encodeLegacyCallData('mint(address,string)', walletAddress, tokenURI);
+          
+          try {
+            gasEstimate = await window.ethereum.request({
+              method: 'eth_estimateGas',
+              params: [{
+                from: walletAddress,
+                to: NFT_CONTRACT_ADDRESS,
+                data,
+              }],
+            }) as string;
+          } catch {
+            // Use safe default
+            gasEstimate = '0x15F90'; // 90,000 gas
+          }
         }
       }
 
-      if (gasError) {
-        console.warn('Gas estimation failed, using default:', gasError);
-      }
-
-      // Add 20% buffer to gas estimate for safety
+      // Add 20% buffer for safety
       const gasWithBuffer = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
-      console.log('Sending transaction with gas:', gasWithBuffer);
+      console.log('Final gas with buffer:', gasWithBuffer, `(${parseInt(gasWithBuffer, 16)} gas)`);
 
-      // Get current gas prices for EIP-1559 transaction (more efficient)
+      // Build transaction with EIP-1559 for better pricing
       let txParams: Record<string, string> = {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
@@ -159,7 +165,6 @@ export function useNFTMint() {
       };
 
       try {
-        // Try to get EIP-1559 gas prices for better pricing
         const feeHistory = await window.ethereum.request({
           method: 'eth_feeHistory',
           params: ['0x1', 'latest', [25]],
@@ -167,19 +172,19 @@ export function useNFTMint() {
         
         if (feeHistory?.baseFeePerGas?.[0]) {
           const baseFee = parseInt(feeHistory.baseFeePerGas[0], 16);
-          // Set max fee slightly above base fee, priority fee at minimum
+          // Conservative: 1.3x base fee, minimal priority
           const maxPriorityFeePerGas = '0x5F5E100'; // 0.1 gwei
-          const maxFeePerGas = '0x' + Math.floor(baseFee * 1.5).toString(16);
+          const maxFeePerGas = '0x' + Math.floor(baseFee * 1.3).toString(16);
           
           txParams = {
             ...txParams,
             maxFeePerGas,
             maxPriorityFeePerGas,
           };
-          console.log('Using EIP-1559 with baseFee:', baseFee);
+          console.log('EIP-1559 enabled, baseFee:', baseFee);
         }
       } catch {
-        console.log('EIP-1559 not available, using legacy transaction');
+        console.log('Using legacy transaction pricing');
       }
       
       const txHash = await window.ethereum.request({
@@ -188,9 +193,10 @@ export function useNFTMint() {
       }) as string;
 
       console.log('Transaction submitted:', txHash);
+      console.log('Contract type:', useOptimized ? 'Optimized' : 'Legacy');
       setMintState(prev => ({ ...prev, txHash }));
 
-      // Wait for confirmation
+      // Poll for confirmation
       let receipt = null;
       let attempts = 0;
       const maxAttempts = 60;
@@ -204,7 +210,7 @@ export function useNFTMint() {
             params: [txHash],
           });
         } catch {
-          // Continue waiting
+          // Continue polling
         }
         
         attempts++;
@@ -216,8 +222,12 @@ export function useNFTMint() {
           const logs = (receipt as { logs: Array<{ topics: string[] }> }).logs;
           let tokenId = null;
           
+          // Extract tokenId from Transfer event
           if (logs && logs.length > 0) {
-            const transferLog = logs.find(log => log.topics.length >= 4);
+            const transferLog = logs.find(log => 
+              log.topics.length >= 4 && 
+              log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+            );
             if (transferLog) {
               tokenId = parseInt(transferLog.topics[3], 16).toString();
             }
@@ -235,7 +245,7 @@ export function useNFTMint() {
           throw new Error('Transaction failed on-chain');
         }
       } else {
-        // Transaction pending but submitted
+        // Transaction pending but submitted successfully
         setMintState({
           isMinting: false,
           txHash,
@@ -251,6 +261,8 @@ export function useNFTMint() {
       let errorMessage = 'Minting failed';
       if ((error as { code?: number })?.code === 4001) {
         errorMessage = 'Transaction rejected by user';
+      } else if ((error as { message?: string })?.message?.includes('OnePerBlock')) {
+        errorMessage = 'Please wait for the next block (throttle active)';
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
