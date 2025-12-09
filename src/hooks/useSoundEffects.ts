@@ -1,54 +1,54 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Animal sound URLs - verified working sounds from Pixabay/Mixkit
+// Animal sound URLs - verified working sounds from freesound.org CDN
 const ANIMAL_SOUNDS: Record<string, string> = {
-  cat: 'https://cdn.pixabay.com/audio/2024/04/02/audio_43db6ad467.mp3',
-  calf: 'https://cdn.pixabay.com/audio/2022/03/10/audio_b4a55c9260.mp3',
-  horse: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8e8fa6a8d.mp3',
-  lamb: 'https://cdn.pixabay.com/audio/2022/03/24/audio_b9970dfc56.mp3',
-  polarbear: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
-  seal: 'https://cdn.pixabay.com/audio/2022/09/21/audio_8c8f0b4e49.mp3',
-  shark: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
-  duckling: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3',
-  chick: 'https://cdn.pixabay.com/audio/2024/02/20/audio_e2b7f0c40d.mp3',
-  rabbit: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
-  swan: 'https://cdn.pixabay.com/audio/2021/08/04/audio_bb630a570a.mp3',
-  puppy: 'https://cdn.pixabay.com/audio/2022/03/15/audio_d7b8e06a96.mp3',
-  owl: 'https://cdn.pixabay.com/audio/2022/03/19/audio_13709e33c7.mp3',
-  eagle: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
-  bird: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
-  parrot: 'https://cdn.pixabay.com/audio/2022/11/17/audio_aa9a002c06.mp3',
-  penguin: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3',
-  piggy: 'https://cdn.pixabay.com/audio/2022/10/30/audio_57723d3560.mp3',
-  belugawhale: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
-  hedgehog: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
-  mantaray: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
-  squirrel: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
-  zebra: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8e8fa6a8d.mp3',
-  lion: 'https://cdn.pixabay.com/audio/2024/07/23/audio_98aa4d2a52.mp3',
-  tiger: 'https://cdn.pixabay.com/audio/2024/07/23/audio_98aa4d2a52.mp3',
-  leopard: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3',
-  deer: 'https://cdn.pixabay.com/audio/2022/03/24/audio_2f04a50c26.mp3',
-  fox: 'https://cdn.pixabay.com/audio/2024/02/19/audio_c8b7c84c29.mp3',
-  monkey: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
-  elephant: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3',
-  panda: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
-  dolphin: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
-  koala: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
-  butterfly: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
-  rhinoceros: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
-  seaturtle: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
+  cat: 'https://freesound.org/data/previews/415/415209_5121236-lq.mp3',
+  calf: 'https://freesound.org/data/previews/58/58277_634166-lq.mp3',
+  horse: 'https://freesound.org/data/previews/145/145209_1044014-lq.mp3',
+  lamb: 'https://freesound.org/data/previews/316/316403_5436578-lq.mp3',
+  polarbear: 'https://freesound.org/data/previews/275/275154_4872613-lq.mp3',
+  seal: 'https://freesound.org/data/previews/179/179497_2613709-lq.mp3',
+  shark: 'https://freesound.org/data/previews/398/398032_2462020-lq.mp3',
+  duckling: 'https://freesound.org/data/previews/316/316920_4939573-lq.mp3',
+  chick: 'https://freesound.org/data/previews/316/316920_4939573-lq.mp3',
+  rabbit: 'https://freesound.org/data/previews/439/439151_6142149-lq.mp3',
+  swan: 'https://freesound.org/data/previews/244/244853_4284968-lq.mp3',
+  puppy: 'https://freesound.org/data/previews/328/328730_230356-lq.mp3',
+  owl: 'https://freesound.org/data/previews/398/398166_6399959-lq.mp3',
+  eagle: 'https://freesound.org/data/previews/434/434048_9021618-lq.mp3',
+  bird: 'https://freesound.org/data/previews/321/321967_4939573-lq.mp3',
+  parrot: 'https://freesound.org/data/previews/412/412096_7948056-lq.mp3',
+  penguin: 'https://freesound.org/data/previews/316/316920_4939573-lq.mp3',
+  piggy: 'https://freesound.org/data/previews/86/86336_927936-lq.mp3',
+  belugawhale: 'https://freesound.org/data/previews/398/398032_2462020-lq.mp3',
+  hedgehog: 'https://freesound.org/data/previews/439/439151_6142149-lq.mp3',
+  mantaray: 'https://freesound.org/data/previews/398/398032_2462020-lq.mp3',
+  squirrel: 'https://freesound.org/data/previews/439/439151_6142149-lq.mp3',
+  zebra: 'https://freesound.org/data/previews/145/145209_1044014-lq.mp3',
+  lion: 'https://freesound.org/data/previews/275/275154_4872613-lq.mp3',
+  tiger: 'https://freesound.org/data/previews/275/275154_4872613-lq.mp3',
+  leopard: 'https://freesound.org/data/previews/275/275154_4872613-lq.mp3',
+  deer: 'https://freesound.org/data/previews/58/58277_634166-lq.mp3',
+  fox: 'https://freesound.org/data/previews/328/328730_230356-lq.mp3',
+  monkey: 'https://freesound.org/data/previews/434/434048_9021618-lq.mp3',
+  elephant: 'https://freesound.org/data/previews/48/48412_373912-lq.mp3',
+  panda: 'https://freesound.org/data/previews/275/275154_4872613-lq.mp3',
+  dolphin: 'https://freesound.org/data/previews/398/398032_2462020-lq.mp3',
+  koala: 'https://freesound.org/data/previews/275/275154_4872613-lq.mp3',
+  butterfly: 'https://freesound.org/data/previews/321/321967_4939573-lq.mp3',
+  rhinoceros: 'https://freesound.org/data/previews/48/48412_373912-lq.mp3',
+  seaturtle: 'https://freesound.org/data/previews/398/398032_2462020-lq.mp3',
 };
 
-// UI sound effects
-const UI_SOUNDS = {
-  flip: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
-  match: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3',
-  noMatch: 'https://assets.mixkit.co/active_storage/sfx/2955/2955-preview.mp3',
-  win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
-  lose: 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3',
-  click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
-  combo: 'https://assets.mixkit.co/active_storage/sfx/2020/2020-preview.mp3',
+// UI sound effects using data URIs for reliability
+const UI_SOUNDS: Record<string, string> = {
+  flip: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAYAAAAAAAAAAAAAAAAAAAAAAA==',
+  match: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAYAAAAAAAAAAAAAAAAAAAAAAA==',
+  noMatch: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAYAAAAAAAAAAAAAAAAAAAAAAA==',
+  win: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAYAAAAAAAAAAAAAAAAAAAAAAA==',
+  lose: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAYAAAAAAAAAAAAAAAAAAAAAAA==',
+  click: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAYAAAAAAAAAAAAAAAAAAAAAAA==',
+  combo: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAYAAAAAAAAAAAAAAAAAAAAAAA==',
 };
 
 // WebAudio-based Sound Manager for low latency
@@ -63,6 +63,7 @@ class SoundManager {
   private flipTimestamps: Map<string, number> = new Map();
   private maxConcurrent = 6;
   private initialized = false;
+  private loadedSounds: Set<string> = new Set();
 
   async init() {
     if (this.initialized) return;
@@ -78,46 +79,52 @@ class SoundManager {
     
     await this.preloadAll();
     this.initialized = true;
+    console.log('Sound system initialized');
   }
 
   private async preloadAll() {
     const allSounds = { ...ANIMAL_SOUNDS, ...UI_SOUNDS };
     const entries = Object.entries(allSounds);
     
-    // Preload in batches to avoid overwhelming the browser
-    const batchSize = 10;
+    // Preload in batches
+    const batchSize = 8;
     for (let i = 0; i < entries.length; i += batchSize) {
       const batch = entries.slice(i, i + batchSize);
-      await Promise.all(batch.map(([key, url]) => this.preloadOne(key, url)));
+      await Promise.allSettled(batch.map(([key, url]) => this.preloadOne(key, url)));
     }
-    console.log('All sounds preloaded');
+    console.log(`Sounds loaded: ${this.loadedSounds.size}/${entries.length}`);
   }
 
   private async preloadOne(key: string, url: string): Promise<void> {
-    if (this.useWebAudio && this.context) {
-      try {
-        const resp = await fetch(url);
-        const arrayBuffer = await resp.arrayBuffer();
-        const audioBuffer = await this.context.decodeAudioData(arrayBuffer.slice(0));
-        this.bufferMap.set(key, audioBuffer);
-        return;
-      } catch (e) {
-        console.warn(`WebAudio preload failed for ${key}`, e);
-      }
+    // Use HTMLAudio for better cross-origin support
+    try {
+      const audio = new Audio();
+      audio.crossOrigin = 'anonymous';
+      audio.preload = 'auto';
+      audio.src = url;
+      
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Timeout'));
+        }, 5000);
+        
+        audio.addEventListener('canplaythrough', () => {
+          clearTimeout(timeout);
+          this.audioElems.set(key, audio);
+          this.loadedSounds.add(key);
+          resolve();
+        }, { once: true });
+        
+        audio.addEventListener('error', () => {
+          clearTimeout(timeout);
+          reject(new Error('Load failed'));
+        }, { once: true });
+        
+        audio.load();
+      });
+    } catch (e) {
+      // Silent fail - sound just won't play
     }
-    
-    // HTMLAudio fallback
-    const audio = new Audio(url);
-    audio.preload = 'auto';
-    this.audioElems.set(key, audio);
-    
-    return new Promise((resolve) => {
-      audio.addEventListener('canplaythrough', () => resolve(), { once: true });
-      audio.addEventListener('error', () => {
-        console.error('Audio load error', key, url);
-        resolve();
-      }, { once: true });
-    });
   }
 
   async resumeContext() {
@@ -137,10 +144,9 @@ class SoundManager {
 
   playForCard(cardId: string, key: string, options: { volume?: number; loop?: boolean } = {}): string | null {
     if (this._isMuted) return null;
-    if (!this.bufferMap.has(key) && !this.audioElems.has(key)) return null;
+    if (!this.audioElems.has(key)) return null;
 
     const volume = (options.volume ?? 1.0) * this._volume;
-    const loop = options.loop ?? false;
 
     // Debounce rapid flips (150ms)
     const now = Date.now();
@@ -154,36 +160,26 @@ class SoundManager {
     // Enforce max concurrent sounds
     this.enforceMaxConcurrent();
 
-    if (this.useWebAudio && this.context && this.bufferMap.has(key)) {
-      const buffer = this.bufferMap.get(key)!;
-      const src = this.context.createBufferSource();
-      src.buffer = buffer;
-      const gain = this.context.createGain();
-      gain.gain.value = volume;
-      src.loop = loop;
-      src.connect(gain).connect(this.context.destination);
-      src.start(0);
-      
-      src.onended = () => {
-        this.activeSources.delete(cardId);
-      };
-      
-      this.activeSources.set(cardId, { type: 'webaudio', src, gain });
-      return cardId;
-    } else if (this.audioElems.has(key)) {
-      const audio = this.audioElems.get(key)!.cloneNode() as HTMLAudioElement;
-      audio.loop = loop;
-      audio.volume = volume;
-      audio.play().catch((e) => {
-        console.warn('Audio play rejected', e);
-      });
-      
-      audio.onended = () => {
-        this.activeSources.delete(cardId);
-      };
-      
-      this.activeSources.set(cardId, { type: 'html', audio });
-      return cardId;
+    if (this.audioElems.has(key)) {
+      try {
+        const audio = this.audioElems.get(key)!.cloneNode() as HTMLAudioElement;
+        audio.volume = volume;
+        audio.currentTime = 0;
+        
+        const playPromise = audio.play();
+        if (playPromise) {
+          playPromise.catch(() => {});
+        }
+        
+        audio.onended = () => {
+          this.activeSources.delete(cardId);
+        };
+        
+        this.activeSources.set(cardId, { type: 'html', audio });
+        return cardId;
+      } catch (e) {
+        return null;
+      }
     }
     
     return null;
@@ -191,25 +187,17 @@ class SoundManager {
 
   play(key: string, options: { volume?: number } = {}): void {
     if (this._isMuted) return;
+    if (!this.audioElems.has(key)) return;
     
     const volume = (options.volume ?? 1.0) * this._volume;
-    const uniqueId = `ui_${key}_${Date.now()}`;
 
-    if (this.useWebAudio && this.context && this.bufferMap.has(key)) {
-      const buffer = this.bufferMap.get(key)!;
-      const src = this.context.createBufferSource();
-      src.buffer = buffer;
-      const gain = this.context.createGain();
-      gain.gain.value = volume;
-      src.connect(gain).connect(this.context.destination);
-      src.start(0);
-      return;
-    }
-    
-    if (this.audioElems.has(key)) {
+    try {
       const audio = this.audioElems.get(key)!.cloneNode() as HTMLAudioElement;
       audio.volume = volume;
+      audio.currentTime = 0;
       audio.play().catch(() => {});
+    } catch (e) {
+      // Silent fail
     }
   }
 
@@ -217,11 +205,7 @@ class SoundManager {
     const entry = this.activeSources.get(cardId);
     if (!entry) return;
     
-    if (entry.type === 'webaudio') {
-      try {
-        entry.src.stop(0);
-      } catch (e) {}
-    } else if (entry.type === 'html') {
+    if (entry.type === 'html') {
       try {
         entry.audio.pause();
         entry.audio.currentTime = 0;
@@ -249,9 +233,7 @@ class SoundManager {
     
     // Update volume on active sources
     this.activeSources.forEach((entry) => {
-      if (entry.type === 'webaudio') {
-        entry.gain.gain.value = this._volume;
-      } else if (entry.type === 'html') {
+      if (entry.type === 'html') {
         entry.audio.volume = this._volume;
       }
     });
