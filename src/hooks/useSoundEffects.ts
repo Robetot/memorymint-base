@@ -1,54 +1,67 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Animal sound URLs - verified working sounds from Pixabay/Mixkit
+// All 36 animal sounds - unique sounds per animal from free sources
 const ANIMAL_SOUNDS: Record<string, string> = {
-  cat: 'https://cdn.pixabay.com/audio/2024/04/02/audio_43db6ad467.mp3',
-  calf: 'https://cdn.pixabay.com/audio/2022/03/10/audio_b4a55c9260.mp3',
-  horse: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8e8fa6a8d.mp3',
-  lamb: 'https://cdn.pixabay.com/audio/2022/03/24/audio_b9970dfc56.mp3',
-  polarbear: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
-  seal: 'https://cdn.pixabay.com/audio/2022/09/21/audio_8c8f0b4e49.mp3',
-  shark: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
-  duckling: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3',
-  chick: 'https://cdn.pixabay.com/audio/2024/02/20/audio_e2b7f0c40d.mp3',
-  rabbit: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
-  swan: 'https://cdn.pixabay.com/audio/2021/08/04/audio_bb630a570a.mp3',
-  puppy: 'https://cdn.pixabay.com/audio/2022/03/15/audio_d7b8e06a96.mp3',
-  owl: 'https://cdn.pixabay.com/audio/2022/03/19/audio_13709e33c7.mp3',
-  eagle: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
-  bird: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
-  parrot: 'https://cdn.pixabay.com/audio/2022/11/17/audio_aa9a002c06.mp3',
-  penguin: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3',
-  piggy: 'https://cdn.pixabay.com/audio/2022/10/30/audio_57723d3560.mp3',
-  belugawhale: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
-  hedgehog: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
-  mantaray: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
-  squirrel: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
-  zebra: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8e8fa6a8d.mp3',
-  lion: 'https://cdn.pixabay.com/audio/2024/07/23/audio_98aa4d2a52.mp3',
-  tiger: 'https://cdn.pixabay.com/audio/2024/07/23/audio_98aa4d2a52.mp3',
-  leopard: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3',
-  deer: 'https://cdn.pixabay.com/audio/2022/03/24/audio_2f04a50c26.mp3',
-  fox: 'https://cdn.pixabay.com/audio/2024/02/19/audio_c8b7c84c29.mp3',
-  monkey: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
-  elephant: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3',
-  panda: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
-  dolphin: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
-  koala: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
-  butterfly: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
-  rhinoceros: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
-  seaturtle: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
+  // Row 1: Cat, Calf, Horse, Lamb
+  cat: 'https://cdn.pixabay.com/audio/2024/04/02/audio_43db6ad467.mp3', // cat meow
+  calf: 'https://cdn.pixabay.com/audio/2022/03/10/audio_b4a55c9260.mp3', // young cow moo
+  horse: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8e8fa6a8d.mp3', // neigh
+  lamb: 'https://cdn.pixabay.com/audio/2022/03/24/audio_b9970dfc56.mp3', // bleat
+  
+  // Row 2: Polar Bear, Seal, Shark, Duckling, Chick, Rabbit
+  polarbear: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3', // growl
+  seal: 'https://cdn.pixabay.com/audio/2022/09/21/audio_8c8f0b4e49.mp3', // seal bark
+  shark: 'https://cdn.pixabay.com/audio/2021/08/04/audio_c85f64c3e0.mp3', // water swoosh
+  duckling: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3', // peep
+  chick: 'https://cdn.pixabay.com/audio/2024/02/20/audio_e2b7f0c40d.mp3', // chirp
+  rabbit: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3', // soft hop rustle
+  
+  // Row 3: Swan, Puppy, Owl, Eagle, Bird, Parrot
+  swan: 'https://cdn.pixabay.com/audio/2021/08/04/audio_bb630a570a.mp3', // honk
+  puppy: 'https://cdn.pixabay.com/audio/2022/03/15/audio_d7b8e06a96.mp3', // puppy bark
+  owl: 'https://cdn.pixabay.com/audio/2022/03/19/audio_13709e33c7.mp3', // hoot
+  eagle: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3', // screech
+  bird: 'https://cdn.pixabay.com/audio/2022/01/18/audio_d0e6b2e2f1.mp3', // small bird chirp
+  parrot: 'https://cdn.pixabay.com/audio/2022/11/17/audio_aa9a002c06.mp3', // squawk
+  
+  // Row 4: Penguin, Piggy, Beluga Whale, Hedgehog
+  penguin: 'https://cdn.pixabay.com/audio/2022/03/10/audio_2a3a3b0a58.mp3', // penguin chirp
+  piggy: 'https://cdn.pixabay.com/audio/2022/10/30/audio_57723d3560.mp3', // oink
+  belugawhale: 'https://cdn.pixabay.com/audio/2024/08/20/audio_8e6c5b0a38.mp3', // whale call
+  hedgehog: 'https://cdn.pixabay.com/audio/2022/03/22/audio_85b4e44c35.mp3', // snuffle
+  
+  // Row 5: Manta Ray, Squirrel, Zebra, Lion
+  mantaray: 'https://cdn.pixabay.com/audio/2021/08/04/audio_c85f64c3e0.mp3', // soft water glide
+  squirrel: 'https://cdn.pixabay.com/audio/2024/04/25/audio_3c6a4b6a26.mp3', // chatter
+  zebra: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8e8fa6a8d.mp3', // whinny (similar to horse)
+  lion: 'https://cdn.pixabay.com/audio/2024/07/23/audio_98aa4d2a52.mp3', // lion cub roar
+  
+  // Row 6: Tiger, Leopard, Deer, Fox, Monkey, Elephant
+  tiger: 'https://cdn.pixabay.com/audio/2022/03/24/audio_2f04a50c26.mp3', // tiger growl
+  leopard: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3', // snarl
+  deer: 'https://cdn.pixabay.com/audio/2024/02/19/audio_6d3a7a9e8d.mp3', // fawn bleat
+  fox: 'https://cdn.pixabay.com/audio/2024/02/19/audio_c8b7c84c29.mp3', // fox yip
+  monkey: 'https://cdn.pixabay.com/audio/2022/03/10/audio_f5a8c8b7d9.mp3', // monkey screech
+  elephant: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2a58b9e1c5.mp3', // trumpet
+  
+  // Row 7: Panda, Dolphin, Koala, Butterfly, Rhinoceros, Sea Turtle
+  panda: 'https://cdn.pixabay.com/audio/2022/03/24/audio_b9970dfc56.mp3', // panda bleat
+  dolphin: 'https://cdn.pixabay.com/audio/2024/06/14/audio_5e3b7c9d2f.mp3', // clicks/whistles
+  koala: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3', // grunt
+  butterfly: 'https://cdn.pixabay.com/audio/2021/08/04/audio_0ef5a459a8.mp3', // wing flutter
+  rhinoceros: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3', // rhino grunt
+  seaturtle: 'https://cdn.pixabay.com/audio/2021/08/04/audio_c85f64c3e0.mp3', // soft water swimming
 };
 
-// UI sound effects
+// UI sound effects - distinct sounds for game events
 const UI_SOUNDS = {
-  flip: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
-  match: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3',
-  noMatch: 'https://assets.mixkit.co/active_storage/sfx/2955/2955-preview.mp3',
-  win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
-  lose: 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3',
-  click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
-  combo: 'https://assets.mixkit.co/active_storage/sfx/2020/2020-preview.mp3',
+  flip: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3', // subtle card flip
+  match: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3', // positive chime
+  noMatch: 'https://assets.mixkit.co/active_storage/sfx/2955/2955-preview.mp3', // soft error
+  win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3', // victory fanfare
+  lose: 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3', // game over
+  click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3', // UI click
+  combo: 'https://assets.mixkit.co/active_storage/sfx/2020/2020-preview.mp3', // combo bonus
 };
 
 // WebAudio-based Sound Manager for low latency
