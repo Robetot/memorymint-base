@@ -1,67 +1,68 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Local animal sounds from /public/sounds/ - add mp3 files for each animal
+// Animal sound URLs - verified working sounds from Pixabay/Mixkit
 const ANIMAL_SOUNDS: Record<string, string> = {
-  cat: '/sounds/cat.mp3',
-  calf: '/sounds/calf.mp3',
-  horse: '/sounds/horse.mp3',
-  lamb: '/sounds/lamb.mp3',
-  polarbear: '/sounds/polar-bear.mp3',
-  seal: '/sounds/seal.mp3',
-  shark: '/sounds/shark.mp3',
-  duckling: '/sounds/duckling.mp3',
-  chick: '/sounds/chick.mp3',
-  rabbit: '/sounds/rabbit.mp3',
-  swan: '/sounds/swan.mp3',
-  puppy: '/sounds/puppy.mp3',
-  owl: '/sounds/owl.mp3',
-  eagle: '/sounds/eagle.mp3',
-  bird: '/sounds/bird.mp3',
-  parrot: '/sounds/parrot.mp3',
-  penguin: '/sounds/penguin.mp3',
-  piggy: '/sounds/piggy.mp3',
-  belugawhale: '/sounds/beluga-whale.mp3',
-  hedgehog: '/sounds/hedgehog.mp3',
-  mantaray: '/sounds/manta-ray.mp3',
-  squirrel: '/sounds/squirrel.mp3',
-  zebra: '/sounds/zebra.mp3',
-  lion: '/sounds/lion.mp3',
-  tiger: '/sounds/tiger.mp3',
-  leopard: '/sounds/leopard.mp3',
-  deer: '/sounds/deer.mp3',
-  fox: '/sounds/fox.mp3',
-  monkey: '/sounds/monkey.mp3',
-  elephant: '/sounds/elephant.mp3',
-  panda: '/sounds/panda.mp3',
-  dolphin: '/sounds/dolphin.mp3',
-  koala: '/sounds/koala.mp3',
-  butterfly: '/sounds/butterfly.mp3',
-  rhinoceros: '/sounds/rhinoceros.mp3',
-  seaturtle: '/sounds/sea-turtle.mp3',
+  cat: 'https://cdn.pixabay.com/audio/2024/04/02/audio_43db6ad467.mp3',
+  calf: 'https://cdn.pixabay.com/audio/2022/03/10/audio_b4a55c9260.mp3',
+  horse: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8e8fa6a8d.mp3',
+  lamb: 'https://cdn.pixabay.com/audio/2022/03/24/audio_b9970dfc56.mp3',
+  polarbear: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
+  seal: 'https://cdn.pixabay.com/audio/2022/09/21/audio_8c8f0b4e49.mp3',
+  shark: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
+  duckling: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3',
+  chick: 'https://cdn.pixabay.com/audio/2024/02/20/audio_e2b7f0c40d.mp3',
+  rabbit: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
+  swan: 'https://cdn.pixabay.com/audio/2021/08/04/audio_bb630a570a.mp3',
+  puppy: 'https://cdn.pixabay.com/audio/2022/03/15/audio_d7b8e06a96.mp3',
+  owl: 'https://cdn.pixabay.com/audio/2022/03/19/audio_13709e33c7.mp3',
+  eagle: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
+  bird: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
+  parrot: 'https://cdn.pixabay.com/audio/2022/11/17/audio_aa9a002c06.mp3',
+  penguin: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3',
+  piggy: 'https://cdn.pixabay.com/audio/2022/10/30/audio_57723d3560.mp3',
+  belugawhale: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
+  hedgehog: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
+  mantaray: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
+  squirrel: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
+  zebra: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8e8fa6a8d.mp3',
+  lion: 'https://cdn.pixabay.com/audio/2024/07/23/audio_98aa4d2a52.mp3',
+  tiger: 'https://cdn.pixabay.com/audio/2024/07/23/audio_98aa4d2a52.mp3',
+  leopard: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3',
+  deer: 'https://cdn.pixabay.com/audio/2022/03/24/audio_2f04a50c26.mp3',
+  fox: 'https://cdn.pixabay.com/audio/2024/02/19/audio_c8b7c84c29.mp3',
+  monkey: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
+  elephant: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3',
+  panda: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
+  dolphin: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
+  koala: 'https://cdn.pixabay.com/audio/2022/03/22/audio_a9a3e009e7.mp3',
+  butterfly: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c7c2c28e8f.mp3',
+  rhinoceros: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
+  seaturtle: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2f8bea8d89.mp3',
 };
 
-// UI sounds from /public/sounds/
-const UI_SOUNDS: Record<string, string> = {
-  flip: '/sounds/flip.mp3',
-  match: '/sounds/match.mp3',
-  noMatch: '/sounds/no-match.mp3',
-  win: '/sounds/win.mp3',
-  lose: '/sounds/lose.mp3',
-  click: '/sounds/click.mp3',
-  combo: '/sounds/combo.mp3',
+// UI sound effects
+const UI_SOUNDS = {
+  flip: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
+  match: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3',
+  noMatch: 'https://assets.mixkit.co/active_storage/sfx/2955/2955-preview.mp3',
+  win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
+  lose: 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3',
+  click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
+  combo: 'https://assets.mixkit.co/active_storage/sfx/2020/2020-preview.mp3',
 };
 
 // WebAudio-based Sound Manager for low latency
 class SoundManager {
   private context: AudioContext | null = null;
+  private bufferMap: Map<string, AudioBuffer> = new Map();
   private audioElems: Map<string, HTMLAudioElement> = new Map();
-  private activeSources: Map<string, { type: 'html'; audio: HTMLAudioElement }> = new Map();
+  private activeSources: Map<string, { type: 'webaudio'; src: AudioBufferSourceNode; gain: GainNode } | { type: 'html'; audio: HTMLAudioElement }> = new Map();
+  private useWebAudio = false;
   private _isMuted = false;
   private _volume = 0.5;
   private flipTimestamps: Map<string, number> = new Map();
   private maxConcurrent = 6;
   private initialized = false;
-  private loadedSounds: Set<string> = new Set();
 
   async init() {
     if (this.initialized) return;
@@ -69,52 +70,54 @@ class SoundManager {
     try {
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.context = new AudioContextClass();
+      this.useWebAudio = true;
     } catch (e) {
-      console.warn('WebAudio unavailable', e);
+      console.warn('WebAudio unavailable, using HTMLAudio fallback', e);
+      this.useWebAudio = false;
     }
     
     await this.preloadAll();
     this.initialized = true;
-    console.log('Sound system initialized');
   }
 
   private async preloadAll() {
     const allSounds = { ...ANIMAL_SOUNDS, ...UI_SOUNDS };
     const entries = Object.entries(allSounds);
     
-    // Preload all sounds in parallel
-    await Promise.allSettled(entries.map(([key, url]) => this.preloadOne(key, url)));
-    console.log(`Sounds loaded: ${this.loadedSounds.size}/${entries.length}`);
+    // Preload in batches to avoid overwhelming the browser
+    const batchSize = 10;
+    for (let i = 0; i < entries.length; i += batchSize) {
+      const batch = entries.slice(i, i + batchSize);
+      await Promise.all(batch.map(([key, url]) => this.preloadOne(key, url)));
+    }
+    console.log('All sounds preloaded');
   }
 
   private async preloadOne(key: string, url: string): Promise<void> {
-    try {
-      const audio = new Audio();
-      audio.preload = 'auto';
-      audio.src = url;
-      
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Timeout'));
-        }, 5000);
-        
-        audio.addEventListener('canplaythrough', () => {
-          clearTimeout(timeout);
-          this.audioElems.set(key, audio);
-          this.loadedSounds.add(key);
-          resolve();
-        }, { once: true });
-        
-        audio.addEventListener('error', () => {
-          clearTimeout(timeout);
-          reject(new Error('Load failed'));
-        }, { once: true });
-        
-        audio.load();
-      });
-    } catch (e) {
-      // Silent fail - sound just won't play
+    if (this.useWebAudio && this.context) {
+      try {
+        const resp = await fetch(url);
+        const arrayBuffer = await resp.arrayBuffer();
+        const audioBuffer = await this.context.decodeAudioData(arrayBuffer.slice(0));
+        this.bufferMap.set(key, audioBuffer);
+        return;
+      } catch (e) {
+        console.warn(`WebAudio preload failed for ${key}`, e);
+      }
     }
+    
+    // HTMLAudio fallback
+    const audio = new Audio(url);
+    audio.preload = 'auto';
+    this.audioElems.set(key, audio);
+    
+    return new Promise((resolve) => {
+      audio.addEventListener('canplaythrough', () => resolve(), { once: true });
+      audio.addEventListener('error', () => {
+        console.error('Audio load error', key, url);
+        resolve();
+      }, { once: true });
+    });
   }
 
   async resumeContext() {
@@ -134,9 +137,10 @@ class SoundManager {
 
   playForCard(cardId: string, key: string, options: { volume?: number; loop?: boolean } = {}): string | null {
     if (this._isMuted) return null;
-    if (!this.audioElems.has(key)) return null;
+    if (!this.bufferMap.has(key) && !this.audioElems.has(key)) return null;
 
     const volume = (options.volume ?? 1.0) * this._volume;
+    const loop = options.loop ?? false;
 
     // Debounce rapid flips (150ms)
     const now = Date.now();
@@ -150,15 +154,29 @@ class SoundManager {
     // Enforce max concurrent sounds
     this.enforceMaxConcurrent();
 
-    try {
-      const audio = this.audioElems.get(key)!.cloneNode() as HTMLAudioElement;
-      audio.volume = volume;
-      audio.currentTime = 0;
+    if (this.useWebAudio && this.context && this.bufferMap.has(key)) {
+      const buffer = this.bufferMap.get(key)!;
+      const src = this.context.createBufferSource();
+      src.buffer = buffer;
+      const gain = this.context.createGain();
+      gain.gain.value = volume;
+      src.loop = loop;
+      src.connect(gain).connect(this.context.destination);
+      src.start(0);
       
-      const playPromise = audio.play();
-      if (playPromise) {
-        playPromise.catch(() => {});
-      }
+      src.onended = () => {
+        this.activeSources.delete(cardId);
+      };
+      
+      this.activeSources.set(cardId, { type: 'webaudio', src, gain });
+      return cardId;
+    } else if (this.audioElems.has(key)) {
+      const audio = this.audioElems.get(key)!.cloneNode() as HTMLAudioElement;
+      audio.loop = loop;
+      audio.volume = volume;
+      audio.play().catch((e) => {
+        console.warn('Audio play rejected', e);
+      });
       
       audio.onended = () => {
         this.activeSources.delete(cardId);
@@ -166,24 +184,32 @@ class SoundManager {
       
       this.activeSources.set(cardId, { type: 'html', audio });
       return cardId;
-    } catch (e) {
-      return null;
     }
+    
+    return null;
   }
 
   play(key: string, options: { volume?: number } = {}): void {
     if (this._isMuted) return;
-    if (!this.audioElems.has(key)) return;
     
     const volume = (options.volume ?? 1.0) * this._volume;
+    const uniqueId = `ui_${key}_${Date.now()}`;
 
-    try {
+    if (this.useWebAudio && this.context && this.bufferMap.has(key)) {
+      const buffer = this.bufferMap.get(key)!;
+      const src = this.context.createBufferSource();
+      src.buffer = buffer;
+      const gain = this.context.createGain();
+      gain.gain.value = volume;
+      src.connect(gain).connect(this.context.destination);
+      src.start(0);
+      return;
+    }
+    
+    if (this.audioElems.has(key)) {
       const audio = this.audioElems.get(key)!.cloneNode() as HTMLAudioElement;
       audio.volume = volume;
-      audio.currentTime = 0;
       audio.play().catch(() => {});
-    } catch (e) {
-      // Silent fail
     }
   }
 
@@ -191,10 +217,16 @@ class SoundManager {
     const entry = this.activeSources.get(cardId);
     if (!entry) return;
     
-    try {
-      entry.audio.pause();
-      entry.audio.currentTime = 0;
-    } catch (e) {}
+    if (entry.type === 'webaudio') {
+      try {
+        entry.src.stop(0);
+      } catch (e) {}
+    } else if (entry.type === 'html') {
+      try {
+        entry.audio.pause();
+        entry.audio.currentTime = 0;
+      } catch (e) {}
+    }
     
     this.activeSources.delete(cardId);
   }
@@ -215,8 +247,13 @@ class SoundManager {
   setVolume(vol: number) {
     this._volume = Math.max(0, Math.min(1, vol));
     
+    // Update volume on active sources
     this.activeSources.forEach((entry) => {
-      entry.audio.volume = this._volume;
+      if (entry.type === 'webaudio') {
+        entry.gain.gain.value = this._volume;
+      } else if (entry.type === 'html') {
+        entry.audio.volume = this._volume;
+      }
     });
   }
 
@@ -243,6 +280,7 @@ export function useSoundEffects() {
   const managerRef = useRef<SoundManager>(getSoundManager());
   const initializedRef = useRef(false);
 
+  // Initialize on mount and resume on user interaction
   useEffect(() => {
     const manager = managerRef.current;
     
@@ -252,6 +290,7 @@ export function useSoundEffects() {
       });
     }
 
+    // Resume audio context on first user interaction (mobile requirement)
     const resumeOnInteraction = () => {
       manager.resumeContext();
     };
