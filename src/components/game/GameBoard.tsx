@@ -8,7 +8,8 @@ interface GameBoardProps {
   flippedCards: number[];
   onCardClick: (cardId: number) => void;
   onCheckMatch: () => void;
-  onAnimalRevealed: (animalId: string) => void;
+  onAnimalRevealed: (animalId: string, cardId: number) => void;
+  onCardFlippedBack?: (cardId: number) => void;
   onMatch: () => void;
   onNoMatch: () => void;
   disabled: boolean;
@@ -21,6 +22,7 @@ export function GameBoard({
   onCardClick,
   onCheckMatch,
   onAnimalRevealed,
+  onCardFlippedBack,
   onMatch,
   onNoMatch,
   disabled,
@@ -31,17 +33,29 @@ export function GameBoard({
   const prevFlippedRef = useRef<number[]>([]);
   const checkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Handle card flip sounds
+  // Handle card flip sounds - play on flip, stop on flip back
   useEffect(() => {
-    if (flippedCards.length > prevFlippedRef.current.length) {
+    const prevFlipped = prevFlippedRef.current;
+    
+    // Cards that were flipped and are now hidden (flipped back)
+    if (onCardFlippedBack) {
+      const flippedBack = prevFlipped.filter(id => !flippedCards.includes(id));
+      flippedBack.forEach(cardId => {
+        onCardFlippedBack(cardId);
+      });
+    }
+    
+    // New cards that were just flipped
+    if (flippedCards.length > prevFlipped.length) {
       const newCardId = flippedCards[flippedCards.length - 1];
       const card = cards.find((c) => c.id === newCardId);
       if (card) {
-        onAnimalRevealed(card.animalId);
+        onAnimalRevealed(card.animalId, card.id);
       }
     }
+    
     prevFlippedRef.current = flippedCards;
-  }, [flippedCards, cards, onAnimalRevealed]);
+  }, [flippedCards, cards, onAnimalRevealed, onCardFlippedBack]);
 
   // Handle match checking
   useEffect(() => {

@@ -28,6 +28,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
   const config = getLevel(level);
   const {
     playAnimalSound,
+    stopAnimalSound,
     playFlipSound,
     playMatchSound,
     playNoMatchSound,
@@ -106,9 +107,13 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     flipCard(cardId);
   }, [flipCard, playFlipSound]);
 
-  const handleAnimalRevealed = useCallback((animalId: string) => {
-    playAnimalSound(animalId);
+  const handleAnimalRevealed = useCallback((animalId: string, cardId: number) => {
+    playAnimalSound(animalId, `card_${cardId}`);
   }, [playAnimalSound]);
+
+  const handleCardFlippedBack = useCallback((cardId: number) => {
+    stopAnimalSound(`card_${cardId}`);
+  }, [stopAnimalSound]);
 
   const handleMatch = useCallback(() => {
     playMatchSound();
@@ -295,6 +300,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         onCardClick={handleCardClick}
         onCheckMatch={checkMatch}
         onAnimalRevealed={handleAnimalRevealed}
+        onCardFlippedBack={handleCardFlippedBack}
         onMatch={handleMatch}
         onNoMatch={handleNoMatch}
         disabled={!gameState.isPlaying || isPaused}
