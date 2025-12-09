@@ -1,0 +1,51 @@
+# Add the following MP3 files to this folder:
+# 
+# Animal sounds (36 files):
+# - cat.mp3
+# - calf.mp3
+# - horse.mp3
+# - lamb.mp3
+# - polar-bear.mp3
+# - seal.mp3
+# - shark.mp3
+# - duckling.mp3
+# - chick.mp3
+# - rabbit.mp3
+# - swan.mp3
+# - puppy.mp3
+# - owl.mp3
+# - eagle.mp3
+# - bird.mp3
+# - parrot.mp3
+# - penguin.mp3
+# - piggy.mp3
+# - beluga-whale.mp3
+# - hedgehog.mp3
+# - manta-ray.mp3
+# - squirrel.mp3
+# - zebra.mp3
+# - lion.mp3
+# - tiger.mp3
+# - leopard.mp3
+# - deer.mp3
+# - fox.mp3
+# - monkey.mp3
+# - elephant.mp3
+# - panda.mp3
+# - dolphin.mp3
+# - koala.mp3
+# - butterfly.mp3
+# - rhinoceros.mp3
+# - sea-turtle.mp3
+#
+# UI sounds (7 files):
+# - flip.mp3
+# - match.mp3
+# - no-match.mp3
+# - win.mp3
+# - lose.mp3
+# - click.mp3
+# - combo.mp3
+#
+# Keep each file under 100KB (short 0.5-2s clips)
+# Recommended sources: freesound.org, pixabay.com/sound-effects
