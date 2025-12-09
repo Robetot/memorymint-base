@@ -26,27 +26,45 @@ export interface AnimalData {
   image: string;
 }
 
+// 36 animals matching the game card set
+// Note: New animals without images will use placeholder - add images to src/assets/animals/
 export const ANIMALS: AnimalData[] = [
-  { id: 'calf', name: 'Cow', image: calfImg },
-  { id: 'puppy', name: 'Puppy', image: puppyImg },
-  { id: 'duckling', name: 'Duckling', image: ducklingImg },
-  { id: 'chick', name: 'Chick', image: chickImg },
   { id: 'cat', name: 'Cat', image: catImg },
+  { id: 'calf', name: 'Calf', image: calfImg },
+  { id: 'horse', name: 'Horse', image: calfImg }, // TODO: Add horse.jpg
   { id: 'lamb', name: 'Lamb', image: lambImg },
-  { id: 'piggy', name: 'Piggy', image: piggyImg },
-  { id: 'parrot', name: 'Parrot', image: parrotImg },
-  { id: 'swan', name: 'Swan', image: swanImg },
-  { id: 'owl', name: 'Owl', image: owlImg },
   { id: 'polarbear', name: 'Polar Bear', image: polarbearImg },
   { id: 'seal', name: 'Seal', image: sealImg },
+  { id: 'shark', name: 'Shark', image: dolphinImg }, // TODO: Add shark.jpg
+  { id: 'duckling', name: 'Duckling', image: ducklingImg },
+  { id: 'chick', name: 'Chick', image: chickImg },
+  { id: 'rabbit', name: 'Rabbit', image: lambImg }, // TODO: Add rabbit.jpg
+  { id: 'swan', name: 'Swan', image: swanImg },
+  { id: 'puppy', name: 'Puppy', image: puppyImg },
+  { id: 'owl', name: 'Owl', image: owlImg },
+  { id: 'eagle', name: 'Eagle', image: owlImg }, // TODO: Add eagle.jpg
+  { id: 'bird', name: 'Bird', image: parrotImg }, // TODO: Add bird.jpg
+  { id: 'parrot', name: 'Parrot', image: parrotImg },
+  { id: 'penguin', name: 'Penguin', image: sealImg }, // TODO: Add penguin.jpg
+  { id: 'piggy', name: 'Piggy', image: piggyImg },
+  { id: 'belugawhale', name: 'Beluga Whale', image: dolphinImg }, // TODO: Add belugawhale.jpg
+  { id: 'hedgehog', name: 'Hedgehog', image: squirrelImg }, // TODO: Add hedgehog.jpg
+  { id: 'mantaray', name: 'Manta Ray', image: dolphinImg }, // TODO: Add mantaray.jpg
   { id: 'squirrel', name: 'Squirrel', image: squirrelImg },
+  { id: 'zebra', name: 'Zebra', image: tigerImg }, // TODO: Add zebra.jpg
+  { id: 'lion', name: 'Lion', image: leopardImg }, // TODO: Add lion.jpg
   { id: 'tiger', name: 'Tiger', image: tigerImg },
   { id: 'leopard', name: 'Leopard', image: leopardImg },
   { id: 'deer', name: 'Deer', image: deerImg },
   { id: 'fox', name: 'Fox', image: foxImg },
+  { id: 'monkey', name: 'Monkey', image: koalaImg }, // TODO: Add monkey.jpg
+  { id: 'elephant', name: 'Elephant', image: pandaImg }, // TODO: Add elephant.jpg
   { id: 'panda', name: 'Panda', image: pandaImg },
   { id: 'dolphin', name: 'Dolphin', image: dolphinImg },
   { id: 'koala', name: 'Koala', image: koalaImg },
+  { id: 'butterfly', name: 'Butterfly', image: parrotImg }, // TODO: Add butterfly.jpg
+  { id: 'rhinoceros', name: 'Rhinoceros', image: pandaImg }, // TODO: Add rhinoceros.jpg
+  { id: 'seaturtle', name: 'Sea Turtle', image: sealImg }, // TODO: Add seaturtle.jpg
 ];
 
 export type Difficulty = '2x2' | '4x4' | '6x6' | '8x8';
