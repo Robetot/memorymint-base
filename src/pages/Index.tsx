@@ -8,10 +8,15 @@ import { AIImageGenerator } from '@/components/game/AIImageGenerator';
 import { Tutorial } from '@/components/game/Tutorial';
 import { SettingsScreen } from '@/components/game/SettingsScreen';
 import { StatsScreen } from '@/components/game/StatsScreen';
+import { AchievementsPanel } from '@/components/game/AchievementsPanel';
+import { AchievementUnlockPopup } from '@/components/game/AchievementUnlockPopup';
 import { useSettings } from '@/hooks/useSettings';
+import { useAchievements } from '@/hooks/useAchievements';
+import { usePowerUpSounds } from '@/hooks/usePowerUpSounds';
+import { WeeklyChallenge } from '@/hooks/useWeeklyChallenge';
 import { RarityResult } from '@/utils/rarityCalculator';
 
-type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'daily-challenge';
+type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<GameView>('welcome');
@@ -19,7 +24,17 @@ const Index = () => {
   const [lastScore, setLastScore] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
   const [dailyChallengeConfig, setDailyChallengeConfig] = useState<{ gridSize: number; timeLimit: number } | null>(null);
+  const [weeklyChallenge, setWeeklyChallenge] = useState<WeeklyChallenge | null>(null);
   const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
+  const { achievements, newUnlock, dismissNewUnlock, unlockedCount, totalCount } = useAchievements();
+  const { playSound } = usePowerUpSounds();
+
+  // Play achievement sound when new unlock
+  useEffect(() => {
+    if (newUnlock) {
+      playSound('achievement');
+    }
+  }, [newUnlock, playSound]);
 
   // Show tutorial on first visit
   useEffect(() => {
@@ -48,9 +63,18 @@ const Index = () => {
 
   const handleStartDailyChallenge = (gridSize: number, timeLimit: number) => {
     setDailyChallengeConfig({ gridSize, timeLimit });
+    setWeeklyChallenge(null);
     // Map grid size to approximate level
     const levelMap: Record<number, number> = { 4: 3, 6: 6, 8: 8 };
     setSelectedLevel(levelMap[gridSize] || 3);
+    setCurrentView('game');
+  };
+
+  const handleStartWeeklyChallenge = (challenge: WeeklyChallenge) => {
+    setWeeklyChallenge(challenge);
+    setDailyChallengeConfig(null);
+    const levelMap: Record<number, number> = { 4: 3, 6: 6, 8: 8 };
+    setSelectedLevel(levelMap[challenge.gridSize] || 6);
     setCurrentView('game');
   };
 
@@ -68,6 +92,10 @@ const Index = () => {
 
   const handleViewStats = () => {
     setCurrentView('stats');
+  };
+
+  const handleViewAchievements = () => {
+    setCurrentView('achievements');
   };
 
   const handleCreateArt = (score: number, rarity: RarityResult) => {
@@ -89,6 +117,14 @@ const Index = () => {
     <>
       {showTutorial && <Tutorial onComplete={handleTutorialComplete} />}
       
+      {/* Achievement unlock popup */}
+      {newUnlock && (
+        <AchievementUnlockPopup 
+          achievement={newUnlock} 
+          onDismiss={dismissNewUnlock} 
+        />
+      )}
+      
       {currentView === 'welcome' && (
         <WelcomeScreen 
           onStartGame={handleStartGame} 
@@ -96,7 +132,10 @@ const Index = () => {
           onViewLeaderboard={handleViewLeaderboard}
           onViewSettings={handleViewSettings}
           onViewStats={handleViewStats}
+          onViewAchievements={handleViewAchievements}
           onStartDailyChallenge={handleStartDailyChallenge}
+          onStartWeeklyChallenge={handleStartWeeklyChallenge}
+          achievementCount={{ unlocked: unlockedCount, total: totalCount }}
         />
       )}
       {currentView === 'wallet' && (
@@ -117,6 +156,7 @@ const Index = () => {
           level={selectedLevel}
           onCreateArt={handleCreateArt}
           onNextLevel={handleNextLevel}
+          weeklyChallenge={weeklyChallenge}
         />
       )}
       {currentView === 'leaderboard' && (
@@ -139,6 +179,14 @@ const Index = () => {
       )}
       {currentView === 'stats' && (
         <StatsScreen onBack={handleBackToMenu} />
+      )}
+      {currentView === 'achievements' && (
+        <AchievementsPanel
+          achievements={achievements}
+          unlockedCount={unlockedCount}
+          totalCount={totalCount}
+          onClose={handleBackToMenu}
+        />
       )}
     </>
   );
