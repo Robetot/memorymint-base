@@ -36,7 +36,29 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 function createCards(gridSize: number): CardData[] {
-  const pairsNeeded = (gridSize * gridSize) / 2;
+  const totalCards = gridSize * gridSize;
+  
+  // Special case: 1x1 grid (tutorial level) - single card that auto-completes
+  if (gridSize === 1) {
+    const animal = shuffleArray(ANIMALS)[0];
+    return [{
+      id: 0,
+      animalId: animal.id,
+      animalName: animal.name,
+      imageUrl: animal.image,
+      isFlipped: false,
+      isMatched: false,
+    }];
+  }
+  
+  // For odd grids (3x3, 5x5, 7x7, 9x9), we need (n²-1)/2 pairs + 1 single card
+  // But for simplicity, we'll use (n² - 1) cards with one "joker" that matches itself
+  // Actually, better approach: for odd grids, remove center card from play
+  const isOddGrid = gridSize % 2 === 1;
+  const pairsNeeded = isOddGrid 
+    ? Math.floor(totalCards / 2)  // (9-1)/2 = 4 pairs for 3x3
+    : totalCards / 2;
+  
   const shuffledAnimals = shuffleArray(ANIMALS);
   const selectedAnimals = shuffledAnimals.slice(0, pairsNeeded);
   
@@ -55,6 +77,19 @@ function createCards(gridSize: number): CardData[] {
       });
     }
   });
+  
+  // For odd grids, add a center card that's pre-matched (shown but not playable)
+  if (isOddGrid) {
+    const centerAnimal = shuffledAnimals[pairsNeeded] || shuffledAnimals[0];
+    cards.push({
+      id: cardId++,
+      animalId: 'center_' + centerAnimal.id,
+      animalName: centerAnimal.name,
+      imageUrl: centerAnimal.image,
+      isFlipped: true,
+      isMatched: true, // Pre-matched so it's always visible
+    });
+  }
   
   return shuffleArray(cards);
 }
@@ -80,7 +115,16 @@ export function useGameState(level: number = 1) {
   }));
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const totalPairs = (gridSize * gridSize) / 2;
+  
+  // Calculate total pairs based on grid size
+  // For 1x1: 0 pairs (tutorial), for odd grids: (n²-1)/2 pairs
+  const calculateTotalPairs = () => {
+    if (gridSize === 1) return 0; // Tutorial level
+    const totalCards = gridSize * gridSize;
+    const isOddGrid = gridSize % 2 === 1;
+    return isOddGrid ? Math.floor(totalCards / 2) : totalCards / 2;
+  };
+  const totalPairs = calculateTotalPairs();
 
   useEffect(() => {
     if (gameState.isPlaying && !gameState.isGameOver && !gameState.isPaused) {
