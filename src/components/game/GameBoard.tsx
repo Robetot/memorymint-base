@@ -92,39 +92,22 @@ export function GameBoard({
     };
   }, [flippedCards, cards, onCheckMatch, onMatch, onNoMatch]);
 
-  // Calculate grid size, accounting for odd grids that have an extra center card
-  const totalCards = cards.length;
-  const gridSize = Math.round(Math.sqrt(totalCards));
-
-  // Get grid container max-width based on grid size
-  const getContainerClass = () => {
-    if (gridSize >= 9) return 'max-w-[98vw] md:max-w-4xl';
-    if (gridSize === 8) return 'max-w-[95vw] md:max-w-3xl';
-    if (gridSize >= 6) return 'max-w-[90vw] md:max-w-2xl';
-    if (gridSize >= 4) return 'max-w-lg';
-    return 'max-w-xs';
-  };
-
-  // Get grid columns class
-  const getGridClass = () => {
-    switch (gridSize) {
-      case 1: return 'grid-cols-1 max-w-[120px] mx-auto gap-4';
-      case 2: return 'grid-cols-2 max-w-[200px] mx-auto gap-3';
-      case 3: return 'grid-cols-3 max-w-[280px] mx-auto gap-2';
-      case 4: return 'grid-cols-4 gap-2 md:gap-3';
-      case 5: return 'grid-cols-5 gap-1.5 md:gap-2';
-      case 6: return 'grid-cols-6 gap-1 md:gap-2';
-      case 7: return 'grid-cols-7 gap-1 md:gap-1.5';
-      case 8: return 'grid-cols-8 gap-[2px] md:gap-1';
-      case 9: return 'grid-cols-9 gap-[2px] md:gap-1';
-      case 10: return 'grid-cols-10 gap-[1px] md:gap-[2px]';
-      default: return 'grid-cols-4 gap-2';
-    }
-  };
+  const gridSize = Math.sqrt(cards.length);
 
   return (
-    <div className={cn('w-full mx-auto p-2 md:p-4', getContainerClass())}>
-      <div className={cn('grid', getGridClass())}>
+    <div className={cn(
+      'w-full mx-auto p-2 md:p-4',
+      gridSize === 8 ? 'max-w-[95vw] md:max-w-2xl' : 'max-w-lg'
+    )}>
+      <div
+        className={cn(
+          'grid',
+          gridSize === 2 && 'grid-cols-2 max-w-[200px] mx-auto gap-3',
+          gridSize === 4 && 'grid-cols-4 gap-2 md:gap-3',
+          gridSize === 6 && 'grid-cols-6 gap-1 md:gap-2',
+          gridSize === 8 && 'grid-cols-8 gap-[2px] md:gap-1'
+        )}
+      >
         {cards.map((card) => (
           <GameCard
             key={card.id}

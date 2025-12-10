@@ -2,36 +2,33 @@ import { useState, useEffect } from 'react';
 import { WelcomeScreen } from '@/components/game/WelcomeScreen';
 import { GameScreen } from '@/components/game/GameScreen';
 import { WalletScreen } from '@/components/game/WalletScreen';
+import { LevelSelector } from '@/components/game/LevelSelector';
 import { Leaderboard } from '@/components/game/Leaderboard';
 import { AIImageGenerator } from '@/components/game/AIImageGenerator';
+import { Tutorial } from '@/components/game/Tutorial';
 import { SettingsScreen } from '@/components/game/SettingsScreen';
 import { StatsScreen } from '@/components/game/StatsScreen';
 import { useSettings } from '@/hooks/useSettings';
 import { RarityResult } from '@/utils/rarityCalculator';
-import { getUnlockedLevel, getSavedNFTName, saveNFTName } from '@/data/levels';
 
-type GameView = 'welcome' | 'wallet' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats';
+type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<GameView>('welcome');
-  const [currentLevel, setCurrentLevel] = useState<number>(1);
+  const [selectedLevel, setSelectedLevel] = useState<number>(1);
   const [lastScore, setLastScore] = useState(0);
-  const [nftName, setNftName] = useState<string | null>(null);
-  const { settings, updateSetting, resetSettings } = useSettings();
+  const [showTutorial, setShowTutorial] = useState(false);
+  const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
 
-  // Load saved NFT name on mount
+  // Show tutorial on first visit
   useEffect(() => {
-    const savedName = getSavedNFTName();
-    if (savedName) {
-      setNftName(savedName);
+    if (settings.showTutorial) {
+      setShowTutorial(true);
     }
   }, []);
 
   const handleStartGame = () => {
-    // Auto-start at level 1 (or resume from unlocked level)
-    const startLevel = 1; // Always start from level 1 for new game
-    setCurrentLevel(startLevel);
-    setCurrentView('game');
+    setCurrentView('levels');
   };
 
   const handleConnectWallet = () => {
@@ -39,7 +36,12 @@ const Index = () => {
   };
 
   const handleWalletConnected = () => {
-    handleStartGame();
+    setCurrentView('levels');
+  };
+
+  const handleSelectLevel = (level: number) => {
+    setSelectedLevel(level);
+    setCurrentView('game');
   };
 
   const handleBackToMenu = () => {
@@ -64,18 +66,19 @@ const Index = () => {
   };
 
   const handleNextLevel = (nextLevel: number) => {
-    setCurrentLevel(nextLevel);
-    // GameScreen will automatically restart with new level
+    setSelectedLevel(nextLevel);
+    // Game will restart with new level
   };
 
-  // Save NFT name when set on level 1
-  const handleNFTNameSet = (name: string) => {
-    setNftName(name);
-    saveNFTName(name);
+  const handleTutorialComplete = () => {
+    setShowTutorial(false);
+    markTutorialComplete();
   };
 
   return (
     <>
+      {showTutorial && <Tutorial onComplete={handleTutorialComplete} />}
+      
       {currentView === 'welcome' && (
         <WelcomeScreen 
           onStartGame={handleStartGame} 
@@ -91,14 +94,18 @@ const Index = () => {
           onConnected={handleWalletConnected}
         />
       )}
+      {currentView === 'levels' && (
+        <LevelSelector
+          onSelectLevel={handleSelectLevel}
+          onBack={handleBackToMenu}
+        />
+      )}
       {currentView === 'game' && (
         <GameScreen 
           onBackToMenu={handleBackToMenu}
-          level={currentLevel}
+          level={selectedLevel}
           onCreateArt={handleCreateArt}
           onNextLevel={handleNextLevel}
-          nftName={nftName}
-          onNFTNameSet={handleNFTNameSet}
         />
       )}
       {currentView === 'leaderboard' && (

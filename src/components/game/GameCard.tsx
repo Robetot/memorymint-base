@@ -28,28 +28,10 @@ export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted
     }
   };
 
-  // Size categories
-  const isTinyGrid = gridSize >= 9;
-  const isVerySmallGrid = gridSize >= 7;
-  const isSmallGrid = gridSize >= 5;
-  const isMediumGrid = gridSize >= 4;
-
-  // Get border radius based on grid size
-  const getBorderRadius = () => {
-    if (isTinyGrid) return 'rounded-[2px] md:rounded-sm';
-    if (isVerySmallGrid) return 'rounded-sm md:rounded';
-    if (isSmallGrid) return 'rounded md:rounded-lg';
-    return 'rounded-lg md:rounded-xl';
-  };
-
-  // Get icon size for card back
-  const getIconSize = () => {
-    if (isTinyGrid) return 'w-2 h-2 text-[6px]';
-    if (isVerySmallGrid) return 'w-3 h-3 text-[8px]';
-    if (isSmallGrid) return 'w-5 h-5 text-xs';
-    if (isMediumGrid) return 'w-8 h-8 text-base';
-    return 'w-10 h-10 md:w-14 md:h-14 text-xl md:text-2xl';
-  };
+  // Adjust sizes based on grid - make 8x8 much smaller
+  const isSmallGrid = gridSize >= 6;
+  const isVerySmallGrid = gridSize >= 8;
+  const isExpertGrid = gridSize >= 8;
 
   return (
     <button
@@ -57,12 +39,12 @@ export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted
       disabled={disabled || card.isFlipped || card.isMatched}
       className={cn(
         'relative w-full aspect-square perspective-1000 cursor-pointer transition-transform focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 focus:ring-offset-background',
-        getBorderRadius(),
+        isExpertGrid ? 'rounded-sm md:rounded' : 'rounded-lg md:rounded-xl',
         !disabled && !card.isFlipped && !card.isMatched && 'hover:scale-105',
         disabled && 'cursor-not-allowed',
         card.isMatched && 'cursor-default',
-        isHinted && !isTinyGrid && 'ring-4 ring-accent animate-pulse',
-        isHinted && isTinyGrid && 'ring-1 ring-accent animate-pulse'
+        isHinted && !isExpertGrid && 'ring-4 ring-accent animate-pulse',
+        isHinted && isExpertGrid && 'ring-2 ring-accent animate-pulse'
       )}
     >
       <div
@@ -75,18 +57,18 @@ export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted
         <div
           className={cn(
             'card-face card-back absolute inset-0 flex items-center justify-center shadow-lg',
-            getBorderRadius(),
-            isTinyGrid ? 'border border-primary/30' : isVerySmallGrid ? 'border border-primary/30' : 'border-2 md:border-4 border-primary/30',
+            isExpertGrid ? 'rounded-sm md:rounded border border-primary/30' : 'rounded-lg md:rounded-xl border-2 md:border-4 border-primary/30',
             'pattern-card hover:border-primary/60 transition-colors',
             isHinted && 'border-accent'
           )}
         >
           <div className={cn(
             'bg-primary/90 flex items-center justify-center shadow-md',
-            getBorderRadius(),
-            getIconSize()
+            isExpertGrid ? 'w-4 h-4 rounded-sm' : isSmallGrid ? 'w-8 h-8 rounded-lg md:rounded-xl' : 'w-10 h-10 md:w-14 md:h-14 rounded-lg md:rounded-xl'
           )}>
-            <span>🎴</span>
+            <span className={cn(
+              isExpertGrid ? 'text-[8px]' : isSmallGrid ? 'text-base' : 'text-xl md:text-2xl'
+            )}>🎴</span>
           </div>
         </div>
 
@@ -94,10 +76,9 @@ export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted
         <div
           className={cn(
             'card-face card-front absolute inset-0 overflow-hidden shadow-lg',
-            getBorderRadius(),
-            isTinyGrid ? 'border border-secondary/50' : 'border-2 md:border-4',
-            !isTinyGrid && (card.isMatched ? 'border-success glow-success' : 'border-secondary/50'),
-            isTinyGrid && card.isMatched && 'border-success',
+            isExpertGrid ? 'rounded-sm md:rounded border border-secondary/50' : 'rounded-lg md:rounded-xl border-2 md:border-4',
+            !isExpertGrid && (card.isMatched ? 'border-success glow-success' : 'border-secondary/50'),
+            isExpertGrid && card.isMatched && 'border-success',
             isAnimating && 'animate-match-pop'
           )}
         >
@@ -106,8 +87,7 @@ export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted
             alt={card.animalName}
             className="w-full h-full object-cover"
           />
-          {/* Only show name label for larger grids */}
-          {gridSize <= 6 && (
+          {!isVerySmallGrid && (
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1 md:p-2">
               <span className={cn(
                 'font-body text-white drop-shadow-md',

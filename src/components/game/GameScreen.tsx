@@ -6,14 +6,13 @@ import { GameStats } from './GameStats';
 import { GameOverModal } from './GameOverModal';
 import { ScoreSubmitModal } from './ScoreSubmitModal';
 import { PauseMenu } from './PauseMenu';
-import { Level1Tutorial } from './Level1Tutorial';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useConfetti } from '@/hooks/useConfetti';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
 import { useHints } from '@/hooks/useHints';
-import { getLevel, saveUnlockedLevel, getMaxLevel, hasShownLevel1Tutorial, markLevel1TutorialShown } from '@/data/levels';
+import { getLevel, saveUnlockedLevel, getMaxLevel } from '@/data/levels';
 import { calculateRarity, RarityResult } from '@/utils/rarityCalculator';
 import { cn } from '@/lib/utils';
 
@@ -22,12 +21,10 @@ interface GameScreenProps {
   level: number;
   onCreateArt?: (score: number, rarity: RarityResult) => void;
   onNextLevel?: (nextLevel: number) => void;
-  nftName?: string | null;
-  onNFTNameSet?: (name: string) => void;
 }
 
-export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftName, onNFTNameSet }: GameScreenProps) {
-  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame, gridSize } = useGameState(level);
+export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: GameScreenProps) {
+  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame } = useGameState(level);
   const config = getLevel(level);
   const {
     playAnimalSound,
@@ -51,14 +48,6 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
   const [isPaused, setIsPaused] = useState(false);
   const [rarity, setRarity] = useState<RarityResult | null>(null);
   const [perfectGame, setPerfectGame] = useState(true);
-  const [showLevel1Tutorial, setShowLevel1Tutorial] = useState(false);
-
-  // Show level 1 tutorial once
-  useEffect(() => {
-    if (level === 1 && !hasShownLevel1Tutorial()) {
-      setShowLevel1Tutorial(true);
-    }
-  }, [level]);
 
   // Track perfect game (no wrong matches)
   useEffect(() => {
@@ -74,42 +63,9 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
     resetHints(level);
   }, [startGame, resetHints, level]);
 
-  // Handle level 1 (1x1 grid) - auto-complete when card is flipped
-  useEffect(() => {
-    if (level === 1 && gridSize === 1 && gameState.cards.length === 1) {
-      const card = gameState.cards[0];
-      if (card.isFlipped && !gameState.isGameOver) {
-        // Auto-complete level 1 after a short delay
-        const timer = setTimeout(() => {
-          playWinSound();
-          fireWinConfetti();
-          saveUnlockedLevel(2);
-          
-          // Calculate simple rarity for level 1
-          const rarityResult = calculateRarity(
-            '2x2',
-            gameState.timeRemaining,
-            config.time,
-            1,
-            1,
-            1,
-            true
-          );
-          setRarity(rarityResult);
-          
-          // Check if need to ask for NFT name
-          if (!nftName) {
-            setShowScoreSubmit(true);
-          }
-        }, 1000);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [level, gridSize, gameState.cards, gameState.isGameOver, playWinSound, fireWinConfetti, config.time, gameState.timeRemaining, nftName]);
-
   // Play win/lose sounds and calculate rarity
   useEffect(() => {
-    if (gameState.isGameOver && level > 1) {
+    if (gameState.isGameOver) {
       if (gameState.isWin) {
         playWinSound();
         fireWinConfetti();
@@ -120,7 +76,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
         
         // Calculate rarity based on level
         const difficultyMap: Record<number, '2x2' | '4x4' | '6x6' | '8x8'> = {
-          2: '2x2', 3: '2x2', 4: '4x4', 5: '4x4', 6: '6x6', 7: '6x6', 8: '8x8', 9: '8x8', 10: '8x8'
+          2: '2x2', 4: '4x4', 6: '6x6', 8: '8x8'
         };
         const difficulty = difficultyMap[config.gridSize] || '4x4';
         
@@ -135,16 +91,16 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
         );
         setRarity(rarityResult);
         
-        // Check if it's a high score (only show if we have NFT name)
+        // Check if it's a high score
         const topScore = getTopScore(level);
-        if ((gameState.score > topScore || topScore === 0) && !nftName) {
+        if (gameState.score > topScore || topScore === 0) {
           setShowScoreSubmit(true);
         }
       } else {
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, nftName]);
+  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -194,11 +150,6 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
   };
 
   const handleScoreSubmit = (name: string) => {
-    // Save NFT name for future levels
-    if (onNFTNameSet) {
-      onNFTNameSet(name);
-    }
-    
     addEntry({
       playerName: name,
       score: gameState.score,
@@ -253,21 +204,8 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
     resumeGame();
   };
 
-  const handleLevel1TutorialDismiss = () => {
-    setShowLevel1Tutorial(false);
-    markLevel1TutorialShown();
-  };
-
-  // Check if level 1 is completed (card flipped)
-  const isLevel1Complete = level === 1 && gridSize === 1 && gameState.cards[0]?.isFlipped;
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background py-4 px-2 md:py-6 md:px-4">
-      {/* Level 1 Tutorial Overlay */}
-      {showLevel1Tutorial && (
-        <Level1Tutorial onDismiss={handleLevel1TutorialDismiss} />
-      )}
-
       {/* Header */}
       <div className="max-w-2xl mx-auto flex items-center justify-between mb-4">
         <Button
@@ -287,37 +225,33 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
         </div>
 
         <div className="flex gap-1">
-          {/* Hint Button - hide for level 1 */}
-          {level > 1 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                handlePause();
-                setIsPaused(true);
-              }}
-              disabled={!gameState.isPlaying || hintsRemaining <= 0}
-              className={cn(
-                'rounded-full',
-                hintsRemaining > 0 && 'text-accent'
-              )}
-            >
-              <Lightbulb className="w-5 h-5" />
-            </Button>
-          )}
+          {/* Hint Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              handlePause();
+              setIsPaused(true);
+            }}
+            disabled={!gameState.isPlaying || hintsRemaining <= 0}
+            className={cn(
+              'rounded-full',
+              hintsRemaining > 0 && 'text-accent'
+            )}
+          >
+            <Lightbulb className="w-5 h-5" />
+          </Button>
           
-          {/* Pause Button - hide for level 1 */}
-          {level > 1 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handlePause}
-              disabled={!gameState.isPlaying}
-              className="rounded-full"
-            >
-              <Pause className="w-5 h-5" />
-            </Button>
-          )}
+          {/* Pause Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handlePause}
+            disabled={!gameState.isPlaying}
+            className="rounded-full"
+          >
+            <Pause className="w-5 h-5" />
+          </Button>
           
           {/* Music Toggle */}
           <Button
@@ -349,17 +283,15 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
         </div>
       </div>
 
-      {/* Stats - simplified for level 1 */}
-      {level > 1 && (
-        <GameStats
-          timeRemaining={gameState.timeRemaining}
-          moves={gameState.moves}
-          matchedPairs={gameState.matchedPairs}
-          totalPairs={totalPairs}
-          combo={gameState.combo}
-          score={gameState.score}
-        />
-      )}
+      {/* Stats */}
+      <GameStats
+        timeRemaining={gameState.timeRemaining}
+        moves={gameState.moves}
+        matchedPairs={gameState.matchedPairs}
+        totalPairs={totalPairs}
+        combo={gameState.combo}
+        score={gameState.score}
+      />
 
       {/* Game Board */}
       <GameBoard
@@ -371,7 +303,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
         onCardFlippedBack={handleCardFlippedBack}
         onMatch={handleMatch}
         onNoMatch={handleNoMatch}
-        disabled={!gameState.isPlaying || isPaused || showLevel1Tutorial}
+        disabled={!gameState.isPlaying || isPaused}
         hintedCardIds={hintedCardIds}
       />
 
@@ -385,28 +317,27 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, nftN
         hintsRemaining={hintsRemaining}
       />
 
-      {/* Score Submit Modal - For NFT name on level 1, or high score */}
+      {/* Score Submit Modal */}
       <ScoreSubmitModal
         isOpen={showScoreSubmit}
         score={gameState.score}
         onSubmit={handleScoreSubmit}
         onSkip={handleScoreSkip}
-        isNFTNamePrompt={level === 1}
       />
 
-      {/* Game Over Modal - for levels 2+ or level 1 after NFT name */}
-      {!showScoreSubmit && (level > 1 ? gameState.isGameOver : isLevel1Complete) && (
+      {/* Game Over Modal */}
+      {!showScoreSubmit && (
         <GameOverModal
-          isOpen={true}
-          isWin={level === 1 ? true : gameState.isWin}
+          isOpen={gameState.isGameOver}
+          isWin={gameState.isWin}
           score={gameState.score}
           moves={gameState.moves}
           timeRemaining={gameState.timeRemaining}
           maxCombo={gameState.maxCombo}
           onPlayAgain={handlePlayAgain}
           onBackToMenu={handleBackToMenu}
-          onCreateArt={(level === 1 || gameState.isWin) ? handleCreateArt : undefined}
-          onNextLevel={(level === 1 || gameState.isWin) && level < getMaxLevel() ? handleNextLevel : undefined}
+          onCreateArt={gameState.isWin ? handleCreateArt : undefined}
+          onNextLevel={gameState.isWin && level < getMaxLevel() ? handleNextLevel : undefined}
           gameTime={config.time}
           rarity={rarity}
           currentLevel={level}
