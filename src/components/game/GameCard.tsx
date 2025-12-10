@@ -87,16 +87,6 @@ export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted
             alt={card.animalName}
             className="w-full h-full object-cover"
           />
-          {!isVerySmallGrid && (
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1 md:p-2">
-              <span className={cn(
-                'font-body text-white drop-shadow-md',
-                isSmallGrid ? 'text-[8px]' : 'text-xs md:text-sm'
-              )}>
-                {card.animalName}
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </button>
