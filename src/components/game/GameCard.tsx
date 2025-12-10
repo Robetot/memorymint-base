@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { CardData } from '@/hooks/useGameState';
+import cardBackImg from '@/assets/card-back.png';
 
 interface GameCardProps {
   card: CardData;
@@ -53,23 +54,19 @@ export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted
           (card.isFlipped || card.isMatched) && 'flipped'
         )}
       >
-        {/* Card Back - MemoryMint Pattern */}
+        {/* Card Back - Custom Design */}
         <div
           className={cn(
-            'card-face card-back absolute inset-0 flex items-center justify-center shadow-lg',
-            isExpertGrid ? 'rounded-sm md:rounded border border-primary/30' : 'rounded-lg md:rounded-xl border-2 md:border-4 border-primary/30',
-            'pattern-card hover:border-primary/60 transition-colors',
-            isHinted && 'border-accent'
+            'card-face card-back absolute inset-0 overflow-hidden shadow-lg',
+            isExpertGrid ? 'rounded-sm md:rounded' : 'rounded-lg md:rounded-xl',
+            isHinted && 'ring-4 ring-accent'
           )}
         >
-          <div className={cn(
-            'bg-primary/90 flex items-center justify-center shadow-md',
-            isExpertGrid ? 'w-4 h-4 rounded-sm' : isSmallGrid ? 'w-8 h-8 rounded-lg md:rounded-xl' : 'w-10 h-10 md:w-14 md:h-14 rounded-lg md:rounded-xl'
-          )}>
-            <span className={cn(
-              isExpertGrid ? 'text-[8px]' : isSmallGrid ? 'text-base' : 'text-xl md:text-2xl'
-            )}>🎴</span>
-          </div>
+          <img 
+            src={cardBackImg} 
+            alt="Card back"
+            className="w-full h-full object-cover"
+          />
         </div>
 
         {/* Card Front - Animal Image */}
