@@ -6,6 +6,9 @@ import { GameStats } from './GameStats';
 import { GameOverModal } from './GameOverModal';
 import { ScoreSubmitModal } from './ScoreSubmitModal';
 import { PauseMenu } from './PauseMenu';
+import { ComboDisplay } from './ComboDisplay';
+import { PerfectIndicator } from './PerfectIndicator';
+import { TimerWarning } from './TimerWarning';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useConfetti } from '@/hooks/useConfetti';
@@ -293,6 +296,24 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         score={gameState.score}
       />
 
+      {/* Timer Warning Effect */}
+      <TimerWarning 
+        timeRemaining={gameState.timeRemaining} 
+        isPlaying={gameState.isPlaying && !isPaused} 
+      />
+
+      {/* Perfect Game Indicator */}
+      <PerfectIndicator 
+        isPerfect={perfectGame} 
+        matchedPairs={gameState.matchedPairs} 
+      />
+
+      {/* Combo Display */}
+      <ComboDisplay 
+        combo={gameState.combo} 
+        maxCombo={gameState.maxCombo} 
+      />
+
       {/* Game Board */}
       <GameBoard
         cards={gameState.cards}
@@ -305,6 +326,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         onNoMatch={handleNoMatch}
         disabled={!gameState.isPlaying || isPaused}
         hintedCardIds={hintedCardIds}
+        combo={gameState.combo}
       />
 
       {/* Pause Menu */}
