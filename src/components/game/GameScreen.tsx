@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Volume2, VolumeX, Music, Music2, Pause, Lightbulb } from 'lucide-react';
 import { GameBoard } from './GameBoard';
@@ -9,12 +9,14 @@ import { PauseMenu } from './PauseMenu';
 import { ComboDisplay } from './ComboDisplay';
 import { PerfectIndicator } from './PerfectIndicator';
 import { TimerWarning } from './TimerWarning';
+import { PowerUpsBar } from './PowerUpsBar';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useConfetti } from '@/hooks/useConfetti';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
 import { useHints } from '@/hooks/useHints';
+import { usePowerUps } from '@/hooks/usePowerUps';
 import { getLevel, saveUnlockedLevel, getMaxLevel } from '@/data/levels';
 import { calculateRarity, RarityResult } from '@/utils/rarityCalculator';
 import { cn } from '@/lib/utils';
@@ -27,7 +29,7 @@ interface GameScreenProps {
 }
 
 export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: GameScreenProps) {
-  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame } = useGameState(level);
+  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame, shuffleUnmatched, addTime } = useGameState(level);
   const config = getLevel(level);
   const {
     playAnimalSound,
@@ -45,12 +47,15 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
   const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
   const { addEntry, getTopScore } = useLeaderboard();
   const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(level);
+  const { powerUps, activeEffect, usePowerUp, clearActiveEffect, resetPowerUps } = usePowerUps();
 
   const [isMuted, setIsMuted] = useState(false);
   const [showScoreSubmit, setShowScoreSubmit] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [rarity, setRarity] = useState<RarityResult | null>(null);
   const [perfectGame, setPerfectGame] = useState(true);
+  const [revealAll, setRevealAll] = useState(false);
+  const freezeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Track perfect game (no wrong matches)
   useEffect(() => {
@@ -64,7 +69,41 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     startGame();
     setPerfectGame(true);
     resetHints(level);
-  }, [startGame, resetHints, level]);
+    resetPowerUps();
+  }, [startGame, resetHints, resetPowerUps, level]);
+
+  // Handle power-up effects
+  useEffect(() => {
+    if (activeEffect === 'freeze') {
+      pauseGame();
+      addTime(5);
+      freezeTimeoutRef.current = setTimeout(() => {
+        resumeGame();
+        clearActiveEffect();
+      }, 5000);
+    } else if (activeEffect === 'reveal') {
+      setRevealAll(true);
+      setTimeout(() => {
+        setRevealAll(false);
+        clearActiveEffect();
+      }, 2000);
+    } else if (activeEffect === 'shuffle') {
+      shuffleUnmatched();
+      clearActiveEffect();
+    }
+
+    return () => {
+      if (freezeTimeoutRef.current) {
+        clearTimeout(freezeTimeoutRef.current);
+      }
+    };
+  }, [activeEffect, pauseGame, resumeGame, addTime, shuffleUnmatched, clearActiveEffect]);
+
+  const handleUsePowerUp = useCallback((id: string) => {
+    if (usePowerUp(id)) {
+      playClickSound();
+    }
+  }, [usePowerUp, playClickSound]);
 
   // Play win/lose sounds and calculate rarity
   useEffect(() => {
@@ -145,6 +184,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     setPerfectGame(true);
     setRarity(null);
     resetHints(level);
+    resetPowerUps();
   };
 
   const handleBackToMenu = () => {
@@ -296,6 +336,22 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         score={gameState.score}
       />
 
+      {/* Power-ups Bar */}
+      <PowerUpsBar
+        powerUps={powerUps}
+        onUsePowerUp={handleUsePowerUp}
+        disabled={!gameState.isPlaying || isPaused || gameState.isGameOver}
+      />
+
+      {/* Freeze Effect Overlay */}
+      {activeEffect === 'freeze' && (
+        <div className="fixed inset-0 pointer-events-none z-40 border-4 border-cyan-400/50 animate-pulse">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-4xl font-bold text-cyan-400 animate-bounce">
+            ❄️ TIME FROZEN ❄️
+          </div>
+        </div>
+      )}
+
       {/* Timer Warning Effect */}
       <TimerWarning 
         timeRemaining={gameState.timeRemaining} 
@@ -324,9 +380,10 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         onCardFlippedBack={handleCardFlippedBack}
         onMatch={handleMatch}
         onNoMatch={handleNoMatch}
-        disabled={!gameState.isPlaying || isPaused}
+        disabled={!gameState.isPlaying || isPaused || revealAll}
         hintedCardIds={hintedCardIds}
         combo={gameState.combo}
+        revealAll={revealAll}
       />
 
       {/* Pause Menu */}

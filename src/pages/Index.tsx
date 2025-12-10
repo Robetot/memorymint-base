@@ -11,13 +11,14 @@ import { StatsScreen } from '@/components/game/StatsScreen';
 import { useSettings } from '@/hooks/useSettings';
 import { RarityResult } from '@/utils/rarityCalculator';
 
-type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats';
+type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'daily-challenge';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<GameView>('welcome');
   const [selectedLevel, setSelectedLevel] = useState<number>(1);
   const [lastScore, setLastScore] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [dailyChallengeConfig, setDailyChallengeConfig] = useState<{ gridSize: number; timeLimit: number } | null>(null);
   const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
 
   // Show tutorial on first visit
@@ -41,6 +42,15 @@ const Index = () => {
 
   const handleSelectLevel = (level: number) => {
     setSelectedLevel(level);
+    setDailyChallengeConfig(null);
+    setCurrentView('game');
+  };
+
+  const handleStartDailyChallenge = (gridSize: number, timeLimit: number) => {
+    setDailyChallengeConfig({ gridSize, timeLimit });
+    // Map grid size to approximate level
+    const levelMap: Record<number, number> = { 4: 3, 6: 6, 8: 8 };
+    setSelectedLevel(levelMap[gridSize] || 3);
     setCurrentView('game');
   };
 
@@ -86,6 +96,7 @@ const Index = () => {
           onViewLeaderboard={handleViewLeaderboard}
           onViewSettings={handleViewSettings}
           onViewStats={handleViewStats}
+          onStartDailyChallenge={handleStartDailyChallenge}
         />
       )}
       {currentView === 'wallet' && (
