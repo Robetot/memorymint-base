@@ -19,6 +19,7 @@ import foxImg from '@/assets/animals/fox.jpg';
 import pandaImg from '@/assets/animals/panda.jpg';
 import dolphinImg from '@/assets/animals/dolphin.jpg';
 import koalaImg from '@/assets/animals/koala.jpg';
+import penguinImg from '@/assets/animals/penguin.jpg';
 
 export interface AnimalData {
   id: string;
@@ -45,7 +46,7 @@ export const ANIMALS: AnimalData[] = [
   { id: 'eagle', name: 'Eagle', image: owlImg }, // TODO: Add eagle.jpg
   { id: 'bird', name: 'Bird', image: parrotImg }, // TODO: Add bird.jpg
   { id: 'parrot', name: 'Parrot', image: parrotImg },
-  { id: 'penguin', name: 'Penguin', image: sealImg }, // TODO: Add penguin.jpg
+  { id: 'penguin', name: 'Penguin', image: penguinImg },
   { id: 'piggy', name: 'Piggy', image: piggyImg },
   { id: 'belugawhale', name: 'Beluga Whale', image: dolphinImg }, // TODO: Add belugawhale.jpg
   { id: 'hedgehog', name: 'Hedgehog', image: squirrelImg }, // TODO: Add hedgehog.jpg
