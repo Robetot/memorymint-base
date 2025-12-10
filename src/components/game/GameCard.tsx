@@ -10,9 +10,10 @@ interface GameCardProps {
   showMatchAnimation: boolean;
   isHinted?: boolean;
   gridSize?: number;
+  isShaking?: boolean;
 }
 
-export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted = false, gridSize = 4 }: GameCardProps) {
+export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted = false, gridSize = 4, isShaking = false }: GameCardProps) {
   const [isAnimating, setIsAnimating] = useState(false);
 
   useEffect(() => {
@@ -51,7 +52,8 @@ export function GameCard({ card, onClick, disabled, showMatchAnimation, isHinted
       <div
         className={cn(
           'card-flip w-full h-full',
-          (card.isFlipped || card.isMatched) && 'flipped'
+          (card.isFlipped || card.isMatched) && 'flipped',
+          isShaking && 'animate-shake'
         )}
       >
         {/* Card Back - Custom Design */}

@@ -1,7 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { GameCard } from './GameCard';
 import { CardData } from '@/hooks/useGameState';
 import { cn } from '@/lib/utils';
+import { FloatingScore } from './FloatingScore';
+
+interface FloatingScoreData {
+  id: string;
+  score: number;
+  x: number;
+  y: number;
+  combo: number;
+}
 
 interface GameBoardProps {
   cards: CardData[];
@@ -14,6 +23,8 @@ interface GameBoardProps {
   onNoMatch: () => void;
   disabled: boolean;
   hintedCardIds?: number[];
+  combo?: number;
+  onScorePopup?: (x: number, y: number) => void;
 }
 
 export function GameBoard({
@@ -27,11 +38,19 @@ export function GameBoard({
   onNoMatch,
   disabled,
   hintedCardIds = [],
+  combo = 0,
 }: GameBoardProps) {
   const [matchedCardIds, setMatchedCardIds] = useState<Set<number>>(new Set());
   const [showMatchAnimation, setShowMatchAnimation] = useState(false);
+  const [shakingCardIds, setShakingCardIds] = useState<Set<number>>(new Set());
+  const [floatingScores, setFloatingScores] = useState<FloatingScoreData[]>([]);
   const prevFlippedRef = useRef<number[]>([]);
   const checkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+
+  const removeFloatingScore = useCallback((id: string) => {
+    setFloatingScores(prev => prev.filter(s => s.id !== id));
+  }, []);
 
   // Handle card flip sounds - play on flip, stop on flip back
   useEffect(() => {
@@ -57,7 +76,7 @@ export function GameBoard({
     prevFlippedRef.current = flippedCards;
   }, [flippedCards, cards, onAnimalRevealed, onCardFlippedBack]);
 
-  // Handle match checking
+  // Handle match checking with floating scores and shake effects
   useEffect(() => {
     if (flippedCards.length === 2) {
       if (checkTimeoutRef.current) {
@@ -75,9 +94,26 @@ export function GameBoard({
           if (isMatch) {
             setMatchedCardIds((prev) => new Set([...prev, firstId, secondId]));
             setShowMatchAnimation(true);
+            
+            // Add floating score at the center of the matched cards
+            if (boardRef.current) {
+              const rect = boardRef.current.getBoundingClientRect();
+              const baseScore = 100 * (combo + 1);
+              setFloatingScores(prev => [...prev, {
+                id: `${Date.now()}`,
+                score: baseScore,
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 3,
+                combo: combo,
+              }]);
+            }
+            
             onMatch();
             setTimeout(() => setShowMatchAnimation(false), 300);
           } else {
+            // Shake cards on wrong match
+            setShakingCardIds(new Set([firstId, secondId]));
+            setTimeout(() => setShakingCardIds(new Set()), 500);
             onNoMatch();
           }
           onCheckMatch();
@@ -90,15 +126,30 @@ export function GameBoard({
         clearTimeout(checkTimeoutRef.current);
       }
     };
-  }, [flippedCards, cards, onCheckMatch, onMatch, onNoMatch]);
+  }, [flippedCards, cards, onCheckMatch, onMatch, onNoMatch, combo]);
 
   const gridSize = Math.sqrt(cards.length);
 
   return (
-    <div className={cn(
-      'w-full mx-auto p-2 md:p-4',
-      gridSize === 8 ? 'max-w-[95vw] md:max-w-2xl' : 'max-w-lg'
-    )}>
+    <div 
+      ref={boardRef}
+      className={cn(
+        'w-full mx-auto p-2 md:p-4 relative',
+        gridSize === 8 ? 'max-w-[95vw] md:max-w-2xl' : 'max-w-lg'
+      )}
+    >
+      {/* Floating Scores */}
+      {floatingScores.map(score => (
+        <FloatingScore
+          key={score.id}
+          score={score.score}
+          x={score.x}
+          y={score.y}
+          combo={score.combo}
+          onComplete={() => removeFloatingScore(score.id)}
+        />
+      ))}
+
       <div
         className={cn(
           'grid',
@@ -117,6 +168,7 @@ export function GameBoard({
             showMatchAnimation={showMatchAnimation && matchedCardIds.has(card.id)}
             isHinted={hintedCardIds.includes(card.id)}
             gridSize={gridSize}
+            isShaking={shakingCardIds.has(card.id)}
           />
         ))}
       </div>
