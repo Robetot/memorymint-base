@@ -138,6 +138,40 @@ export function useGameState(level: number = 1) {
     }));
   }, []);
 
+  const addTime = useCallback((seconds: number) => {
+    setGameState((prev) => ({
+      ...prev,
+      timeRemaining: prev.timeRemaining + seconds,
+    }));
+  }, []);
+
+  const shuffleUnmatched = useCallback(() => {
+    setGameState((prev) => {
+      const unmatchedCards = prev.cards.filter(c => !c.isMatched);
+      const matchedCards = prev.cards.filter(c => c.isMatched);
+      
+      // Get positions and shuffle them
+      const unmatchedPositions = unmatchedCards.map(c => c.id);
+      const shuffledPositions = shuffleArray([...unmatchedPositions]);
+      
+      // Reassign positions
+      const shuffledUnmatched = unmatchedCards.map((card, index) => ({
+        ...card,
+        id: shuffledPositions[index],
+        isFlipped: false,
+      }));
+      
+      // Combine and sort by id
+      const allCards = [...matchedCards, ...shuffledUnmatched].sort((a, b) => a.id - b.id);
+      
+      return {
+        ...prev,
+        cards: allCards,
+        flippedCards: [],
+      };
+    });
+  }, []);
+
   const flipCard = useCallback((cardId: number) => {
     setGameState((prev) => {
       if (!prev.isPlaying || prev.flippedCards.length >= 2 || prev.isPaused) return prev;
@@ -226,6 +260,8 @@ export function useGameState(level: number = 1) {
     checkMatch,
     pauseGame,
     resumeGame,
+    addTime,
+    shuffleUnmatched,
     totalPairs,
     gridSize,
   };

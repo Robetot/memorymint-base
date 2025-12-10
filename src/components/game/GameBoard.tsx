@@ -25,6 +25,7 @@ interface GameBoardProps {
   hintedCardIds?: number[];
   combo?: number;
   onScorePopup?: (x: number, y: number) => void;
+  revealAll?: boolean;
 }
 
 export function GameBoard({
@@ -39,6 +40,7 @@ export function GameBoard({
   disabled,
   hintedCardIds = [],
   combo = 0,
+  revealAll = false,
 }: GameBoardProps) {
   const [matchedCardIds, setMatchedCardIds] = useState<Set<number>>(new Set());
   const [showMatchAnimation, setShowMatchAnimation] = useState(false);
@@ -162,9 +164,9 @@ export function GameBoard({
         {cards.map((card) => (
           <GameCard
             key={card.id}
-            card={card}
+            card={revealAll ? { ...card, isFlipped: true } : card}
             onClick={() => onCardClick(card.id)}
-            disabled={disabled || flippedCards.length >= 2}
+            disabled={disabled || flippedCards.length >= 2 || revealAll}
             showMatchAnimation={showMatchAnimation && matchedCardIds.has(card.id)}
             isHinted={hintedCardIds.includes(card.id)}
             gridSize={gridSize}

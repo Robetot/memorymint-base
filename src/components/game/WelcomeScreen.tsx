@@ -1,5 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3 } from 'lucide-react';
+import { DailyChallengeCard } from './DailyChallengeCard';
+import { useDailyChallenge } from '@/hooks/useDailyChallenge';
 
 import calfImg from '@/assets/animals/calf.jpg';
 import puppyImg from '@/assets/animals/puppy.jpg';
@@ -12,6 +14,7 @@ interface WelcomeScreenProps {
   onViewLeaderboard?: () => void;
   onViewSettings?: () => void;
   onViewStats?: () => void;
+  onStartDailyChallenge?: (gridSize: number, timeLimit: number) => void;
 }
 
 const previewAnimals = [
@@ -21,7 +24,15 @@ const previewAnimals = [
   { img: tigerImg, name: 'Tiger' },
 ];
 
-export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard, onViewSettings, onViewStats }: WelcomeScreenProps) {
+export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard, onViewSettings, onViewStats, onStartDailyChallenge }: WelcomeScreenProps) {
+  const { challenge, getStreak, completeChallenge } = useDailyChallenge();
+
+  const handleStartDailyChallenge = () => {
+    if (challenge && onStartDailyChallenge) {
+      onStartDailyChallenge(challenge.gridSize, challenge.timeLimit);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-background via-muted to-background overflow-hidden relative">
       {/* Animated background */}
@@ -41,7 +52,7 @@ export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard,
       )}
 
       {/* Logo */}
-      <div className="relative z-10 text-center mb-10">
+      <div className="relative z-10 text-center mb-6">
         <div className="flex items-center justify-center gap-3 mb-4">
           <div className="w-16 h-16 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center shadow-lg glow-primary animate-pulse-glow">
             <Sparkles className="w-8 h-8 text-primary-foreground" />
@@ -55,8 +66,17 @@ export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard,
         </p>
       </div>
 
+      {/* Daily Challenge Card */}
+      <div className="relative z-10 w-full max-w-sm">
+        <DailyChallengeCard
+          challenge={challenge}
+          streak={getStreak()}
+          onStart={handleStartDailyChallenge}
+        />
+      </div>
+
       {/* Animal cards */}
-      <div className="flex gap-4 mb-10 relative z-10">
+      <div className="flex gap-4 mb-6 relative z-10">
         {previewAnimals.map((animal, i) => (
           <div
             key={animal.name}
@@ -100,7 +120,7 @@ export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard,
       </div>
 
       {/* Features */}
-      <div className="mt-12 grid grid-cols-3 gap-4 max-w-lg w-full relative z-10">
+      <div className="mt-8 grid grid-cols-3 gap-4 max-w-lg w-full relative z-10">
         {[
           { icon: '🎮', title: 'Match & Win' },
           { icon: '🎨', title: 'Create Art' },
