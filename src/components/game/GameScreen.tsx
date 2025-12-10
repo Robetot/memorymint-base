@@ -17,6 +17,9 @@ import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
 import { useHints } from '@/hooks/useHints';
 import { usePowerUps } from '@/hooks/usePowerUps';
+import { useAchievements } from '@/hooks/useAchievements';
+import { usePowerUpSounds } from '@/hooks/usePowerUpSounds';
+import { WeeklyChallenge, useWeeklyChallenge } from '@/hooks/useWeeklyChallenge';
 import { getLevel, saveUnlockedLevel, getMaxLevel } from '@/data/levels';
 import { calculateRarity, RarityResult } from '@/utils/rarityCalculator';
 import { cn } from '@/lib/utils';
@@ -26,9 +29,10 @@ interface GameScreenProps {
   level: number;
   onCreateArt?: (score: number, rarity: RarityResult) => void;
   onNextLevel?: (nextLevel: number) => void;
+  weeklyChallenge?: WeeklyChallenge | null;
 }
 
-export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: GameScreenProps) {
+export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, weeklyChallenge }: GameScreenProps) {
   const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame, shuffleUnmatched, addTime } = useGameState(level);
   const config = getLevel(level);
   const {
@@ -48,6 +52,17 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
   const { addEntry, getTopScore } = useLeaderboard();
   const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(level);
   const { powerUps, activeEffect, usePowerUp, clearActiveEffect, resetPowerUps } = usePowerUps();
+  const { 
+    trackCombo, 
+    trackPerfectGame, 
+    trackSpeed, 
+    trackLevelComplete, 
+    trackDailyChallenge, 
+    trackWeeklyChallenge,
+    trackPowerUp 
+  } = useAchievements();
+  const { playSound: playPowerUpSound } = usePowerUpSounds();
+  const { completeChallenge: completeWeekly } = useWeeklyChallenge();
 
   const [isMuted, setIsMuted] = useState(false);
   const [showScoreSubmit, setShowScoreSubmit] = useState(false);
@@ -101,9 +116,20 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
 
   const handleUsePowerUp = useCallback((id: string) => {
     if (usePowerUp(id)) {
-      playClickSound();
+      trackPowerUp();
+      // Play power-up specific sounds
+      if (id === 'freeze') playPowerUpSound('freeze');
+      else if (id === 'reveal') playPowerUpSound('reveal');
+      else if (id === 'shuffle') playPowerUpSound('shuffle');
     }
-  }, [usePowerUp, playClickSound]);
+  }, [usePowerUp, trackPowerUp, playPowerUpSound]);
+
+  // Track combo achievements
+  useEffect(() => {
+    if (gameState.combo > 1) {
+      trackCombo(gameState.combo);
+    }
+  }, [gameState.combo, trackCombo]);
 
   // Play win/lose sounds and calculate rarity
   useEffect(() => {
@@ -111,6 +137,24 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
       if (gameState.isWin) {
         playWinSound();
         fireWinConfetti();
+        
+        // Track achievements
+        trackLevelComplete();
+        const completionTime = config.time - gameState.timeRemaining;
+        trackSpeed(completionTime);
+        if (perfectGame) {
+          trackPerfectGame();
+        }
+
+        // Handle weekly challenge completion
+        if (weeklyChallenge) {
+          completeWeekly(completionTime);
+          trackWeeklyChallenge();
+          playPowerUpSound('weekly_complete');
+        } else {
+          playPowerUpSound('daily_complete');
+          trackDailyChallenge();
+        }
         
         // Unlock next level
         const nextLevel = Math.min(level + 1, getMaxLevel());
@@ -142,7 +186,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame]);
+  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, trackWeeklyChallenge, weeklyChallenge, completeWeekly, playPowerUpSound]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();

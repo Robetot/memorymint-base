@@ -1,7 +1,9 @@
 import { Button } from '@/components/ui/button';
-import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3 } from 'lucide-react';
+import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3, Award } from 'lucide-react';
 import { DailyChallengeCard } from './DailyChallengeCard';
+import { WeeklyChallengeCard } from './WeeklyChallengeCard';
 import { useDailyChallenge } from '@/hooks/useDailyChallenge';
+import { useWeeklyChallenge, WeeklyChallenge } from '@/hooks/useWeeklyChallenge';
 
 import calfImg from '@/assets/animals/calf.jpg';
 import puppyImg from '@/assets/animals/puppy.jpg';
@@ -14,7 +16,10 @@ interface WelcomeScreenProps {
   onViewLeaderboard?: () => void;
   onViewSettings?: () => void;
   onViewStats?: () => void;
+  onViewAchievements?: () => void;
   onStartDailyChallenge?: (gridSize: number, timeLimit: number) => void;
+  onStartWeeklyChallenge?: (challenge: WeeklyChallenge) => void;
+  achievementCount?: { unlocked: number; total: number };
 }
 
 const previewAnimals = [
@@ -24,12 +29,29 @@ const previewAnimals = [
   { img: tigerImg, name: 'Tiger' },
 ];
 
-export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard, onViewSettings, onViewStats, onStartDailyChallenge }: WelcomeScreenProps) {
-  const { challenge, getStreak, completeChallenge } = useDailyChallenge();
+export function WelcomeScreen({ 
+  onStartGame, 
+  onConnectWallet, 
+  onViewLeaderboard, 
+  onViewSettings, 
+  onViewStats, 
+  onViewAchievements,
+  onStartDailyChallenge,
+  onStartWeeklyChallenge,
+  achievementCount,
+}: WelcomeScreenProps) {
+  const { challenge, getStreak } = useDailyChallenge();
+  const { challenge: weeklyChallenge, isCompleted: weeklyCompleted, bestTime: weeklyBestTime, getTimeRemaining } = useWeeklyChallenge();
 
   const handleStartDailyChallenge = () => {
     if (challenge && onStartDailyChallenge) {
       onStartDailyChallenge(challenge.gridSize, challenge.timeLimit);
+    }
+  };
+
+  const handleStartWeeklyChallenge = () => {
+    if (weeklyChallenge && onStartWeeklyChallenge) {
+      onStartWeeklyChallenge(weeklyChallenge);
     }
   };
 
@@ -66,13 +88,22 @@ export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard,
         </p>
       </div>
 
-      {/* Daily Challenge Card */}
-      <div className="relative z-10 w-full max-w-sm">
+      {/* Daily & Weekly Challenge Cards */}
+      <div className="relative z-10 w-full max-w-sm space-y-4 mb-4">
         <DailyChallengeCard
           challenge={challenge}
           streak={getStreak()}
           onStart={handleStartDailyChallenge}
         />
+        {weeklyChallenge && (
+          <WeeklyChallengeCard
+            challenge={weeklyChallenge}
+            isCompleted={weeklyCompleted}
+            bestTime={weeklyBestTime}
+            timeRemaining={getTimeRemaining()}
+            onStart={handleStartWeeklyChallenge}
+          />
+        )}
       </div>
 
       {/* Animal cards */}
@@ -99,21 +130,32 @@ export function WelcomeScreen({ onStartGame, onConnectWallet, onViewLeaderboard,
           Play Now
         </Button>
         
-        <div className="flex gap-3 w-full">
-          <Button onClick={onConnectWallet} variant="outline" size="lg" className="flex-1 py-6 rounded-xl font-display">
-            <Wallet className="w-5 h-5 mr-2" />
+        <div className="grid grid-cols-2 gap-2 w-full">
+          <Button onClick={onConnectWallet} variant="outline" size="lg" className="py-5 rounded-xl font-display">
+            <Wallet className="w-4 h-4 mr-1.5" />
             Wallet
           </Button>
           {onViewLeaderboard && (
-            <Button onClick={onViewLeaderboard} variant="outline" size="lg" className="flex-1 py-6 rounded-xl font-display">
-              <Trophy className="w-5 h-5 mr-2" />
+            <Button onClick={onViewLeaderboard} variant="outline" size="lg" className="py-5 rounded-xl font-display">
+              <Trophy className="w-4 h-4 mr-1.5" />
               Ranks
             </Button>
           )}
           {onViewStats && (
-            <Button onClick={onViewStats} variant="outline" size="lg" className="flex-1 py-6 rounded-xl font-display">
-              <BarChart3 className="w-5 h-5 mr-2" />
+            <Button onClick={onViewStats} variant="outline" size="lg" className="py-5 rounded-xl font-display">
+              <BarChart3 className="w-4 h-4 mr-1.5" />
               Stats
+            </Button>
+          )}
+          {onViewAchievements && (
+            <Button onClick={onViewAchievements} variant="outline" size="lg" className="py-5 rounded-xl font-display relative">
+              <Award className="w-4 h-4 mr-1.5" />
+              Badges
+              {achievementCount && (
+                <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full">
+                  {achievementCount.unlocked}/{achievementCount.total}
+                </span>
+              )}
             </Button>
           )}
         </div>
