@@ -1,5 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
-import { cn } from '@/lib/utils';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 interface Particle {
   id: number;
@@ -120,35 +119,46 @@ interface ComboParticlesProps {
 }
 
 export function ComboParticles({ combo }: ComboParticlesProps) {
-  const [sparks, setSparks] = useState<{ id: number; x: number; delay: number }[]>([]);
+  const [sparks, setSparks] = useState<{ id: string; x: number; delay: number }[]>([]);
+  const prevComboRef = useRef(0);
 
   useEffect(() => {
-    if (combo < 2) {
+    // Only trigger sparks when combo increases, not on every render
+    if (combo > prevComboRef.current && combo >= 2) {
+      const sparkCount = Math.min(combo, 6); // Limit max sparks
+      const newSparks = Array.from({ length: sparkCount }, (_, i) => ({
+        id: `${Date.now()}-${i}`,
+        x: 10 + Math.random() * 80,
+        delay: Math.random() * 0.2,
+      }));
+      setSparks(newSparks);
+      
+      // Auto-cleanup sparks after animation completes
+      const timer = setTimeout(() => {
+        setSparks([]);
+      }, 1200);
+      
+      return () => clearTimeout(timer);
+    } else if (combo < 2) {
       setSparks([]);
-      return;
     }
-
-    const sparkCount = Math.min(combo * 2, 12);
-    const newSparks = Array.from({ length: sparkCount }, (_, i) => ({
-      id: i,
-      x: 10 + Math.random() * 80,
-      delay: Math.random() * 0.3,
-    }));
-    setSparks(newSparks);
+    
+    prevComboRef.current = combo;
   }, [combo]);
 
-  if (combo < 2) return null;
+  if (sparks.length === 0) return null;
 
   return (
     <div className="fixed inset-0 pointer-events-none z-40 overflow-hidden">
       {sparks.map((spark) => (
         <div
           key={spark.id}
-          className="absolute w-1 h-8 bg-gradient-to-b from-accent via-primary to-transparent animate-spark-rise"
+          className="absolute w-1 h-6 bg-gradient-to-b from-accent via-primary to-transparent"
           style={{
             left: `${spark.x}%`,
             bottom: 0,
             animationDelay: `${spark.delay}s`,
+            animation: 'spark-rise 1s ease-out forwards',
           }}
         />
       ))}
