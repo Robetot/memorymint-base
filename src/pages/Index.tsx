@@ -120,6 +120,11 @@ const Index = () => {
     markTutorialComplete();
   };
 
+  const handleReplayTutorial = () => {
+    setShowTutorial(true);
+    setCurrentView('welcome');
+  };
+
   return (
     <>
       {showTutorial && <Tutorial onComplete={handleTutorialComplete} />}
@@ -186,6 +191,7 @@ const Index = () => {
           onUpdateSetting={updateSetting}
           onReset={resetSettings}
           onBack={handleBackToMenu}
+          onReplayTutorial={handleReplayTutorial}
         />
       )}
       {currentView === 'stats' && (

@@ -35,12 +35,13 @@ const MODIFIERS: ChallengeModifier[] = [
   { id: 'pressure', name: 'Under Pressure', description: 'Mistakes remove 5 seconds', icon: '💀' },
 ];
 
+// Weekly themes limited to 6x6 max (18 pairs with 21 available animals)
 const WEEKLY_THEMES = [
   { name: 'Speed Trial', modifiers: ['speed', 'limited'], gridSize: 6, timeMult: 0.5, flipMult: 0.7 },
-  { name: 'Chaos Master', modifiers: ['chaos', 'mirror'], gridSize: 6, timeMult: 1.2, flipMult: 1 },
+  { name: 'Chaos Master', modifiers: ['chaos', 'mirror'], gridSize: 4, timeMult: 1.2, flipMult: 1 },
   { name: 'Fog Challenge', modifiers: ['fog', 'blind'], gridSize: 6, timeMult: 1.5, flipMult: 1 },
-  { name: 'Pressure Cooker', modifiers: ['pressure', 'decay'], gridSize: 8, timeMult: 0.8, flipMult: 0.9 },
-  { name: 'Ultimate Test', modifiers: ['speed', 'chaos', 'pressure'], gridSize: 8, timeMult: 0.6, flipMult: 0.8 },
+  { name: 'Pressure Cooker', modifiers: ['pressure', 'decay'], gridSize: 6, timeMult: 0.8, flipMult: 0.9 },
+  { name: 'Ultimate Test', modifiers: ['speed', 'chaos', 'pressure'], gridSize: 6, timeMult: 0.6, flipMult: 0.8 },
 ];
 
 const NFT_REWARDS = [
