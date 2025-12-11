@@ -41,7 +41,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
     stopAnimalSound,
     playFlipSound,
     playMatchSound,
-    playNoMatchSound,
+    playMismatchSound,
     playWinSound,
     playLoseSound,
     playClickSound,
@@ -222,8 +222,8 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
   }, [playMatchSound, fireMatchConfetti]);
 
   const handleNoMatch = useCallback(() => {
-    playNoMatchSound();
-  }, [playNoMatchSound]);
+    playMismatchSound();
+  }, [playMismatchSound]);
 
   const toggleMute = () => {
     const newMuted = !isMuted;

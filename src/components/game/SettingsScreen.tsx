@@ -1,8 +1,9 @@
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
-import { ArrowLeft, Volume2, Music, Vibrate, Eye, Moon, RotateCcw, HelpCircle } from 'lucide-react';
-import { GameSettings } from '@/hooks/useSettings';
+import { ArrowLeft, Volume2, Music, Vibrate, Eye, Moon, RotateCcw, HelpCircle, Check } from 'lucide-react';
+import { GameSettings, MusicTheme } from '@/hooks/useSettings';
+import { MUSIC_THEMES } from '@/hooks/useBackgroundMusic';
 
 interface SettingsScreenProps {
   settings: GameSettings;
@@ -90,6 +91,37 @@ export function SettingsScreen({
                 step={0.1}
                 disabled={!settings.musicEnabled}
               />
+            </div>
+
+            {/* Music Theme Selection */}
+            <div className="space-y-3">
+              <span className="text-foreground font-body">Music Theme</span>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.entries(MUSIC_THEMES) as [MusicTheme, typeof MUSIC_THEMES[MusicTheme]][]).map(([key, theme]) => (
+                  <button
+                    key={key}
+                    onClick={() => onUpdateSetting('musicTheme', key)}
+                    disabled={!settings.musicEnabled}
+                    className={`relative p-3 rounded-xl border-2 text-left transition-all ${
+                      settings.musicTheme === key
+                        ? 'border-primary bg-primary/10'
+                        : 'border-border bg-muted/30 hover:border-primary/50'
+                    } ${!settings.musicEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {settings.musicTheme === key && (
+                      <div className="absolute top-2 right-2">
+                        <Check className="w-4 h-4 text-primary" />
+                      </div>
+                    )}
+                    <div className="font-display text-sm font-semibold text-foreground">
+                      {theme.name}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {theme.description}
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

@@ -2,10 +2,13 @@ import { useState, useCallback, useEffect } from 'react';
 
 const STORAGE_KEY = 'memorymint_settings';
 
+export type MusicTheme = 'chill' | 'adventure' | 'zen' | 'retro';
+
 export interface GameSettings {
   soundEnabled: boolean;
   musicEnabled: boolean;
   musicVolume: number;
+  musicTheme: MusicTheme;
   sfxVolume: number;
   showTutorial: boolean;
   vibrationEnabled: boolean;
@@ -17,6 +20,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   soundEnabled: true,
   musicEnabled: true,
   musicVolume: 0.3,
+  musicTheme: 'chill',
   sfxVolume: 0.5,
   showTutorial: true,
   vibrationEnabled: true,
