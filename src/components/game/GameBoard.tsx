@@ -4,6 +4,7 @@ import { CardData } from '@/hooks/useGameState';
 import { cn } from '@/lib/utils';
 import { FloatingScore } from './FloatingScore';
 import { MatchParticles, ComboParticles } from './MatchParticles';
+import { useMatchSounds } from '@/hooks/useMatchSounds';
 
 interface FloatingScoreData {
   id: string;
@@ -59,6 +60,7 @@ export function GameBoard({
   const checkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const { playMatchSound, playParticleExplosion, playComboCelebration } = useMatchSounds();
 
   const removeFloatingScore = useCallback((id: string) => {
     setFloatingScores(prev => prev.filter(s => s.id !== id));
@@ -111,6 +113,12 @@ export function GameBoard({
             setMatchedCardIds((prev) => new Set([...prev, firstId, secondId]));
             setShowMatchAnimation(true);
             
+            // Play match and combo sounds
+            playMatchSound(combo);
+            if (combo >= 2) {
+              playComboCelebration(combo);
+            }
+            
             // Add floating score and particles at the center of the matched cards
             if (boardRef.current) {
               const rect = boardRef.current.getBoundingClientRect();
@@ -132,6 +140,7 @@ export function GameBoard({
               
               if (firstCardEl) {
                 const cardRect = firstCardEl.getBoundingClientRect();
+                playParticleExplosion(combo);
                 setParticles(prev => [...prev, {
                   id: `particle-${Date.now()}-1`,
                   x: cardRect.left + cardRect.width / 2,
@@ -142,6 +151,7 @@ export function GameBoard({
               
               if (secondCardEl) {
                 const cardRect = secondCardEl.getBoundingClientRect();
+                playParticleExplosion(combo);
                 setParticles(prev => [...prev, {
                   id: `particle-${Date.now()}-2`,
                   x: cardRect.left + cardRect.width / 2,
@@ -169,7 +179,7 @@ export function GameBoard({
         clearTimeout(checkTimeoutRef.current);
       }
     };
-  }, [flippedCards, cards, onCheckMatch, onMatch, onNoMatch, combo]);
+  }, [flippedCards, cards, onCheckMatch, onMatch, onNoMatch, combo, playMatchSound, playParticleExplosion, playComboCelebration]);
 
   // Store card refs
   const setCardRef = useCallback((cardId: number, el: HTMLButtonElement | null) => {
