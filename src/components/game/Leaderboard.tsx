@@ -14,7 +14,7 @@ export function Leaderboard({ onBack }: LeaderboardProps) {
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>('4x4');
 
   const entries = getEntriesByDifficulty(selectedDifficulty);
-  const difficulties: Difficulty[] = ['2x2', '4x4', '6x6', '8x8'];
+  const difficulties: Difficulty[] = ['2x2', '4x4', '6x6'];
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

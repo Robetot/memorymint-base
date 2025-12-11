@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
-import { ArrowLeft, Volume2, Music, Vibrate, Eye, Moon, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Volume2, Music, Vibrate, Eye, Moon, RotateCcw, HelpCircle } from 'lucide-react';
 import { GameSettings } from '@/hooks/useSettings';
 
 interface SettingsScreenProps {
@@ -9,6 +9,7 @@ interface SettingsScreenProps {
   onUpdateSetting: <K extends keyof GameSettings>(key: K, value: GameSettings[K]) => void;
   onReset: () => void;
   onBack: () => void;
+  onReplayTutorial?: () => void;
 }
 
 export function SettingsScreen({
@@ -16,6 +17,7 @@ export function SettingsScreen({
   onUpdateSetting,
   onReset,
   onBack,
+  onReplayTutorial,
 }: SettingsScreenProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background py-6 px-4">
@@ -134,12 +136,23 @@ export function SettingsScreen({
             <h2 className="font-display font-semibold text-foreground">Other</h2>
 
             <div className="flex items-center justify-between">
-              <span className="text-foreground font-body">Show Tutorial</span>
+              <span className="text-foreground font-body">Show Tutorial on Start</span>
               <Switch
                 checked={settings.showTutorial}
                 onCheckedChange={(checked) => onUpdateSetting('showTutorial', checked)}
               />
             </div>
+
+            {onReplayTutorial && (
+              <Button
+                onClick={onReplayTutorial}
+                variant="outline"
+                className="w-full font-display"
+              >
+                <HelpCircle className="w-4 h-4 mr-2" />
+                Replay Tutorial
+              </Button>
+            )}
           </div>
 
           {/* Reset Button */}

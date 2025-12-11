@@ -10,7 +10,7 @@ interface StatsScreenProps {
 
 export function StatsScreen({ onBack }: StatsScreenProps) {
   const { entries } = useLeaderboard();
-  const difficulties: Difficulty[] = ['2x2', '4x4', '6x6', '8x8'];
+  const difficulties: Difficulty[] = ['2x2', '4x4', '6x6'];
 
   // Calculate stats
   const totalGames = entries.length;

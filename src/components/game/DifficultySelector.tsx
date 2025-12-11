@@ -12,14 +12,12 @@ const difficultyIcons: Record<Difficulty, React.ReactNode> = {
   '2x2': <Zap className="w-8 h-8" />,
   '4x4': <Brain className="w-8 h-8" />,
   '6x6': <Target className="w-8 h-8" />,
-  '8x8': <Trophy className="w-8 h-8" />,
 };
 
 const difficultyColors: Record<Difficulty, string> = {
   '2x2': 'from-success/20 to-success/5 border-success/30 hover:border-success',
   '4x4': 'from-primary/20 to-primary/5 border-primary/30 hover:border-primary',
   '6x6': 'from-secondary/20 to-secondary/5 border-secondary/30 hover:border-secondary',
-  '8x8': 'from-accent/20 to-accent/5 border-accent/30 hover:border-accent',
 };
 
 export function DifficultySelector({ onSelectDifficulty, onBack }: DifficultySelectorProps) {

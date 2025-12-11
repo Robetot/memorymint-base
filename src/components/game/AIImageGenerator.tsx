@@ -50,8 +50,8 @@ export function AIImageGenerator({
   const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
 
   // Calculate rarity based on game performance
-  const difficultyMap = { easy: '4x4' as const, medium: '6x6' as const, hard: '8x8' as const };
-  const totalPairs = difficulty === 'easy' ? 8 : difficulty === 'medium' ? 18 : 32;
+  const difficultyMap = { easy: '4x4' as const, medium: '6x6' as const, hard: '6x6' as const };
+  const totalPairs = difficulty === 'easy' ? 8 : 18;
   const rarity = calculateRarity(
     difficultyMap[difficulty],
     time,

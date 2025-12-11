@@ -35,8 +35,7 @@ const RARITY_COLORS: Record<RarityTier, { color: string; glow: string }> = {
 const DIFFICULTY_MULTIPLIERS: Record<Difficulty, number> = {
   '2x2': 0.5,
   '4x4': 1.0,
-  '6x6': 1.5,
-  '8x8': 2.0,
+  '6x6': 1.75,
 };
 
 export function calculateRarity(

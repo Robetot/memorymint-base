@@ -8,6 +8,7 @@ export interface LevelConfig {
   description: string;
 }
 
+// Max 21 unique animals available, so max pairs = 21 (using 6x6 grid = 18 pairs is safe)
 export const LEVELS: LevelConfig[] = [
   { level: 1, gridSize: 2, time: 30, label: 'Level 1', description: '2x2 • 2 pairs • 30s' },
   { level: 2, gridSize: 2, time: 20, label: 'Level 2', description: '2x2 • 2 pairs • 20s' },
@@ -15,10 +16,10 @@ export const LEVELS: LevelConfig[] = [
   { level: 4, gridSize: 4, time: 90, label: 'Level 4', description: '4x4 • 8 pairs • 90s' },
   { level: 5, gridSize: 4, time: 60, label: 'Level 5', description: '4x4 • 8 pairs • 60s' },
   { level: 6, gridSize: 6, time: 180, label: 'Level 6', description: '6x6 • 18 pairs • 3 min' },
-  { level: 7, gridSize: 6, time: 120, label: 'Level 7', description: '6x6 • 18 pairs • 2 min' },
-  { level: 8, gridSize: 8, time: 300, label: 'Level 8', description: '8x8 • 32 pairs • 5 min' },
-  { level: 9, gridSize: 8, time: 240, label: 'Level 9', description: '8x8 • 32 pairs • 4 min' },
-  { level: 10, gridSize: 8, time: 180, label: 'Level 10', description: '8x8 • 32 pairs • 3 min' },
+  { level: 7, gridSize: 6, time: 150, label: 'Level 7', description: '6x6 • 18 pairs • 2.5 min' },
+  { level: 8, gridSize: 6, time: 120, label: 'Level 8', description: '6x6 • 18 pairs • 2 min' },
+  { level: 9, gridSize: 6, time: 100, label: 'Level 9', description: '6x6 • 18 pairs • 100s' },
+  { level: 10, gridSize: 6, time: 80, label: 'Level 10', description: '6x6 • 18 pairs • 80s' },
 ];
 
 export const getLevel = (levelNumber: number): LevelConfig => {
