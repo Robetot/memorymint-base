@@ -127,16 +127,14 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
     }
   }, [usePowerUp, trackPowerUp, playPowerUpSound]);
 
-  // Track combo achievements and play combo sounds/effects
+  // Track combo achievements (no celebrations/confetti)
   const prevComboRef = useRef(0);
   useEffect(() => {
     if (gameState.combo > 1 && gameState.combo > prevComboRef.current) {
       trackCombo(gameState.combo);
-      playComboSound();
-      fireComboConfetti(gameState.combo);
     }
     prevComboRef.current = gameState.combo;
-  }, [gameState.combo, trackCombo, playComboSound, fireComboConfetti]);
+  }, [gameState.combo, trackCombo]);
 
   // Play win/lose sounds and calculate rarity
   useEffect(() => {
