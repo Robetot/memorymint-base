@@ -38,22 +38,38 @@ function shuffleArray<T>(array: T[]): T[] {
 function createCards(gridSize: number): CardData[] {
   const pairsNeeded = (gridSize * gridSize) / 2;
   const shuffledAnimals = shuffleArray(ANIMALS);
-  const selectedAnimals = shuffledAnimals.slice(0, pairsNeeded);
   
+  // Ensure we only use unique animals (no duplicates)
+  const uniqueAnimals = shuffledAnimals.filter((animal, index, self) => 
+    self.findIndex(a => a.id === animal.id) === index
+  );
+  
+  // Only take as many unique animals as we need for pairs
+  const selectedAnimals = uniqueAnimals.slice(0, Math.min(pairsNeeded, uniqueAnimals.length));
+  
+  // If we don't have enough unique animals, we cannot proceed properly
+  // This creates exactly one pair per animal
   const cards: CardData[] = [];
   let cardId = 0;
   
   selectedAnimals.forEach((animal: AnimalData) => {
-    for (let i = 0; i < 2; i++) {
-      cards.push({
-        id: cardId++,
-        animalId: animal.id,
-        animalName: animal.name,
-        imageUrl: animal.image,
-        isFlipped: false,
-        isMatched: false,
-      });
-    }
+    // Create exactly 2 cards (one pair) per animal
+    cards.push({
+      id: cardId++,
+      animalId: animal.id,
+      animalName: animal.name,
+      imageUrl: animal.image,
+      isFlipped: false,
+      isMatched: false,
+    });
+    cards.push({
+      id: cardId++,
+      animalId: animal.id,
+      animalName: animal.name,
+      imageUrl: animal.image,
+      isFlipped: false,
+      isMatched: false,
+    });
   });
   
   return shuffleArray(cards);

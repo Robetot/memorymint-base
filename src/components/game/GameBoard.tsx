@@ -3,10 +3,18 @@ import { GameCard } from './GameCard';
 import { CardData } from '@/hooks/useGameState';
 import { cn } from '@/lib/utils';
 import { FloatingScore } from './FloatingScore';
+import { MatchParticles, ComboParticles } from './MatchParticles';
 
 interface FloatingScoreData {
   id: string;
   score: number;
+  x: number;
+  y: number;
+  combo: number;
+}
+
+interface ParticleData {
+  id: string;
   x: number;
   y: number;
   combo: number;
@@ -46,12 +54,18 @@ export function GameBoard({
   const [showMatchAnimation, setShowMatchAnimation] = useState(false);
   const [shakingCardIds, setShakingCardIds] = useState<Set<number>>(new Set());
   const [floatingScores, setFloatingScores] = useState<FloatingScoreData[]>([]);
+  const [particles, setParticles] = useState<ParticleData[]>([]);
   const prevFlippedRef = useRef<number[]>([]);
   const checkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
   const removeFloatingScore = useCallback((id: string) => {
     setFloatingScores(prev => prev.filter(s => s.id !== id));
+  }, []);
+
+  const removeParticle = useCallback((id: string) => {
+    setParticles(prev => prev.filter(p => p.id !== id));
   }, []);
 
   // Handle card flip sounds - play on flip, stop on flip back
@@ -78,7 +92,7 @@ export function GameBoard({
     prevFlippedRef.current = flippedCards;
   }, [flippedCards, cards, onAnimalRevealed, onCardFlippedBack]);
 
-  // Handle match checking with floating scores and shake effects
+  // Handle match checking with floating scores, particles, and shake effects
   useEffect(() => {
     if (flippedCards.length === 2) {
       if (checkTimeoutRef.current) {
@@ -97,17 +111,44 @@ export function GameBoard({
             setMatchedCardIds((prev) => new Set([...prev, firstId, secondId]));
             setShowMatchAnimation(true);
             
-            // Add floating score at the center of the matched cards
+            // Add floating score and particles at the center of the matched cards
             if (boardRef.current) {
               const rect = boardRef.current.getBoundingClientRect();
               const baseScore = 100 * (combo + 1);
+              const centerX = rect.left + rect.width / 2;
+              const centerY = rect.top + rect.height / 3;
+              
               setFloatingScores(prev => [...prev, {
                 id: `${Date.now()}`,
                 score: baseScore,
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 3,
+                x: centerX,
+                y: centerY,
                 combo: combo,
               }]);
+
+              // Add particles at both matched card positions
+              const firstCardEl = cardRefs.current.get(firstId);
+              const secondCardEl = cardRefs.current.get(secondId);
+              
+              if (firstCardEl) {
+                const cardRect = firstCardEl.getBoundingClientRect();
+                setParticles(prev => [...prev, {
+                  id: `particle-${Date.now()}-1`,
+                  x: cardRect.left + cardRect.width / 2,
+                  y: cardRect.top + cardRect.height / 2,
+                  combo: combo,
+                }]);
+              }
+              
+              if (secondCardEl) {
+                const cardRect = secondCardEl.getBoundingClientRect();
+                setParticles(prev => [...prev, {
+                  id: `particle-${Date.now()}-2`,
+                  x: cardRect.left + cardRect.width / 2,
+                  y: cardRect.top + cardRect.height / 2,
+                  combo: combo,
+                }]);
+              }
             }
             
             onMatch();
@@ -129,6 +170,15 @@ export function GameBoard({
       }
     };
   }, [flippedCards, cards, onCheckMatch, onMatch, onNoMatch, combo]);
+
+  // Store card refs
+  const setCardRef = useCallback((cardId: number, el: HTMLButtonElement | null) => {
+    if (el) {
+      cardRefs.current.set(cardId, el);
+    } else {
+      cardRefs.current.delete(cardId);
+    }
+  }, []);
 
   const gridSize = Math.sqrt(cards.length);
 
@@ -152,6 +202,20 @@ export function GameBoard({
         />
       ))}
 
+      {/* Match Particles */}
+      {particles.map(particle => (
+        <MatchParticles
+          key={particle.id}
+          x={particle.x}
+          y={particle.y}
+          combo={particle.combo}
+          onComplete={() => removeParticle(particle.id)}
+        />
+      ))}
+
+      {/* Combo Particles */}
+      <ComboParticles combo={combo} />
+
       <div
         className={cn(
           'grid',
@@ -164,6 +228,7 @@ export function GameBoard({
         {cards.map((card) => (
           <GameCard
             key={card.id}
+            ref={(el) => setCardRef(card.id, el)}
             card={revealAll ? { ...card, isFlipped: true } : card}
             onClick={() => onCardClick(card.id)}
             disabled={disabled || flippedCards.length >= 2 || revealAll}
