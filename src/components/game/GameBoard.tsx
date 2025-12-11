@@ -69,6 +69,14 @@ export function GameBoard({
   const removeParticle = useCallback((id: string) => {
     setParticles(prev => prev.filter(p => p.id !== id));
   }, []);
+  
+  // Limit and auto-cleanup particles
+  useEffect(() => {
+    // Remove excess particles (keep max 4)
+    if (particles.length > 4) {
+      setParticles(prev => prev.slice(-4));
+    }
+  }, [particles.length]);
 
   // Handle card flip sounds - play on flip, stop on flip back
   useEffect(() => {
@@ -134,30 +142,22 @@ export function GameBoard({
                 combo: combo,
               }]);
 
-              // Add particles at both matched card positions
+              // Add particles at center of board only (not both cards)
               const firstCardEl = cardRefs.current.get(firstId);
-              const secondCardEl = cardRefs.current.get(secondId);
               
               if (firstCardEl) {
                 const cardRect = firstCardEl.getBoundingClientRect();
                 playParticleExplosion(combo);
-                setParticles(prev => [...prev, {
-                  id: `particle-${Date.now()}-1`,
-                  x: cardRect.left + cardRect.width / 2,
-                  y: cardRect.top + cardRect.height / 2,
-                  combo: combo,
-                }]);
-              }
-              
-              if (secondCardEl) {
-                const cardRect = secondCardEl.getBoundingClientRect();
-                playParticleExplosion(combo);
-                setParticles(prev => [...prev, {
-                  id: `particle-${Date.now()}-2`,
-                  x: cardRect.left + cardRect.width / 2,
-                  y: cardRect.top + cardRect.height / 2,
-                  combo: combo,
-                }]);
+                setParticles(prev => {
+                  // Limit to max 2 active particle systems
+                  const newParticles = prev.length >= 2 ? prev.slice(1) : prev;
+                  return [...newParticles, {
+                    id: `particle-${Date.now()}`,
+                    x: cardRect.left + cardRect.width / 2,
+                    y: cardRect.top + cardRect.height / 2,
+                    combo: combo,
+                  }];
+                });
               }
             }
             

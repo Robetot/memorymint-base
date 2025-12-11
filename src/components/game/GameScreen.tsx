@@ -48,7 +48,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
     playComboSound,
     setMuted,
   } = useSoundEffects();
-  const { fireMatchConfetti, fireComboConfetti, fireWinConfetti } = useConfetti();
+  const { fireMatchConfetti, fireComboConfetti, fireWinConfetti, resetConfetti } = useConfetti();
   const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
   const { addEntry, getTopScore } = useLeaderboard();
   const { addEntry: addWeeklyEntry } = useWeeklyLeaderboard();
@@ -83,11 +83,12 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
 
   // Start game on mount
   useEffect(() => {
+    resetConfetti(); // Clear any existing confetti on game start
     startGame();
     setPerfectGame(true);
     resetHints(level);
     resetPowerUps();
-  }, [startGame, resetHints, resetPowerUps, level]);
+  }, [startGame, resetHints, resetPowerUps, level, resetConfetti]);
 
   // Handle power-up effects
   useEffect(() => {
