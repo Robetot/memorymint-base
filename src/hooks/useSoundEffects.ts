@@ -27,13 +27,13 @@ const ANIMAL_SOUNDS: Record<string, string> = {
 
 // UI sound effects - distinct sounds for game events
 const UI_SOUNDS = {
-  flip: 'https://cdn.pixabay.com/audio/2022/03/10/audio_d1b2e9d0a6.mp3', // soft card flip whoosh
-  match: 'https://cdn.pixabay.com/audio/2022/03/15/audio_c8531c6e83.mp3', // pleasant success chime
-  noMatch: 'https://cdn.pixabay.com/audio/2022/03/24/audio_4e4b1f8d06.mp3', // soft gentle notification
-  win: 'https://cdn.pixabay.com/audio/2024/02/19/audio_c5d3e9f2a0.mp3', // victory fanfare
-  lose: 'https://cdn.pixabay.com/audio/2021/08/04/audio_c6d53f0b0c.mp3', // gentle game over
-  click: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c8f8b51a0d.mp3', // soft UI click
-  combo: 'https://cdn.pixabay.com/audio/2024/04/02/audio_7d8e9f3c2b.mp3', // pleasant combo bonus
+  flip: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3', // soft card flip
+  match: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3', // pleasant success chime
+  mismatch: 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3', // soft wood tap for mismatch
+  win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3', // victory fanfare
+  lose: 'https://assets.mixkit.co/active_storage/sfx/2574/2574-preview.mp3', // gentle game over
+  click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3', // soft UI click
+  combo: 'https://assets.mixkit.co/active_storage/sfx/2001/2001-preview.mp3', // pleasant combo bonus
 };
 
 // WebAudio-based Sound Manager for low latency
@@ -307,8 +307,8 @@ export function useSoundEffects() {
     managerRef.current.play('match');
   }, []);
 
-  const playNoMatchSound = useCallback(() => {
-    managerRef.current.play('noMatch');
+  const playMismatchSound = useCallback(() => {
+    managerRef.current.play('mismatch', { volume: 0.6 });
   }, []);
 
   const playWinSound = useCallback(() => {
@@ -344,7 +344,7 @@ export function useSoundEffects() {
     stopAnimalSound,
     playFlipSound,
     playMatchSound,
-    playNoMatchSound,
+    playMismatchSound,
     playWinSound,
     playLoseSound,
     playClickSound,
