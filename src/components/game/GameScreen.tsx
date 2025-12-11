@@ -15,6 +15,7 @@ import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useConfetti } from '@/hooks/useConfetti';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
+import { useWeeklyLeaderboard } from '@/hooks/useWeeklyLeaderboard';
 import { useHints } from '@/hooks/useHints';
 import { usePowerUps } from '@/hooks/usePowerUps';
 import { useAchievements } from '@/hooks/useAchievements';
@@ -50,6 +51,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
   const { fireMatchConfetti, fireComboConfetti, fireWinConfetti } = useConfetti();
   const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
   const { addEntry, getTopScore } = useLeaderboard();
+  const { addEntry: addWeeklyEntry } = useWeeklyLeaderboard();
   const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(level);
   const { powerUps, activeEffect, usePowerUp, clearActiveEffect, resetPowerUps } = usePowerUps();
   const { 
@@ -151,6 +153,16 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
           completeWeekly(completionTime);
           trackWeeklyChallenge();
           playPowerUpSound('weekly_complete');
+          
+          // Submit to weekly leaderboard
+          const walletAddress = localStorage.getItem('wallet_address') || 'anonymous';
+          addWeeklyEntry({
+            walletAddress,
+            time: completionTime,
+            score: gameState.score,
+            moves: gameState.moves,
+            maxCombo: gameState.maxCombo,
+          });
         } else {
           playPowerUpSound('daily_complete');
           trackDailyChallenge();

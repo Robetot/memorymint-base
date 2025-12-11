@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3, Award } from 'lucide-react';
+import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3, Award, Crown } from 'lucide-react';
 import { DailyChallengeCard } from './DailyChallengeCard';
 import { WeeklyChallengeCard } from './WeeklyChallengeCard';
 import { useDailyChallenge } from '@/hooks/useDailyChallenge';
@@ -14,6 +14,7 @@ interface WelcomeScreenProps {
   onStartGame: () => void;
   onConnectWallet: () => void;
   onViewLeaderboard?: () => void;
+  onViewWeeklyLeaderboard?: () => void;
   onViewSettings?: () => void;
   onViewStats?: () => void;
   onViewAchievements?: () => void;
@@ -33,6 +34,7 @@ export function WelcomeScreen({
   onStartGame, 
   onConnectWallet, 
   onViewLeaderboard, 
+  onViewWeeklyLeaderboard,
   onViewSettings, 
   onViewStats, 
   onViewAchievements,
@@ -139,6 +141,12 @@ export function WelcomeScreen({
             <Button onClick={onViewLeaderboard} variant="outline" size="lg" className="py-5 rounded-xl font-display">
               <Trophy className="w-4 h-4 mr-1.5" />
               Ranks
+            </Button>
+          )}
+          {onViewWeeklyLeaderboard && (
+            <Button onClick={onViewWeeklyLeaderboard} variant="outline" size="lg" className="py-5 rounded-xl font-display bg-gradient-to-r from-accent/10 to-primary/10 border-accent/50">
+              <Crown className="w-4 h-4 mr-1.5 text-accent" />
+              Weekly
             </Button>
           )}
           {onViewStats && (
