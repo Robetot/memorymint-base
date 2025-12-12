@@ -25,9 +25,10 @@ const generateDailyChallenge = (date: string): DailyChallenge => {
   const modifiers = Object.keys(CHALLENGE_MODIFIERS) as Array<keyof typeof CHALLENGE_MODIFIERS>;
   const modifierIndex = seed % modifiers.length;
   const modifier = modifiers[modifierIndex];
-  const gridSizes = [4, 6, 6, 8];
+  // Max grid size is 6x6 due to 21 unique animals (18 pairs max)
+  const gridSizes = [4, 4, 6, 6];
   const gridSize = gridSizes[seed % gridSizes.length];
-  const baseTime = gridSize === 4 ? 60 : gridSize === 6 ? 120 : 180;
+  const baseTime = gridSize === 4 ? 60 : 120;
   const timeLimit = Math.floor(baseTime * CHALLENGE_MODIFIERS[modifier].timeMultiplier);
 
   return {

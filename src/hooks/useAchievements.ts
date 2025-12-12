@@ -35,7 +35,6 @@ const ACHIEVEMENTS: Omit<Achievement, 'unlocked' | 'unlockedAt' | 'progress'>[] 
   
   // Special achievements
   { id: 'daily_warrior', name: 'Daily Warrior', description: 'Complete 7 daily challenges', icon: '📅', category: 'special', requirement: 7 },
-  { id: 'weekly_champion', name: 'Weekly Champion', description: 'Complete a weekly challenge', icon: '🏆', category: 'special', requirement: 1 },
   { id: 'nft_collector', name: 'NFT Collector', description: 'Mint 5 NFTs', icon: '🎨', category: 'special', requirement: 5 },
   { id: 'power_user', name: 'Power User', description: 'Use 20 power-ups', icon: '💪', category: 'special', requirement: 20 },
 ];
@@ -112,10 +111,6 @@ export const useAchievements = () => {
     checkAndUnlock('daily_warrior', current + 1);
   }, [achievements, checkAndUnlock]);
 
-  const trackWeeklyChallenge = useCallback(() => {
-    checkAndUnlock('weekly_champion', 1);
-  }, [checkAndUnlock]);
-
   const trackNFTMint = useCallback(() => {
     const current = achievements.find(a => a.id === 'nft_collector')?.progress || 0;
     checkAndUnlock('nft_collector', current + 1);
@@ -140,7 +135,6 @@ export const useAchievements = () => {
     trackSpeed,
     trackLevelComplete,
     trackDailyChallenge,
-    trackWeeklyChallenge,
     trackNFTMint,
     trackPowerUp,
     unlockedCount,
