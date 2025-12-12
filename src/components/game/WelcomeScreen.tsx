@@ -1,9 +1,7 @@
 import { Button } from '@/components/ui/button';
-import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3, Award, Crown } from 'lucide-react';
+import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3, Award } from 'lucide-react';
 import { DailyChallengeCard } from './DailyChallengeCard';
-import { WeeklyChallengeCard } from './WeeklyChallengeCard';
 import { useDailyChallenge } from '@/hooks/useDailyChallenge';
-import { useWeeklyChallenge, WeeklyChallenge } from '@/hooks/useWeeklyChallenge';
 
 import calfImg from '@/assets/animals/calf.jpg';
 import puppyImg from '@/assets/animals/puppy.jpg';
@@ -14,12 +12,10 @@ interface WelcomeScreenProps {
   onStartGame: () => void;
   onConnectWallet: () => void;
   onViewLeaderboard?: () => void;
-  onViewWeeklyLeaderboard?: () => void;
   onViewSettings?: () => void;
   onViewStats?: () => void;
   onViewAchievements?: () => void;
   onStartDailyChallenge?: (gridSize: number, timeLimit: number) => void;
-  onStartWeeklyChallenge?: (challenge: WeeklyChallenge) => void;
   achievementCount?: { unlocked: number; total: number };
 }
 
@@ -34,26 +30,17 @@ export function WelcomeScreen({
   onStartGame, 
   onConnectWallet, 
   onViewLeaderboard, 
-  onViewWeeklyLeaderboard,
   onViewSettings, 
   onViewStats, 
   onViewAchievements,
   onStartDailyChallenge,
-  onStartWeeklyChallenge,
   achievementCount,
 }: WelcomeScreenProps) {
   const { challenge, getStreak } = useDailyChallenge();
-  const { challenge: weeklyChallenge, isCompleted: weeklyCompleted, bestTime: weeklyBestTime, getTimeRemaining } = useWeeklyChallenge();
 
   const handleStartDailyChallenge = () => {
     if (challenge && onStartDailyChallenge) {
       onStartDailyChallenge(challenge.gridSize, challenge.timeLimit);
-    }
-  };
-
-  const handleStartWeeklyChallenge = () => {
-    if (weeklyChallenge && onStartWeeklyChallenge) {
-      onStartWeeklyChallenge(weeklyChallenge);
     }
   };
 
@@ -90,22 +77,13 @@ export function WelcomeScreen({
         </p>
       </div>
 
-      {/* Daily & Weekly Challenge Cards */}
+      {/* Daily Challenge Card */}
       <div className="relative z-10 w-full max-w-sm space-y-4 mb-4">
         <DailyChallengeCard
           challenge={challenge}
           streak={getStreak()}
           onStart={handleStartDailyChallenge}
         />
-        {weeklyChallenge && (
-          <WeeklyChallengeCard
-            challenge={weeklyChallenge}
-            isCompleted={weeklyCompleted}
-            bestTime={weeklyBestTime}
-            timeRemaining={getTimeRemaining()}
-            onStart={handleStartWeeklyChallenge}
-          />
-        )}
       </div>
 
       {/* Animal cards */}
@@ -141,12 +119,6 @@ export function WelcomeScreen({
             <Button onClick={onViewLeaderboard} variant="outline" size="lg" className="py-5 rounded-xl font-display">
               <Trophy className="w-4 h-4 mr-1.5" />
               Ranks
-            </Button>
-          )}
-          {onViewWeeklyLeaderboard && (
-            <Button onClick={onViewWeeklyLeaderboard} variant="outline" size="lg" className="py-5 rounded-xl font-display bg-gradient-to-r from-accent/10 to-primary/10 border-accent/50">
-              <Crown className="w-4 h-4 mr-1.5 text-accent" />
-              Weekly
             </Button>
           )}
           {onViewStats && (

@@ -4,7 +4,6 @@ import { GameScreen } from '@/components/game/GameScreen';
 import { WalletScreen } from '@/components/game/WalletScreen';
 import { LevelSelector } from '@/components/game/LevelSelector';
 import { Leaderboard } from '@/components/game/Leaderboard';
-import { WeeklyLeaderboard } from '@/components/game/WeeklyLeaderboard';
 import { AIImageGenerator } from '@/components/game/AIImageGenerator';
 import { Tutorial } from '@/components/game/Tutorial';
 import { SettingsScreen } from '@/components/game/SettingsScreen';
@@ -14,11 +13,9 @@ import { AchievementUnlockPopup } from '@/components/game/AchievementUnlockPopup
 import { useSettings } from '@/hooks/useSettings';
 import { useAchievements } from '@/hooks/useAchievements';
 import { usePowerUpSounds } from '@/hooks/usePowerUpSounds';
-import { useWallet } from '@/hooks/useWallet';
-import { WeeklyChallenge } from '@/hooks/useWeeklyChallenge';
 import { RarityResult } from '@/utils/rarityCalculator';
 
-type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'weekly-leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
+type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<GameView>('welcome');
@@ -26,11 +23,9 @@ const Index = () => {
   const [lastScore, setLastScore] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
   const [dailyChallengeConfig, setDailyChallengeConfig] = useState<{ gridSize: number; timeLimit: number } | null>(null);
-  const [weeklyChallenge, setWeeklyChallenge] = useState<WeeklyChallenge | null>(null);
   const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
   const { achievements, newUnlock, dismissNewUnlock, unlockedCount, totalCount } = useAchievements();
   const { playSound } = usePowerUpSounds();
-  const { address } = useWallet();
 
   // Play achievement sound when new unlock
   useEffect(() => {
@@ -66,18 +61,9 @@ const Index = () => {
 
   const handleStartDailyChallenge = (gridSize: number, timeLimit: number) => {
     setDailyChallengeConfig({ gridSize, timeLimit });
-    setWeeklyChallenge(null);
     // Map grid size to approximate level
-    const levelMap: Record<number, number> = { 4: 3, 6: 6, 8: 8 };
+    const levelMap: Record<number, number> = { 2: 1, 4: 3, 6: 6 };
     setSelectedLevel(levelMap[gridSize] || 3);
-    setCurrentView('game');
-  };
-
-  const handleStartWeeklyChallenge = (challenge: WeeklyChallenge) => {
-    setWeeklyChallenge(challenge);
-    setDailyChallengeConfig(null);
-    const levelMap: Record<number, number> = { 4: 3, 6: 6, 8: 8 };
-    setSelectedLevel(levelMap[challenge.gridSize] || 6);
     setCurrentView('game');
   };
 
@@ -87,10 +73,6 @@ const Index = () => {
 
   const handleViewLeaderboard = () => {
     setCurrentView('leaderboard');
-  };
-
-  const handleViewWeeklyLeaderboard = () => {
-    setCurrentView('weekly-leaderboard');
   };
 
   const handleViewSettings = () => {
@@ -112,7 +94,6 @@ const Index = () => {
 
   const handleNextLevel = (nextLevel: number) => {
     setSelectedLevel(nextLevel);
-    // Game will restart with new level
   };
 
   const handleTutorialComplete = () => {
@@ -142,12 +123,10 @@ const Index = () => {
           onStartGame={handleStartGame} 
           onConnectWallet={handleConnectWallet}
           onViewLeaderboard={handleViewLeaderboard}
-          onViewWeeklyLeaderboard={handleViewWeeklyLeaderboard}
           onViewSettings={handleViewSettings}
           onViewStats={handleViewStats}
           onViewAchievements={handleViewAchievements}
           onStartDailyChallenge={handleStartDailyChallenge}
-          onStartWeeklyChallenge={handleStartWeeklyChallenge}
           achievementCount={{ unlocked: unlockedCount, total: totalCount }}
         />
       )}
@@ -169,14 +148,10 @@ const Index = () => {
           level={selectedLevel}
           onCreateArt={handleCreateArt}
           onNextLevel={handleNextLevel}
-          weeklyChallenge={weeklyChallenge}
         />
       )}
       {currentView === 'leaderboard' && (
         <Leaderboard onBack={handleBackToMenu} />
-      )}
-      {currentView === 'weekly-leaderboard' && (
-        <WeeklyLeaderboard onBack={handleBackToMenu} currentWallet={address} />
       )}
       {currentView === 'ai-art' && (
         <AIImageGenerator

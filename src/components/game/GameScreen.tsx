@@ -15,12 +15,10 @@ import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useConfetti } from '@/hooks/useConfetti';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
-import { useWeeklyLeaderboard } from '@/hooks/useWeeklyLeaderboard';
 import { useHints } from '@/hooks/useHints';
 import { usePowerUps } from '@/hooks/usePowerUps';
 import { useAchievements } from '@/hooks/useAchievements';
 import { usePowerUpSounds } from '@/hooks/usePowerUpSounds';
-import { WeeklyChallenge, useWeeklyChallenge } from '@/hooks/useWeeklyChallenge';
 import { getLevel, saveUnlockedLevel, getMaxLevel } from '@/data/levels';
 import { calculateRarity, RarityResult } from '@/utils/rarityCalculator';
 import { cn } from '@/lib/utils';
@@ -30,10 +28,9 @@ interface GameScreenProps {
   level: number;
   onCreateArt?: (score: number, rarity: RarityResult) => void;
   onNextLevel?: (nextLevel: number) => void;
-  weeklyChallenge?: WeeklyChallenge | null;
 }
 
-export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, weeklyChallenge }: GameScreenProps) {
+export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: GameScreenProps) {
   const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame, shuffleUnmatched, addTime } = useGameState(level);
   const config = getLevel(level);
   const {
@@ -45,13 +42,11 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
     playWinSound,
     playLoseSound,
     playClickSound,
-    playComboSound,
     setMuted,
   } = useSoundEffects();
-  const { fireMatchConfetti, fireComboConfetti, fireWinConfetti, resetConfetti } = useConfetti();
+  const { fireMatchConfetti, fireWinConfetti, resetConfetti } = useConfetti();
   const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
   const { addEntry, getTopScore } = useLeaderboard();
-  const { addEntry: addWeeklyEntry } = useWeeklyLeaderboard();
   const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(level);
   const { powerUps, activeEffect, usePowerUp, clearActiveEffect, resetPowerUps } = usePowerUps();
   const { 
@@ -60,11 +55,9 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
     trackSpeed, 
     trackLevelComplete, 
     trackDailyChallenge, 
-    trackWeeklyChallenge,
     trackPowerUp 
   } = useAchievements();
   const { playSound: playPowerUpSound } = usePowerUpSounds();
-  const { completeChallenge: completeWeekly } = useWeeklyChallenge();
 
   const [isMuted, setIsMuted] = useState(false);
   const [showScoreSubmit, setShowScoreSubmit] = useState(false);
@@ -83,7 +76,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
 
   // Start game on mount
   useEffect(() => {
-    resetConfetti(); // Clear any existing confetti on game start
+    resetConfetti();
     startGame();
     setPerfectGame(true);
     resetHints(level);
@@ -120,14 +113,13 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
   const handleUsePowerUp = useCallback((id: string) => {
     if (usePowerUp(id)) {
       trackPowerUp();
-      // Play power-up specific sounds
       if (id === 'freeze') playPowerUpSound('freeze');
       else if (id === 'reveal') playPowerUpSound('reveal');
       else if (id === 'shuffle') playPowerUpSound('shuffle');
     }
   }, [usePowerUp, trackPowerUp, playPowerUpSound]);
 
-  // Track combo achievements (no celebrations/confetti)
+  // Track combo achievements
   const prevComboRef = useRef(0);
   useEffect(() => {
     if (gameState.combo > 1 && gameState.combo > prevComboRef.current) {
@@ -151,25 +143,8 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
           trackPerfectGame();
         }
 
-        // Handle weekly challenge completion
-        if (weeklyChallenge) {
-          completeWeekly(completionTime);
-          trackWeeklyChallenge();
-          playPowerUpSound('weekly_complete');
-          
-          // Submit to weekly leaderboard
-          const walletAddress = localStorage.getItem('wallet_address') || 'anonymous';
-          addWeeklyEntry({
-            walletAddress,
-            time: completionTime,
-            score: gameState.score,
-            moves: gameState.moves,
-            maxCombo: gameState.maxCombo,
-          });
-        } else {
-          playPowerUpSound('daily_complete');
-          trackDailyChallenge();
-        }
+        playPowerUpSound('daily_complete');
+        trackDailyChallenge();
         
         // Unlock next level
         const nextLevel = Math.min(level + 1, getMaxLevel());
@@ -201,7 +176,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel, week
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, trackWeeklyChallenge, weeklyChallenge, completeWeekly, playPowerUpSound]);
+  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, playPowerUpSound]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
