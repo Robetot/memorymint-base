@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Trophy, Clock, Target, Zap, RotateCcw, Sparkles, ChevronRight } from 'lucide-react';
+import { Trophy, Clock, Target, RotateCcw, Sparkles, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { RarityDisplay } from './RarityDisplay';
 import { RarityResult } from '@/utils/rarityCalculator';
@@ -21,36 +20,6 @@ interface GameOverModalProps {
   currentLevel?: number;
 }
 
-function Confetti() {
-  const colors = ['#a855f7', '#06b6d4', '#fbbf24', '#22c55e', '#ec4899'];
-  const confettiPieces = Array.from({ length: 50 }, (_, i) => ({
-    id: i,
-    left: `${Math.random() * 100}%`,
-    delay: `${Math.random() * 2}s`,
-    color: colors[Math.floor(Math.random() * colors.length)],
-    size: Math.random() * 10 + 5,
-  }));
-
-  return (
-    <div className="fixed inset-0 pointer-events-none overflow-hidden z-50">
-      {confettiPieces.map((piece) => (
-        <div
-          key={piece.id}
-          className="absolute top-0 animate-confetti"
-          style={{
-            left: piece.left,
-            animationDelay: piece.delay,
-            backgroundColor: piece.color,
-            width: piece.size,
-            height: piece.size,
-            borderRadius: Math.random() > 0.5 ? '50%' : '0',
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function GameOverModal({
   isOpen,
   isWin,
@@ -66,16 +35,6 @@ export function GameOverModal({
   rarity,
   currentLevel,
 }: GameOverModalProps) {
-  const [showConfetti, setShowConfetti] = useState(false);
-
-  useEffect(() => {
-    if (isOpen && isWin) {
-      setShowConfetti(true);
-      const timer = setTimeout(() => setShowConfetti(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen, isWin]);
-
   if (!isOpen) return null;
 
   const formatTime = (seconds: number) => {
@@ -87,9 +46,7 @@ export function GameOverModal({
   const timeTaken = gameTime - timeRemaining;
 
   return (
-    <>
-      {showConfetti && <Confetti />}
-      <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 flex items-center justify-center p-4 overflow-y-auto">
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 flex items-center justify-center p-4 overflow-y-auto">
         <div className={cn(
           'bg-card border-2 rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl animate-bounce-in my-4',
           isWin ? 'border-success' : 'border-destructive'
@@ -194,6 +151,5 @@ export function GameOverModal({
           </div>
         </div>
       </div>
-    </>
   );
 }
