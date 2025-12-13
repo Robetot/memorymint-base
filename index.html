@@ -3,20 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- TODO: Set the document title to the name of your application -->
-    <title>Lovable App</title>
-    <meta name="description" content="Lovable Generated Project" />
-    <meta name="author" content="Lovable" />
+    
+    <!-- Preload hints to reduce critical request chain -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    
+    <!-- Preload the entry module for faster parsing -->
+    <link rel="modulepreload" href="/src/main.tsx" />
+    
+    <title>MemoryMint - Free Skill-Based Memory Game on Base</title>
+    <meta name="description" content="MemoryMint is a free-to-play, skill-based memory card game on Base blockchain. Match cards, earn NFTs, and prove your memory skills." />
+    <meta name="author" content="MemoryMint" />
+    <meta name="keywords" content="memory game, NFT, Base blockchain, free to play, skill-based game, card matching" />
 
-    <!-- TODO: Update og:title to match your application name -->
-    <meta property="og:title" content="Lovable App" />
-    <meta property="og:description" content="Lovable Generated Project" />
+    <meta property="og:title" content="MemoryMint - Free Skill-Based Memory Game" />
+    <meta property="og:description" content="Free-to-play memory card game on Base blockchain. Match cards, earn NFTs based on your skill." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
+    <meta name="twitter:site" content="@MemoryMint" />
     <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    
+    <!-- Theme color for browser chrome -->
+    <meta name="theme-color" content="#1a1a2e" />
   </head>
 
   <body>
