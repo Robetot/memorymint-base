@@ -1,8 +1,9 @@
 import { Button } from '@/components/ui/button';
-import { Trophy, Clock, Target, RotateCcw, Sparkles, ChevronRight } from 'lucide-react';
+import { Trophy, Clock, Target, RotateCcw, Sparkles, ChevronRight, Share2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { RarityDisplay } from './RarityDisplay';
 import { RarityResult } from '@/utils/rarityCalculator';
+import { ShareToFarcaster } from './ShareToFarcaster';
 
 interface GameOverModalProps {
   isOpen: boolean;
@@ -139,6 +140,15 @@ export function GameOverModal({
                 <Sparkles className="w-5 h-5 mr-2" />
                 Create NFT Art
               </Button>
+            )}
+
+            {/* Share to Farcaster */}
+            {isWin && (
+              <ShareToFarcaster
+                score={score}
+                level={currentLevel || 1}
+                rarity={rarity?.tier}
+              />
             )}
 
             <Button
