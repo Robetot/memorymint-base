@@ -1,9 +1,10 @@
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Trophy, Target, Clock, Zap, Trash2 } from 'lucide-react';
+import { ArrowLeft, Trophy, Target, Clock, Zap, Trash2, User } from 'lucide-react';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
 import { Difficulty, DIFFICULTY_CONFIG } from '@/data/animals';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useFarcaster } from '@/contexts/FarcasterContext';
 
 interface LeaderboardProps {
   onBack: () => void;
@@ -11,6 +12,7 @@ interface LeaderboardProps {
 
 export function Leaderboard({ onBack }: LeaderboardProps) {
   const { getEntriesByDifficulty, clearLeaderboard } = useLeaderboard();
+  const { viewProfile } = useFarcaster();
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>('4x4');
 
   const entries = getEntriesByDifficulty(selectedDifficulty);
@@ -90,7 +92,7 @@ export function Leaderboard({ onBack }: LeaderboardProps) {
                 {/* Rank */}
                 <div
                   className={cn(
-                    'w-10 h-10 rounded-full flex items-center justify-center font-display font-bold text-lg',
+                    'w-10 h-10 rounded-full flex items-center justify-center font-display font-bold text-lg flex-shrink-0',
                     index === 0 && 'bg-accent text-accent-foreground',
                     index === 1 && 'bg-muted-foreground/20 text-muted-foreground',
                     index === 2 && 'bg-orange-400/20 text-orange-400',
@@ -100,13 +102,36 @@ export function Leaderboard({ onBack }: LeaderboardProps) {
                   {index + 1}
                 </div>
 
+                {/* Profile Picture / Avatar */}
+                <div 
+                  className={cn(
+                    'w-10 h-10 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center',
+                    entry.farcasterPfp ? '' : 'bg-muted'
+                  )}
+                  onClick={() => entry.farcasterFid && viewProfile(entry.farcasterFid)}
+                  style={{ cursor: entry.farcasterFid ? 'pointer' : 'default' }}
+                >
+                  {entry.farcasterPfp ? (
+                    <img 
+                      src={entry.farcasterPfp} 
+                      alt={entry.playerName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <User className="w-5 h-5 text-muted-foreground" />
+                  )}
+                </div>
+
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="font-display font-semibold text-foreground truncate">
-                    {entry.playerName}
+                    {entry.farcasterUsername ? `@${entry.farcasterUsername}` : entry.playerName}
                   </p>
                   <p className="text-xs text-muted-foreground font-body">
                     {formatDate(entry.date)}
+                    {entry.farcasterFid && (
+                      <span className="ml-2 text-[#8B5CF6]">FID: {entry.farcasterFid}</span>
+                    )}
                   </p>
                 </div>
 
