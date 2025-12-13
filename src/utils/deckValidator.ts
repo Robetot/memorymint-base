@@ -179,6 +179,7 @@ export function validateDeck(cards: CardData[], expectedPairs: number): { isVali
 /**
  * Auto-corrects a deck if validation fails.
  * Returns a fresh, valid deck. Always succeeds.
+ * CRITICAL: Must return a deck matching the requested gridSize.
  */
 export function autoCorrectDeck(gridSize: number): CardData[] {
   // Get unique animals first
@@ -186,29 +187,35 @@ export function autoCorrectDeck(gridSize: number): CardData[] {
   const totalCards = gridSize * gridSize;
   const pairsNeeded = totalCards / 2;
   
-  // Cap grid size if we don't have enough animals
-  const maxPairs = uniqueAnimals.length;
-  const actualPairs = Math.min(pairsNeeded, maxPairs);
-  const actualGridSize = actualPairs <= 2 ? 2 : actualPairs <= 8 ? 4 : 6;
+  // Validate we have enough animals for the requested grid
+  if (pairsNeeded > uniqueAnimals.length) {
+    console.error(`Cannot create ${gridSize}x${gridSize} grid: need ${pairsNeeded} pairs but only have ${uniqueAnimals.length} animals`);
+    // Fall back to largest possible grid
+    const maxPairs = uniqueAnimals.length;
+    if (maxPairs >= 18) gridSize = 6;
+    else if (maxPairs >= 8) gridSize = 4;
+    else gridSize = 2;
+  }
   
   let attempts = 0;
   const maxAttempts = 5;
 
   while (attempts < maxAttempts) {
-    const result = createValidatedDeck(actualGridSize);
-    if (result.isValid) {
+    const result = createValidatedDeck(gridSize);
+    if (result.isValid && result.cards.length === gridSize * gridSize) {
       return result.cards;
     }
     console.warn(`Deck validation failed (attempt ${attempts + 1}):`, result.errors);
     attempts++;
   }
 
-  // Ultimate fallback: manually create a guaranteed valid 2x2 deck
-  console.error('Using ultimate fallback: creating minimal 2x2 deck');
-  const fallbackAnimals = shuffleArray(uniqueAnimals).slice(0, 2);
+  // Ultimate fallback: manually create a guaranteed valid deck for the requested size
+  console.error(`Using fallback: manually creating ${gridSize}x${gridSize} deck`);
+  const pairsToCreate = (gridSize * gridSize) / 2;
+  const selectedAnimals = shuffleArray(uniqueAnimals).slice(0, pairsToCreate);
   const fallbackCards: CardData[] = [];
   
-  fallbackAnimals.forEach((animal, pairIndex) => {
+  selectedAnimals.forEach((animal, pairIndex) => {
     fallbackCards.push({
       id: pairIndex * 2,
       animalId: animal.id,
