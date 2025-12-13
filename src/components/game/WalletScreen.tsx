@@ -3,6 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
+import { useFarcaster } from '@/contexts/FarcasterContext';
+import { FarcasterSignIn, FarcasterIcon } from './FarcasterSignIn';
 import { cn } from '@/lib/utils';
 
 interface WalletScreenProps {
@@ -22,10 +24,26 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     switchToBase 
   } = useWallet();
 
+  const { 
+    user: farcasterUser, 
+    isAuthenticated: isFarcasterAuth, 
+    isLoading: isFarcasterLoading,
+    isMiniApp,
+    signIn: farcasterSignIn,
+    error: farcasterError 
+  } = useFarcaster();
+
   const { nfts, isLoading: isLoadingNFTs, error: nftError, refetch, contractAddress } = useNFTCollection(address);
 
   const handleConnect = async (type: WalletType) => {
     const success = await connectWallet(type);
+    if (success) {
+      onConnected();
+    }
+  };
+
+  const handleFarcasterSignIn = async () => {
+    const success = await farcasterSignIn();
     if (success) {
       onConnected();
     }
@@ -37,6 +55,11 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
       onConnected();
     }
   };
+
+  // Consider connected if either wallet or Farcaster is connected
+  const isFullyConnected = isConnected || isFarcasterAuth;
+  const displayAddress = address || (farcasterUser ? `fid:${farcasterUser.fid}` : null);
+  const displayError = error || farcasterError;
 
   return (
     <div className="min-h-screen flex flex-col items-center p-6 bg-gradient-to-br from-background via-muted to-background overflow-y-auto">
@@ -52,23 +75,23 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
 
       <div className="text-center mb-8 mt-12">
         <h1 className="text-4xl md:text-5xl font-display font-bold bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent mb-4">
-          {isConnected ? 'Your Wallet' : 'Connect Wallet'}
+          {isFullyConnected ? 'Your Wallet' : 'Connect Wallet'}
         </h1>
         <p className="text-muted-foreground font-body max-w-md mx-auto">
-          {isConnected 
+          {isFullyConnected 
             ? 'View your MemoryMint NFT collection'
             : 'Connect your wallet to play MemoryMint on Base and mint your skill-based NFTs'
           }
         </p>
       </div>
 
-      {/* Connected State */}
+      {/* Connected State - Wallet */}
       {isConnected && address && (
-        <Card className="w-full max-w-md mb-6 border-success bg-success/10">
+        <Card className="w-full max-w-md mb-4 border-success bg-success/10">
           <CardContent className="flex items-center gap-3 py-4">
             <Check className="w-5 h-5 text-success" />
             <div className="flex-1">
-              <p className="font-body text-sm text-muted-foreground">Connected</p>
+              <p className="font-body text-sm text-muted-foreground">Wallet Connected</p>
               <p className="font-mono text-foreground">{formatAddress(address)}</p>
             </div>
             {!isCorrectChain && (
@@ -80,12 +103,39 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
         </Card>
       )}
 
+      {/* Connected State - Farcaster */}
+      {isFarcasterAuth && farcasterUser && (
+        <Card className="w-full max-w-md mb-4 border-[#8B5CF6] bg-[#8B5CF6]/10">
+          <CardContent className="flex items-center gap-3 py-4">
+            <div className="w-10 h-10 rounded-full overflow-hidden bg-[#8B5CF6]/20 flex items-center justify-center">
+              {farcasterUser.pfpUrl ? (
+                <img 
+                  src={farcasterUser.pfpUrl} 
+                  alt={farcasterUser.displayName || farcasterUser.username} 
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <FarcasterIcon className="w-6 h-6" />
+              )}
+            </div>
+            <div className="flex-1">
+              <p className="font-body text-sm text-muted-foreground">Farcaster Connected</p>
+              <p className="font-medium text-foreground">
+                {farcasterUser.displayName || `@${farcasterUser.username}`}
+              </p>
+              <p className="text-xs text-muted-foreground">FID: {farcasterUser.fid}</p>
+            </div>
+            <Check className="w-5 h-5 text-[#8B5CF6]" />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Error State */}
-      {error && (
+      {displayError && (
         <Card className="w-full max-w-md mb-6 border-destructive bg-destructive/10">
           <CardContent className="flex items-center gap-3 py-4">
             <AlertCircle className="w-5 h-5 text-destructive" />
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-sm text-destructive">{displayError}</p>
           </CardContent>
         </Card>
       )}
@@ -178,9 +228,35 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
         </div>
       )}
 
-      {/* Wallet Options (only show if not connected) */}
-      {!isConnected && (
+      {/* Connection Options (only show if not connected) */}
+      {!isFullyConnected && (
         <div className="grid gap-4 w-full max-w-md">
+          {/* Farcaster Sign In - Prominent when in Mini App */}
+          {isMiniApp && (
+            <>
+              <FarcasterSignIn 
+                onSignIn={handleFarcasterSignIn}
+                isLoading={isFarcasterLoading}
+              />
+              <div className="relative my-2">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">or connect wallet</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Farcaster option for browser (non-mini-app) */}
+          {!isMiniApp && (
+            <FarcasterSignIn 
+              onSignIn={handleFarcasterSignIn}
+              isLoading={isFarcasterLoading}
+            />
+          )}
+
           {/* MetaMask */}
           <Card 
             className="cursor-pointer hover:border-primary/50 transition-all hover:scale-[1.02] group"
@@ -237,13 +313,19 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
         </div>
       )}
 
-      {/* Base Network Info */}
-      <div className="mt-8 text-center">
+      {/* Network Info */}
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
         <div className="inline-flex items-center gap-2 px-4 py-2 bg-card/50 rounded-full border border-border">
           <div className="w-6 h-6 rounded-full bg-[#0052FF] flex items-center justify-center">
             <span className="text-white text-xs font-bold">B</span>
           </div>
-          <span className="text-sm text-muted-foreground font-body">Powered by Base Network</span>
+          <span className="text-sm text-muted-foreground font-body">Base Network</span>
+        </div>
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-card/50 rounded-full border border-border">
+          <div className="w-6 h-6 rounded-full bg-[#8B5CF6] flex items-center justify-center">
+            <FarcasterIcon className="w-4 h-4" />
+          </div>
+          <span className="text-sm text-muted-foreground font-body">Farcaster</span>
         </div>
       </div>
     </div>
