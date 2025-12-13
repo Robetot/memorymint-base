@@ -240,7 +240,11 @@ export function useGameState(level: number = 1) {
         );
         
         const newMatchedPairs = prev.matchedPairs + 1;
-        const isWin = newMatchedPairs === totalPairs;
+        // CRITICAL: Calculate totalPairs from current state, not stale closure
+        const actualTotalPairs = prev.cards.length / 2;
+        const isWin = newMatchedPairs >= actualTotalPairs;
+        
+        console.log(`Match! ${newMatchedPairs}/${actualTotalPairs} pairs. Win: ${isWin}`);
         
         return {
           ...prev,
@@ -271,7 +275,7 @@ export function useGameState(level: number = 1) {
         };
       }
     });
-  }, [totalPairs]);
+  }, []);
 
   return {
     gameState,
