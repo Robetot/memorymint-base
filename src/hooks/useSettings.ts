@@ -14,6 +14,7 @@ export interface GameSettings {
   vibrationEnabled: boolean;
   reducedMotion: boolean;
   darkMode: boolean;
+  playerName: string;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -26,6 +27,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   vibrationEnabled: true,
   reducedMotion: false,
   darkMode: false,
+  playerName: '',
 };
 
 export function useSettings() {
