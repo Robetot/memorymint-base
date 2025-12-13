@@ -127,11 +127,10 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     prevComboRef.current = gameState.combo;
   }, [gameState.combo, trackCombo]);
 
-  // Play win/lose sounds and calculate rarity
+  // Handle game over - calculate rarity and track achievements (no sounds)
   useEffect(() => {
     if (gameState.isGameOver) {
       if (gameState.isWin) {
-        
         // Track achievements
         trackLevelComplete();
         const completionTime = config.time - gameState.timeRemaining;
@@ -139,8 +138,6 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         if (perfectGame) {
           trackPerfectGame();
         }
-
-        playPowerUpSound('daily_complete');
         trackDailyChallenge();
         
         // Unlock next level
@@ -169,11 +166,10 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         if (gameState.score > topScore || topScore === 0) {
           setShowScoreSubmit(true);
         }
-      } else {
-        playLoseSound();
       }
+      // No sounds on win or lose
     }
-  }, [gameState.isGameOver, gameState.isWin, playLoseSound, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, playPowerUpSound]);
+  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
