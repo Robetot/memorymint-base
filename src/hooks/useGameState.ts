@@ -1,15 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { ANIMALS, AnimalData } from '@/data/animals';
 import { LevelConfig, getLevel } from '@/data/levels';
+import { autoCorrectDeck, validateDeck, CardData } from '@/utils/deckValidator';
 
-export interface CardData {
-  id: number;
-  animalId: string;
-  animalName: string;
-  imageUrl: string;
-  isFlipped: boolean;
-  isMatched: boolean;
-}
+export type { CardData } from '@/utils/deckValidator';
 
 export interface GameState {
   cards: CardData[];
@@ -35,44 +29,25 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-function createCards(gridSize: number): CardData[] {
+/**
+ * Creates a validated deck of cards for the game.
+ * Uses the deck validator to ensure no duplicate pairs or missing cards.
+ */
+function createValidatedCards(gridSize: number): CardData[] {
+  // Use the auto-correcting deck validator
+  const cards = autoCorrectDeck(gridSize);
+  
+  // Log validation for debugging
   const pairsNeeded = (gridSize * gridSize) / 2;
-  const shuffledAnimals = shuffleArray(ANIMALS);
+  const validation = validateDeck(cards, pairsNeeded);
   
-  // Ensure we only use unique animals (no duplicates)
-  const uniqueAnimals = shuffledAnimals.filter((animal, index, self) => 
-    self.findIndex(a => a.id === animal.id) === index
-  );
+  if (!validation.isValid) {
+    console.error('Deck validation failed:', validation.errors);
+  } else {
+    console.log(`✓ Valid deck created: ${cards.length} cards, ${pairsNeeded} pairs`);
+  }
   
-  // Only take as many unique animals as we need for pairs
-  const selectedAnimals = uniqueAnimals.slice(0, Math.min(pairsNeeded, uniqueAnimals.length));
-  
-  // If we don't have enough unique animals, we cannot proceed properly
-  // This creates exactly one pair per animal
-  const cards: CardData[] = [];
-  let cardId = 0;
-  
-  selectedAnimals.forEach((animal: AnimalData) => {
-    // Create exactly 2 cards (one pair) per animal
-    cards.push({
-      id: cardId++,
-      animalId: animal.id,
-      animalName: animal.name,
-      imageUrl: animal.image,
-      isFlipped: false,
-      isMatched: false,
-    });
-    cards.push({
-      id: cardId++,
-      animalId: animal.id,
-      animalName: animal.name,
-      imageUrl: animal.image,
-      isFlipped: false,
-      isMatched: false,
-    });
-  });
-  
-  return shuffleArray(cards);
+  return cards;
 }
 
 export function useGameState(level: number = 1) {
@@ -81,7 +56,7 @@ export function useGameState(level: number = 1) {
   const gameTime = config.time;
   
   const [gameState, setGameState] = useState<GameState>(() => ({
-    cards: createCards(gridSize),
+    cards: createValidatedCards(gridSize),
     flippedCards: [],
     matchedPairs: 0,
     moves: 0,
@@ -97,6 +72,20 @@ export function useGameState(level: number = 1) {
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const totalPairs = (gridSize * gridSize) / 2;
+
+  // Validate deck on level change
+  useEffect(() => {
+    const pairsNeeded = (gridSize * gridSize) / 2;
+    const validation = validateDeck(gameState.cards, pairsNeeded);
+    
+    if (!validation.isValid && gameState.isPlaying) {
+      console.warn('Invalid deck detected during gameplay, regenerating...');
+      setGameState(prev => ({
+        ...prev,
+        cards: createValidatedCards(gridSize),
+      }));
+    }
+  }, [gridSize, gameState.isPlaying]);
 
   useEffect(() => {
     if (gameState.isPlaying && !gameState.isGameOver && !gameState.isPaused) {
@@ -124,8 +113,11 @@ export function useGameState(level: number = 1) {
   }, [gameState.isPlaying, gameState.isGameOver, gameState.isPaused]);
 
   const startGame = useCallback(() => {
+    // Create and validate a fresh deck
+    const validatedCards = createValidatedCards(gridSize);
+    
     setGameState({
-      cards: createCards(gridSize),
+      cards: validatedCards,
       flippedCards: [],
       matchedPairs: 0,
       moves: 0,
