@@ -100,18 +100,22 @@ export function Tutorial({ onComplete }: TutorialProps) {
         </div>
 
         {/* Progress dots */}
-        <div className="flex justify-center gap-2 mb-6">
+        <div className="flex justify-center gap-1 mb-6">
           {TUTORIAL_STEPS.map((_, index) => (
             <button
               key={index}
               onClick={() => setCurrentStep(index)}
               aria-label={`Go to step ${index + 1} of ${TUTORIAL_STEPS.length}`}
-              className={`h-2 rounded-full transition-all duration-300 ${
-                index === currentStep
-                  ? 'w-6 bg-primary'
-                  : 'w-2 bg-muted hover:bg-muted-foreground/50'
-              }`}
-            />
+              className="min-w-6 min-h-6 flex items-center justify-center"
+            >
+              <span
+                className={`h-2 rounded-full transition-all duration-300 ${
+                  index === currentStep
+                    ? 'w-6 bg-primary'
+                    : 'w-2 bg-muted hover:bg-muted-foreground/50'
+                }`}
+              />
+            </button>
           ))}
         </div>
 
