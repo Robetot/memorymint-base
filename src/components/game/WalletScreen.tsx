@@ -1,11 +1,12 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone } from 'lucide-react';
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
 import { useFarcaster } from '@/contexts/FarcasterContext';
 import { FarcasterSignIn, FarcasterIcon } from './FarcasterSignIn';
 import { cn } from '@/lib/utils';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface WalletScreenProps {
   onBack: () => void;
@@ -257,12 +258,9 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
             </>
           )}
 
-          {/* Farcaster option for browser (non-mini-app) - Opens in Warpcast */}
+          {/* Farcaster option for browser (non-mini-app) - Opens in Warpcast with QR */}
           {!isMiniApp && (
-            <Card 
-              className="cursor-pointer hover:border-[#8B5CF6]/50 transition-all hover:scale-[1.02] group"
-              onClick={handleFarcasterSignIn}
-            >
+            <Card className="overflow-hidden">
               <CardHeader className="flex flex-row items-center gap-4 pb-2">
                 <div 
                   className="w-12 h-12 rounded-xl flex items-center justify-center"
@@ -271,15 +269,37 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
                   <FarcasterIcon className="w-7 h-7" />
                 </div>
                 <div className="flex-1">
-                  <CardTitle className="text-lg group-hover:text-[#8B5CF6] transition-colors">
-                    Open in Warpcast
-                  </CardTitle>
+                  <CardTitle className="text-lg">Play on Farcaster</CardTitle>
                   <CardDescription className="font-body">
-                    Play as a Farcaster Mini App
+                    Scan QR or click to open in Warpcast
                   </CardDescription>
                 </div>
-                <ExternalLink className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
+              <CardContent className="pt-0 pb-4">
+                <div className="flex flex-col items-center gap-4">
+                  {/* QR Code */}
+                  <div className="p-3 bg-white rounded-xl">
+                    <QRCodeSVG 
+                      value={`https://warpcast.com/~/frames?url=${encodeURIComponent(window.location.origin)}`}
+                      size={140}
+                      level="M"
+                      fgColor="#8B5CF6"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Smartphone className="w-3 h-3" />
+                    <span>Scan with your phone camera</span>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    className="w-full border-[#8B5CF6]/30 hover:border-[#8B5CF6] hover:bg-[#8B5CF6]/10"
+                    onClick={handleFarcasterSignIn}
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Open in Warpcast
+                  </Button>
+                </div>
+              </CardContent>
             </Card>
           )}
 
