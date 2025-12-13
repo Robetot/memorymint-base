@@ -55,23 +55,35 @@ export function useGameState(level: number = 1) {
   const gridSize = config.gridSize;
   const gameTime = config.time;
   
-  const [gameState, setGameState] = useState<GameState>(() => ({
-    cards: createValidatedCards(gridSize),
-    flippedCards: [],
-    matchedPairs: 0,
-    moves: 0,
-    combo: 0,
-    maxCombo: 0,
-    timeRemaining: gameTime,
-    isPlaying: false,
-    isGameOver: false,
-    isWin: false,
-    score: 0,
-    isPaused: false,
-  }));
+  // Calculate expected pairs from grid size
+  const expectedPairs = (gridSize * gridSize) / 2;
+  
+  const [gameState, setGameState] = useState<GameState>(() => {
+    const cards = createValidatedCards(gridSize);
+    // Ensure totalPairs matches actual deck (safety check)
+    const actualPairs = cards.length / 2;
+    if (actualPairs !== expectedPairs) {
+      console.error(`Deck size mismatch: expected ${expectedPairs} pairs, got ${actualPairs}`);
+    }
+    return {
+      cards,
+      flippedCards: [],
+      matchedPairs: 0,
+      moves: 0,
+      combo: 0,
+      maxCombo: 0,
+      timeRemaining: gameTime,
+      isPlaying: false,
+      isGameOver: false,
+      isWin: false,
+      score: 0,
+      isPaused: false,
+    };
+  });
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const totalPairs = (gridSize * gridSize) / 2;
+  // CRITICAL: totalPairs must match actual deck size, not just config
+  const totalPairs = gameState.cards.length / 2;
 
   // Validate deck on level change
   useEffect(() => {
