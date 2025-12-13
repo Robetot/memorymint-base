@@ -91,9 +91,9 @@ export function Tutorial({ onComplete }: TutorialProps) {
 
         {/* Content */}
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-display font-bold text-foreground mb-3">
+          <h1 className="text-2xl font-display font-bold text-foreground mb-3">
             {step.title}
-          </h2>
+          </h1>
           <p className="text-muted-foreground font-body leading-relaxed text-sm md:text-base">
             {step.content}
           </p>
