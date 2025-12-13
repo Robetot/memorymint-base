@@ -49,7 +49,13 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
   useEffect(() => {
     const initMiniApp = async () => {
       try {
-        // Check if we're in a Farcaster context
+        // Check if SDK is available and we're in a Farcaster context
+        if (typeof sdk?.context === 'undefined') {
+          setIsReady(true);
+          setIsLoading(false);
+          return;
+        }
+
         const ctx = await sdk.context;
         
         if (ctx?.user) {
@@ -65,7 +71,11 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
         }
         
         // Signal that the app is ready
-        await sdk.actions.ready();
+        try {
+          await sdk.actions.ready();
+        } catch {
+          // ready() might fail outside mini app context
+        }
         setIsReady(true);
         setIsLoading(false);
       } catch (err) {
@@ -97,6 +107,13 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
         return true;
       }
 
+      // Check if SDK is available
+      if (!sdk?.actions?.signIn) {
+        setError('Farcaster sign-in is only available in Farcaster clients');
+        setIsLoading(false);
+        return false;
+      }
+
       // Generate a nonce for signing
       const nonce = crypto.randomUUID();
       
@@ -106,27 +123,30 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
         acceptAuthAddress: true 
       });
       
-      // The signIn action proves the user owns the wallet
-      // In a production app, you'd verify this server-side to get the FID
-      // For now, we'll use the context if available or show as signed in
-      if (result.message && result.signature) {
-        // User successfully signed - in production verify server-side
-        // For demo, try to get context again
-        const ctx = await sdk.context;
-        if (ctx?.user) {
-          setUser({
-            fid: ctx.user.fid,
-            username: ctx.user.username,
-            displayName: ctx.user.displayName,
-            pfpUrl: ctx.user.pfpUrl,
-          });
-          setContext(ctx);
-          setIsLoading(false);
-          return true;
+      // Safely check result properties
+      if (result && typeof result === 'object' && 'message' in result && 'signature' in result) {
+        // User successfully signed - try to get context again
+        try {
+          const ctx = await sdk.context;
+          if (ctx?.user) {
+            setUser({
+              fid: ctx.user.fid,
+              username: ctx.user.username,
+              displayName: ctx.user.displayName,
+              pfpUrl: ctx.user.pfpUrl,
+            });
+            setContext(ctx);
+            setIsLoading(false);
+            return true;
+          }
+        } catch {
+          // Context fetch failed, but sign-in might still be valid
         }
       }
       
-      throw new Error('Sign in completed but could not get user info');
+      setError('Sign in requires a Farcaster client (Warpcast, etc.)');
+      setIsLoading(false);
+      return false;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to sign in with Farcaster';
       setError(message);
