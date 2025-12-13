@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Trophy, Send } from 'lucide-react';
@@ -13,16 +13,22 @@ interface ScoreSubmitModalProps {
 
 export function ScoreSubmitModal({ isOpen, score, savedName, onSubmit, onSkip }: ScoreSubmitModalProps) {
   const [playerName, setPlayerName] = useState('');
+  const hasAutoSubmittedRef = useRef(false);
 
-  // Auto-submit if we already have a saved name
+  // Auto-submit if we already have a saved name (only once per modal open)
   useEffect(() => {
-    if (isOpen && savedName) {
+    if (isOpen && savedName && !hasAutoSubmittedRef.current) {
+      hasAutoSubmittedRef.current = true;
       onSubmit(savedName);
+    }
+    // Reset the ref when modal closes
+    if (!isOpen) {
+      hasAutoSubmittedRef.current = false;
     }
   }, [isOpen, savedName, onSubmit]);
 
-  // If saved name exists, don't render (auto-submitted)
-  if (!isOpen || savedName) return null;
+  // If saved name exists and we've auto-submitted, don't render
+  if (!isOpen || (savedName && hasAutoSubmittedRef.current)) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
