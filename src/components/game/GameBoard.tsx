@@ -60,7 +60,7 @@ export function GameBoard({
   const checkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-  const { playMatchSound, playParticleExplosion, playComboCelebration } = useMatchSounds();
+  const { playMatchSound, playParticleExplosion } = useMatchSounds();
 
   const removeFloatingScore = useCallback((id: string) => {
     setFloatingScores(prev => prev.filter(s => s.id !== id));
@@ -121,11 +121,8 @@ export function GameBoard({
             setMatchedCardIds((prev) => new Set([...prev, firstId, secondId]));
             setShowMatchAnimation(true);
             
-            // Play match and combo sounds
+            // Play match sound
             playMatchSound(combo);
-            if (combo >= 2) {
-              playComboCelebration(combo);
-            }
             
             // Add floating score and particles at the center of the matched cards
             if (boardRef.current) {
@@ -179,7 +176,7 @@ export function GameBoard({
         clearTimeout(checkTimeoutRef.current);
       }
     };
-  }, [flippedCards, cards, onCheckMatch, onMatch, onNoMatch, combo, playMatchSound, playParticleExplosion, playComboCelebration]);
+  }, [flippedCards, cards, onCheckMatch, onMatch, onNoMatch, combo, playMatchSound, playParticleExplosion]);
 
   // Store card refs
   const setCardRef = useCallback((cardId: number, el: HTMLButtonElement | null) => {
