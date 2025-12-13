@@ -201,10 +201,24 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
   );
 }
 
+// Default fallback values when outside provider (for SSR/testing/error recovery)
+const defaultFarcasterContext: FarcasterContextType = {
+  user: null,
+  isAuthenticated: false,
+  isLoading: false,
+  error: null,
+  isMiniApp: false,
+  isReady: true,
+  context: null,
+  signIn: async () => false,
+  signOut: () => {},
+  shareToFarcaster: async () => {},
+  composeCast: async () => {},
+  viewProfile: () => {},
+};
+
 export function useFarcaster() {
   const context = useContext(FarcasterContext);
-  if (!context) {
-    throw new Error('useFarcaster must be used within a FarcasterProvider');
-  }
-  return context;
+  // Return default context if provider not found (graceful fallback)
+  return context ?? defaultFarcasterContext;
 }
