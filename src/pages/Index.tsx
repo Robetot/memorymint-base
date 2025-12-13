@@ -100,6 +100,11 @@ const Index = () => {
 
   const handleNextLevel = (nextLevel: number) => {
     setSelectedLevel(nextLevel);
+    // Force re-mount GameScreen by briefly switching views
+    setCurrentView('welcome');
+    setTimeout(() => {
+      setCurrentView('game');
+    }, 0);
   };
 
   const handleTutorialComplete = () => {
