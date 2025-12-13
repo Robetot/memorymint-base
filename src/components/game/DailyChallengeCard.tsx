@@ -35,7 +35,7 @@ export function DailyChallengeCard({ challenge, streak, onStart }: DailyChalleng
           )}
         </div>
 
-        <h3 className="text-xl font-bold text-foreground mb-1">{challenge.title}</h3>
+        <h2 className="text-xl font-bold text-foreground mb-1">{challenge.title}</h2>
         <p className="text-sm text-muted-foreground mb-3">{challenge.description}</p>
 
         <div className="flex items-center gap-4 mb-3 text-sm">
