@@ -56,7 +56,7 @@ export function WelcomeScreen({
       {/* Settings button */}
       {onViewSettings && (
         <div className="absolute top-4 right-4 z-10">
-          <Button variant="ghost" size="icon" onClick={onViewSettings} className="rounded-full">
+          <Button variant="ghost" size="icon" onClick={onViewSettings} className="rounded-full" aria-label="Open settings">
             <Settings className="w-5 h-5" />
           </Button>
         </div>
