@@ -1,19 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WelcomeScreen } from '@/components/game/WelcomeScreen';
-import { GameScreen } from '@/components/game/GameScreen';
-import { WalletScreen } from '@/components/game/WalletScreen';
-import { LevelSelector } from '@/components/game/LevelSelector';
-import { Leaderboard } from '@/components/game/Leaderboard';
-import { AIImageGenerator } from '@/components/game/AIImageGenerator';
-import { Tutorial } from '@/components/game/Tutorial';
-import { SettingsScreen } from '@/components/game/SettingsScreen';
-import { StatsScreen } from '@/components/game/StatsScreen';
-import { AchievementsPanel } from '@/components/game/AchievementsPanel';
-import { AchievementUnlockPopup } from '@/components/game/AchievementUnlockPopup';
 import { useSettings } from '@/hooks/useSettings';
 import { useAchievements } from '@/hooks/useAchievements';
 import { RarityResult } from '@/utils/rarityCalculator';
+
+// Lazy load components not needed on initial page load
+const GameScreen = lazy(() => import('@/components/game/GameScreen').then(m => ({ default: m.GameScreen })));
+const WalletScreen = lazy(() => import('@/components/game/WalletScreen').then(m => ({ default: m.WalletScreen })));
+const LevelSelector = lazy(() => import('@/components/game/LevelSelector').then(m => ({ default: m.LevelSelector })));
+const Leaderboard = lazy(() => import('@/components/game/Leaderboard').then(m => ({ default: m.Leaderboard })));
+const AIImageGenerator = lazy(() => import('@/components/game/AIImageGenerator').then(m => ({ default: m.AIImageGenerator })));
+const Tutorial = lazy(() => import('@/components/game/Tutorial').then(m => ({ default: m.Tutorial })));
+const SettingsScreen = lazy(() => import('@/components/game/SettingsScreen').then(m => ({ default: m.SettingsScreen })));
+const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m => ({ default: m.StatsScreen })));
+const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
+const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
+
+// Loading fallback component
+const LoadingFallback = () => (
+  <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="animate-pulse text-primary text-xl">Loading...</div>
+  </div>
+);
 
 type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
 
@@ -178,7 +187,7 @@ const Index = () => {
   };
 
   return (
-    <>
+    <Suspense fallback={<LoadingFallback />}>
       {showTutorial && <Tutorial onComplete={handleTutorialComplete} />}
       
       {/* Achievement unlock popup */}
@@ -212,7 +221,7 @@ const Index = () => {
           {renderCurrentView()}
         </motion.div>
       </AnimatePresence>
-    </>
+    </Suspense>
   );
 };
 
