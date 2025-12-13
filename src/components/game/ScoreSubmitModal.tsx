@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Trophy, Send } from 'lucide-react';
@@ -6,14 +6,23 @@ import { Trophy, Send } from 'lucide-react';
 interface ScoreSubmitModalProps {
   isOpen: boolean;
   score: number;
+  savedName: string;
   onSubmit: (name: string) => void;
   onSkip: () => void;
 }
 
-export function ScoreSubmitModal({ isOpen, score, onSubmit, onSkip }: ScoreSubmitModalProps) {
+export function ScoreSubmitModal({ isOpen, score, savedName, onSubmit, onSkip }: ScoreSubmitModalProps) {
   const [playerName, setPlayerName] = useState('');
 
-  if (!isOpen) return null;
+  // Auto-submit if we already have a saved name
+  useEffect(() => {
+    if (isOpen && savedName) {
+      onSubmit(savedName);
+    }
+  }, [isOpen, savedName, onSubmit]);
+
+  // If saved name exists, don't render (auto-submitted)
+  if (!isOpen || savedName) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

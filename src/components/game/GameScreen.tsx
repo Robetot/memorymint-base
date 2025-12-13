@@ -19,6 +19,7 @@ import { useHints } from '@/hooks/useHints';
 import { usePowerUps } from '@/hooks/usePowerUps';
 import { useAchievements } from '@/hooks/useAchievements';
 import { usePowerUpSounds } from '@/hooks/usePowerUpSounds';
+import { useSettings } from '@/hooks/useSettings';
 import { getLevel, saveUnlockedLevel, getMaxLevel } from '@/data/levels';
 import { calculateRarity, RarityResult } from '@/utils/rarityCalculator';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,7 @@ interface GameScreenProps {
 export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: GameScreenProps) {
   const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame, shuffleUnmatched, addTime } = useGameState(level);
   const config = getLevel(level);
+  const { settings, updateSetting } = useSettings();
   const {
     playAnimalSound,
     stopAnimalSound,
@@ -213,7 +215,11 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     onBackToMenu();
   };
 
-  const handleScoreSubmit = (name: string) => {
+  const handleScoreSubmit = useCallback((name: string) => {
+    // Save the name for future use if it's new
+    if (!settings.playerName && name) {
+      updateSetting('playerName', name);
+    }
     addEntry({
       playerName: name,
       score: gameState.score,
@@ -223,7 +229,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
       maxCombo: gameState.maxCombo,
     });
     setShowScoreSubmit(false);
-  };
+  }, [settings.playerName, updateSetting, addEntry, gameState.score, gameState.moves, gameState.timeRemaining, config.time, level, gameState.maxCombo]);
 
   const handleScoreSkip = () => {
     setShowScoreSubmit(false);
@@ -421,6 +427,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
       <ScoreSubmitModal
         isOpen={showScoreSubmit}
         score={gameState.score}
+        savedName={settings.playerName}
         onSubmit={handleScoreSubmit}
         onSkip={handleScoreSkip}
       />
