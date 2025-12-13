@@ -13,7 +13,6 @@ import { AchievementsPanel } from '@/components/game/AchievementsPanel';
 import { AchievementUnlockPopup } from '@/components/game/AchievementUnlockPopup';
 import { useSettings } from '@/hooks/useSettings';
 import { useAchievements } from '@/hooks/useAchievements';
-import { usePowerUpSounds } from '@/hooks/usePowerUpSounds';
 import { RarityResult } from '@/utils/rarityCalculator';
 
 type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
@@ -32,14 +31,6 @@ const Index = () => {
   const [dailyChallengeConfig, setDailyChallengeConfig] = useState<{ gridSize: number; timeLimit: number } | null>(null);
   const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
   const { achievements, newUnlock, dismissNewUnlock, unlockedCount, totalCount } = useAchievements();
-  const { playSound } = usePowerUpSounds();
-
-  // Play achievement sound when new unlock
-  useEffect(() => {
-    if (newUnlock) {
-      playSound('achievement');
-    }
-  }, [newUnlock, playSound]);
 
   // Show tutorial on first visit
   useEffect(() => {
