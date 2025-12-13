@@ -43,9 +43,16 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   };
 
   const handleFarcasterSignIn = async () => {
-    const success = await farcasterSignIn();
-    if (success) {
-      onConnected();
+    // If we're in a mini app, try SDK sign in
+    if (isMiniApp) {
+      const success = await farcasterSignIn();
+      if (success) {
+        onConnected();
+      }
+    } else {
+      // In browser, open Warpcast to play as a mini app
+      const gameUrl = encodeURIComponent(window.location.origin);
+      window.open(`https://warpcast.com/~/frames?url=${gameUrl}`, '_blank');
     }
   };
 
@@ -59,7 +66,8 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   // Consider connected if either wallet or Farcaster is connected
   const isFullyConnected = isConnected || isFarcasterAuth;
   const displayAddress = address || (farcasterUser ? `fid:${farcasterUser.fid}` : null);
-  const displayError = error || farcasterError;
+  // Don't show "requires Farcaster client" as an error - it's expected in browsers
+  const displayError = error || (farcasterError && !farcasterError.includes('Farcaster client') ? farcasterError : null);
 
   return (
     <div className="min-h-screen flex flex-col items-center p-6 bg-gradient-to-br from-background via-muted to-background overflow-y-auto">
@@ -249,12 +257,30 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
             </>
           )}
 
-          {/* Farcaster option for browser (non-mini-app) */}
+          {/* Farcaster option for browser (non-mini-app) - Opens in Warpcast */}
           {!isMiniApp && (
-            <FarcasterSignIn 
-              onSignIn={handleFarcasterSignIn}
-              isLoading={isFarcasterLoading}
-            />
+            <Card 
+              className="cursor-pointer hover:border-[#8B5CF6]/50 transition-all hover:scale-[1.02] group"
+              onClick={handleFarcasterSignIn}
+            >
+              <CardHeader className="flex flex-row items-center gap-4 pb-2">
+                <div 
+                  className="w-12 h-12 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: '#8B5CF620' }}
+                >
+                  <FarcasterIcon className="w-7 h-7" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-lg group-hover:text-[#8B5CF6] transition-colors">
+                    Open in Warpcast
+                  </CardTitle>
+                  <CardDescription className="font-body">
+                    Play as a Farcaster Mini App
+                  </CardDescription>
+                </div>
+                <ExternalLink className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+            </Card>
           )}
 
           {/* MetaMask */}
