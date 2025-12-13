@@ -12,7 +12,7 @@ import { TimerWarning } from './TimerWarning';
 import { PowerUpsBar } from './PowerUpsBar';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
-import { useConfetti } from '@/hooks/useConfetti';
+
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
 import { useHints } from '@/hooks/useHints';
@@ -44,7 +44,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     playClickSound,
     setMuted,
   } = useSoundEffects();
-  const { fireMatchConfetti, fireWinConfetti, resetConfetti } = useConfetti();
+  
   const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
   const { addEntry, getTopScore } = useLeaderboard();
   const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(level);
@@ -76,12 +76,11 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
 
   // Start game on mount
   useEffect(() => {
-    resetConfetti();
     startGame();
     setPerfectGame(true);
     resetHints(level);
     resetPowerUps();
-  }, [startGame, resetHints, resetPowerUps, level, resetConfetti]);
+  }, [startGame, resetHints, resetPowerUps, level]);
 
   // Handle power-up effects
   useEffect(() => {
@@ -132,8 +131,6 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
   useEffect(() => {
     if (gameState.isGameOver) {
       if (gameState.isWin) {
-        playWinSound();
-        fireWinConfetti();
         
         // Track achievements
         trackLevelComplete();
@@ -176,7 +173,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, playWinSound, playLoseSound, fireWinConfetti, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, playPowerUpSound]);
+  }, [gameState.isGameOver, gameState.isWin, playLoseSound, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, playPowerUpSound]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -193,8 +190,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
 
   const handleMatch = useCallback(() => {
     playMatchSound();
-    fireMatchConfetti();
-  }, [playMatchSound, fireMatchConfetti]);
+  }, [playMatchSound]);
 
   const handleNoMatch = useCallback(() => {
     playMismatchSound();

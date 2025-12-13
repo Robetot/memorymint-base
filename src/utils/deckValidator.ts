@@ -28,8 +28,27 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 /**
+ * Get deduplicated unique animals from ANIMALS array.
+ * Ensures no animal ID appears more than once.
+ */
+function getUniqueAnimals(): AnimalData[] {
+  const seen = new Set<string>();
+  const unique: AnimalData[] = [];
+  
+  for (const animal of ANIMALS) {
+    if (!seen.has(animal.id)) {
+      seen.add(animal.id);
+      unique.push(animal);
+    }
+  }
+  
+  return unique;
+}
+
+/**
  * Creates a validated deck of cards for the memory game.
- * Ensures exactly 2 cards per animal with no duplicates or missing pairs.
+ * STRICT RULE: Each animal appears EXACTLY 2 times (one pair).
+ * No duplicates, no missing pairs.
  */
 export function createValidatedDeck(gridSize: number): ValidationResult {
   const errors: string[] = [];
@@ -42,50 +61,62 @@ export function createValidatedDeck(gridSize: number): ValidationResult {
     return { isValid: false, errors, cards: [] };
   }
 
+  // Get strictly unique animals (deduped by ID)
+  const uniqueAnimals = getUniqueAnimals();
+
   // Validation: we must have enough unique animals
-  if (pairsNeeded > ANIMALS.length) {
-    errors.push(`Not enough unique animals: need ${pairsNeeded} pairs but only have ${ANIMALS.length} animals`);
+  if (pairsNeeded > uniqueAnimals.length) {
+    errors.push(`Not enough unique animals: need ${pairsNeeded} pairs but only have ${uniqueAnimals.length} animals`);
     return { isValid: false, errors, cards: [] };
   }
-
-  // Get unique animals only (filter by unique id)
-  const uniqueAnimals = ANIMALS.filter((animal, index, self) => 
-    self.findIndex(a => a.id === animal.id) === index
-  );
 
   // Shuffle and select the required number of unique animals
   const shuffledAnimals = shuffleArray(uniqueAnimals);
   const selectedAnimals = shuffledAnimals.slice(0, pairsNeeded);
 
-  // Create exactly 2 cards per animal
+  // STRICT: Track which animals are used to prevent any duplicates
+  const usedAnimalIds = new Set<string>();
   const cards: CardData[] = [];
   let cardId = 0;
 
-  selectedAnimals.forEach((animal: AnimalData) => {
-    // First card of pair
-    cards.push({
-      id: cardId++,
-      animalId: animal.id,
-      animalName: animal.name,
-      imageUrl: animal.image,
-      isFlipped: false,
-      isMatched: false,
-    });
-    // Second card of pair (exact match)
-    cards.push({
-      id: cardId++,
-      animalId: animal.id,
-      animalName: animal.name,
-      imageUrl: animal.image,
-      isFlipped: false,
-      isMatched: false,
-    });
-  });
+  for (const animal of selectedAnimals) {
+    // Double-check: skip if somehow this animal was already used
+    if (usedAnimalIds.has(animal.id)) {
+      console.error(`Duplicate animal detected during deck creation: ${animal.id}`);
+      continue;
+    }
+    
+    usedAnimalIds.add(animal.id);
 
-  // Shuffle the final deck
+    // Create EXACTLY 2 cards for this animal
+    cards.push({
+      id: cardId++,
+      animalId: animal.id,
+      animalName: animal.name,
+      imageUrl: animal.image,
+      isFlipped: false,
+      isMatched: false,
+    });
+    cards.push({
+      id: cardId++,
+      animalId: animal.id,
+      animalName: animal.name,
+      imageUrl: animal.image,
+      isFlipped: false,
+      isMatched: false,
+    });
+  }
+
+  // Verify we have exact card count
+  if (cards.length !== totalCards) {
+    errors.push(`Card count mismatch: expected ${totalCards}, got ${cards.length}`);
+    return { isValid: false, errors, cards: [] };
+  }
+
+  // Shuffle the final deck and reassign sequential IDs
   const shuffledCards = shuffleArray(cards).map((card, index) => ({
     ...card,
-    id: index, // Reassign IDs after shuffle
+    id: index,
   }));
 
   // Final validation
@@ -95,6 +126,7 @@ export function createValidatedDeck(gridSize: number): ValidationResult {
     return { isValid: false, errors: validationResult.errors, cards: [] };
   }
 
+  console.log(`✓ Deck validated: ${shuffledCards.length} cards, ${pairsNeeded} unique pairs`);
   return { isValid: true, errors: [], cards: shuffledCards };
 }
 
@@ -146,23 +178,54 @@ export function validateDeck(cards: CardData[], expectedPairs: number): { isVali
 
 /**
  * Auto-corrects a deck if validation fails.
- * Returns a fresh, valid deck.
+ * Returns a fresh, valid deck. Always succeeds.
  */
 export function autoCorrectDeck(gridSize: number): CardData[] {
+  // Get unique animals first
+  const uniqueAnimals = getUniqueAnimals();
+  const totalCards = gridSize * gridSize;
+  const pairsNeeded = totalCards / 2;
+  
+  // Cap grid size if we don't have enough animals
+  const maxPairs = uniqueAnimals.length;
+  const actualPairs = Math.min(pairsNeeded, maxPairs);
+  const actualGridSize = actualPairs <= 2 ? 2 : actualPairs <= 8 ? 4 : 6;
+  
   let attempts = 0;
-  const maxAttempts = 3;
+  const maxAttempts = 5;
 
   while (attempts < maxAttempts) {
-    const result = createValidatedDeck(gridSize);
+    const result = createValidatedDeck(actualGridSize);
     if (result.isValid) {
-      console.log(`Deck created successfully on attempt ${attempts + 1}`);
       return result.cards;
     }
     console.warn(`Deck validation failed (attempt ${attempts + 1}):`, result.errors);
     attempts++;
   }
 
-  // Fallback: create a minimal valid deck
-  console.error('Failed to create valid deck after max attempts, using fallback');
-  return createValidatedDeck(Math.min(gridSize, 4)).cards;
+  // Ultimate fallback: manually create a guaranteed valid 2x2 deck
+  console.error('Using ultimate fallback: creating minimal 2x2 deck');
+  const fallbackAnimals = shuffleArray(uniqueAnimals).slice(0, 2);
+  const fallbackCards: CardData[] = [];
+  
+  fallbackAnimals.forEach((animal, pairIndex) => {
+    fallbackCards.push({
+      id: pairIndex * 2,
+      animalId: animal.id,
+      animalName: animal.name,
+      imageUrl: animal.image,
+      isFlipped: false,
+      isMatched: false,
+    });
+    fallbackCards.push({
+      id: pairIndex * 2 + 1,
+      animalId: animal.id,
+      animalName: animal.name,
+      imageUrl: animal.image,
+      isFlipped: false,
+      isMatched: false,
+    });
+  });
+  
+  return shuffleArray(fallbackCards).map((card, index) => ({ ...card, id: index }));
 }
