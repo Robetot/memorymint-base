@@ -92,36 +92,8 @@ export function useMatchSounds() {
     }
   }, [playTone]);
 
-  const playComboCelebration = useCallback((combo: number) => {
-    if (combo < 2) return;
-
-    // Rising celebratory melody
-    const notes = [523, 659, 784, 1047]; // C5, E5, G5, C6
-    notes.forEach((freq, i) => {
-      playTone(freq, 0.15, 'sine', i * 0.08);
-    });
-
-    if (combo >= 4) {
-      // Extra flourish for high combos
-      playTone(1175, 0.1, 'triangle', 0.4);
-      playTone(1319, 0.1, 'triangle', 0.45);
-      playTone(1568, 0.2, 'sine', 0.5);
-    }
-
-    if (combo >= 6) {
-      // Epic combo celebration
-      setTimeout(() => {
-        playTone(1047, 0.1, 'square', 0);
-        playTone(1319, 0.1, 'square', 0.08);
-        playTone(1568, 0.1, 'square', 0.16);
-        playTone(2093, 0.3, 'sine', 0.24);
-      }, 300);
-    }
-  }, [playTone]);
-
   return {
     playMatchSound,
     playParticleExplosion,
-    playComboCelebration,
   };
 }
