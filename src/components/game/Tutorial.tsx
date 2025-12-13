@@ -105,6 +105,7 @@ export function Tutorial({ onComplete }: TutorialProps) {
             <button
               key={index}
               onClick={() => setCurrentStep(index)}
+              aria-label={`Go to step ${index + 1} of ${TUTORIAL_STEPS.length}`}
               className={`h-2 rounded-full transition-all duration-300 ${
                 index === currentStep
                   ? 'w-6 bg-primary'
