@@ -1,6 +1,6 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-type SoundType = 'freeze' | 'reveal' | 'shuffle' | 'daily_complete' | 'weekly_complete' | 'achievement';
+type SoundType = 'freeze' | 'reveal' | 'shuffle';
 
 export const usePowerUpSounds = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -70,35 +70,6 @@ export const usePowerUpSounds = () => {
         // Whoosh/shuffle - quick swooping sound
         [200, 300, 400, 350, 250, 150].forEach((freq, i) => {
           setTimeout(() => playTone(freq, 0.05, 'sawtooth'), i * 30);
-        });
-        break;
-
-      case 'daily_complete':
-        // Victory fanfare - triumphant melody
-        const dailyMelody = [523, 659, 784, 1047, 784, 1047];
-        dailyMelody.forEach((freq, i) => {
-          setTimeout(() => playTone(freq, 0.2, 'triangle'), i * 100);
-        });
-        break;
-
-      case 'weekly_complete':
-        // Epic fanfare - grander celebration
-        const weeklyMelody = [392, 523, 659, 784, 880, 1047, 1319, 1568];
-        weeklyMelody.forEach((freq, i) => {
-          setTimeout(() => {
-            playTone(freq, 0.25, 'triangle');
-            playTone(freq * 1.5, 0.25, 'sine');
-          }, i * 120);
-        });
-        break;
-
-      case 'achievement':
-        // Achievement unlock - special chime
-        [659, 784, 880, 1047].forEach((freq, i) => {
-          setTimeout(() => {
-            playTone(freq, 0.3, 'sine');
-            playTone(freq * 1.25, 0.3, 'triangle');
-          }, i * 80);
         });
         break;
     }
