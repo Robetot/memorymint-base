@@ -9,6 +9,10 @@ export interface LeaderboardEntry {
   difficulty: string; // Now supports both "Level X" and difficulty strings
   maxCombo: number;
   date: string;
+  // Farcaster data (optional)
+  farcasterFid?: number;
+  farcasterUsername?: string;
+  farcasterPfp?: string;
 }
 
 const STORAGE_KEY = 'memorymint_leaderboard';
