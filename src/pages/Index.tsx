@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { WelcomeScreen } from '@/components/game/WelcomeScreen';
 import { GameScreen } from '@/components/game/GameScreen';
 import { WalletScreen } from '@/components/game/WalletScreen';
@@ -16,6 +17,12 @@ import { usePowerUpSounds } from '@/hooks/usePowerUpSounds';
 import { RarityResult } from '@/utils/rarityCalculator';
 
 type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
+
+const pageVariants = {
+  initial: { opacity: 0, y: 20, scale: 0.98 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: -20, scale: 0.98 },
+};
 
 const Index = () => {
   const [currentView, setCurrentView] = useState<GameView>('welcome');
@@ -61,7 +68,6 @@ const Index = () => {
 
   const handleStartDailyChallenge = (gridSize: number, timeLimit: number) => {
     setDailyChallengeConfig({ gridSize, timeLimit });
-    // Map grid size to approximate level
     const levelMap: Record<number, number> = { 2: 1, 4: 3, 6: 6 };
     setSelectedLevel(levelMap[gridSize] || 3);
     setCurrentView('game');
@@ -106,80 +112,115 @@ const Index = () => {
     setCurrentView('welcome');
   };
 
+  const renderCurrentView = () => {
+    switch (currentView) {
+      case 'welcome':
+        return (
+          <WelcomeScreen 
+            onStartGame={handleStartGame} 
+            onConnectWallet={handleConnectWallet}
+            onViewLeaderboard={handleViewLeaderboard}
+            onViewSettings={handleViewSettings}
+            onViewStats={handleViewStats}
+            onViewAchievements={handleViewAchievements}
+            onStartDailyChallenge={handleStartDailyChallenge}
+            achievementCount={{ unlocked: unlockedCount, total: totalCount }}
+          />
+        );
+      case 'wallet':
+        return (
+          <WalletScreen 
+            onBack={handleBackToMenu}
+            onConnected={handleWalletConnected}
+          />
+        );
+      case 'levels':
+        return (
+          <LevelSelector
+            onSelectLevel={handleSelectLevel}
+            onBack={handleBackToMenu}
+          />
+        );
+      case 'game':
+        return (
+          <GameScreen 
+            onBackToMenu={handleBackToMenu}
+            level={selectedLevel}
+            onCreateArt={handleCreateArt}
+            onNextLevel={handleNextLevel}
+          />
+        );
+      case 'leaderboard':
+        return <Leaderboard onBack={handleBackToMenu} />;
+      case 'ai-art':
+        return (
+          <AIImageGenerator
+            score={lastScore}
+            onBack={handleBackToMenu}
+            onComplete={handleBackToMenu}
+          />
+        );
+      case 'settings':
+        return (
+          <SettingsScreen
+            settings={settings}
+            onUpdateSetting={updateSetting}
+            onReset={resetSettings}
+            onBack={handleBackToMenu}
+            onReplayTutorial={handleReplayTutorial}
+          />
+        );
+      case 'stats':
+        return <StatsScreen onBack={handleBackToMenu} />;
+      case 'achievements':
+        return (
+          <AchievementsPanel
+            achievements={achievements}
+            unlockedCount={unlockedCount}
+            totalCount={totalCount}
+            onClose={handleBackToMenu}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <>
       {showTutorial && <Tutorial onComplete={handleTutorialComplete} />}
       
       {/* Achievement unlock popup */}
-      {newUnlock && (
-        <AchievementUnlockPopup 
-          achievement={newUnlock} 
-          onDismiss={dismissNewUnlock} 
-        />
-      )}
+      <AnimatePresence>
+        {newUnlock && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8, y: -50 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: -50 }}
+            transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+          >
+            <AchievementUnlockPopup 
+              achievement={newUnlock} 
+              onDismiss={dismissNewUnlock} 
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       
-      {currentView === 'welcome' && (
-        <WelcomeScreen 
-          onStartGame={handleStartGame} 
-          onConnectWallet={handleConnectWallet}
-          onViewLeaderboard={handleViewLeaderboard}
-          onViewSettings={handleViewSettings}
-          onViewStats={handleViewStats}
-          onViewAchievements={handleViewAchievements}
-          onStartDailyChallenge={handleStartDailyChallenge}
-          achievementCount={{ unlocked: unlockedCount, total: totalCount }}
-        />
-      )}
-      {currentView === 'wallet' && (
-        <WalletScreen 
-          onBack={handleBackToMenu}
-          onConnected={handleWalletConnected}
-        />
-      )}
-      {currentView === 'levels' && (
-        <LevelSelector
-          onSelectLevel={handleSelectLevel}
-          onBack={handleBackToMenu}
-        />
-      )}
-      {currentView === 'game' && (
-        <GameScreen 
-          onBackToMenu={handleBackToMenu}
-          level={selectedLevel}
-          onCreateArt={handleCreateArt}
-          onNextLevel={handleNextLevel}
-        />
-      )}
-      {currentView === 'leaderboard' && (
-        <Leaderboard onBack={handleBackToMenu} />
-      )}
-      {currentView === 'ai-art' && (
-        <AIImageGenerator
-          score={lastScore}
-          onBack={handleBackToMenu}
-          onComplete={handleBackToMenu}
-        />
-      )}
-      {currentView === 'settings' && (
-        <SettingsScreen
-          settings={settings}
-          onUpdateSetting={updateSetting}
-          onReset={resetSettings}
-          onBack={handleBackToMenu}
-          onReplayTutorial={handleReplayTutorial}
-        />
-      )}
-      {currentView === 'stats' && (
-        <StatsScreen onBack={handleBackToMenu} />
-      )}
-      {currentView === 'achievements' && (
-        <AchievementsPanel
-          achievements={achievements}
-          unlockedCount={unlockedCount}
-          totalCount={totalCount}
-          onClose={handleBackToMenu}
-        />
-      )}
+      {/* Page transitions */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentView}
+          variants={pageVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+          className="min-h-screen"
+        >
+          {renderCurrentView()}
+        </motion.div>
+      </AnimatePresence>
     </>
   );
 };

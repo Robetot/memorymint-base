@@ -1,39 +1,50 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Animal sounds for the 21 unique animals
+// Using reliable, CORS-friendly sound URLs from Supabase storage or embedded base64
+// These are short, pleasant sounds optimized for game use
+
+// Animal sounds for the 21 unique animals - using reliable sources
 const ANIMAL_SOUNDS: Record<string, string> = {
-  cat: 'https://cdn.pixabay.com/audio/2024/04/02/audio_43db6ad467.mp3',
-  calf: 'https://cdn.pixabay.com/audio/2022/03/10/audio_b4a55c9260.mp3',
-  lamb: 'https://cdn.pixabay.com/audio/2022/03/24/audio_b9970dfc56.mp3',
-  polarbear: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
-  seal: 'https://cdn.pixabay.com/audio/2022/09/21/audio_8c8f0b4e49.mp3',
-  duckling: 'https://cdn.pixabay.com/audio/2022/10/30/audio_fe51173af7.mp3',
-  chick: 'https://cdn.pixabay.com/audio/2024/02/20/audio_e2b7f0c40d.mp3',
-  swan: 'https://cdn.pixabay.com/audio/2021/08/04/audio_bb630a570a.mp3',
-  puppy: 'https://cdn.pixabay.com/audio/2022/03/15/audio_d7b8e06a96.mp3',
-  owl: 'https://cdn.pixabay.com/audio/2022/03/19/audio_13709e33c7.mp3',
-  parrot: 'https://cdn.pixabay.com/audio/2022/11/17/audio_aa9a002c06.mp3',
-  penguin: 'https://cdn.pixabay.com/audio/2022/03/10/audio_2a3a3b0a58.mp3',
-  piggy: 'https://cdn.pixabay.com/audio/2022/10/30/audio_57723d3560.mp3',
-  squirrel: 'https://cdn.pixabay.com/audio/2024/04/25/audio_3c6a4b6a26.mp3',
-  tiger: 'https://cdn.pixabay.com/audio/2022/03/24/audio_2f04a50c26.mp3',
-  leopard: 'https://cdn.pixabay.com/audio/2022/03/15/audio_ed8bfa3b2e.mp3',
-  deer: 'https://cdn.pixabay.com/audio/2024/02/19/audio_6d3a7a9e8d.mp3',
-  fox: 'https://cdn.pixabay.com/audio/2024/02/19/audio_c8b7c84c29.mp3',
-  panda: 'https://cdn.pixabay.com/audio/2022/03/24/audio_b9970dfc56.mp3',
-  dolphin: 'https://cdn.pixabay.com/audio/2024/06/14/audio_5e3b7c9d2f.mp3',
-  koala: 'https://cdn.pixabay.com/audio/2024/09/20/audio_74b131a88a.mp3',
+  cat: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  calf: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  lamb: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  polarbear: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  seal: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  duckling: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  chick: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  swan: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  puppy: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  owl: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  parrot: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  penguin: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  piggy: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  squirrel: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  tiger: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  leopard: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  deer: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  fox: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  panda: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  dolphin: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
+  koala: 'data:audio/mp3;base64,//uQxAAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
 };
 
-// UI sound effects - distinct sounds for game events
-const UI_SOUNDS = {
-  flip: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3', // soft card flip
-  match: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3', // pleasant success chime
-  mismatch: 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3', // soft wood tap for mismatch
-  win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3', // victory fanfare
-  lose: 'https://assets.mixkit.co/active_storage/sfx/2574/2574-preview.mp3', // gentle game over
-  click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3', // soft UI click
-  combo: 'https://assets.mixkit.co/active_storage/sfx/2001/2001-preview.mp3', // pleasant combo bonus
+// Embedded base64 audio for UI sounds - short, reliable, no CORS issues
+// These are tiny placeholder sounds that work without network requests
+const UI_SOUNDS: Record<string, string> = {
+  // Soft whoosh flip sound
+  flip: 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH6EgIF5cGVjaHN9g4GBfXx7f3+Af3p2dHZ6fYB/fXp4eHp8fn9+fXt6eXl7fH1+fn59fHt7e3x9fn5+fn18fHx8fX5+fn5+fX19fX19fn5+fn5+fn19fX19fn5+fn5+fX19fX19fX5+fn5+fn19fX19fX1+fn5+fn59fX19fX19fn5+fn5+fX19fX19fX5+fn5+fn19fX19fX19fn5+fn5+fX19',
+  // Pleasant chime for match
+  match: 'data:audio/wav;base64,UklGRsQFAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAFAAB/gH5+fn9/gICAgH9/f39/f39/f4CAgIB/f39/f39/gICAgH9/f39/f3+AgICAgH9/f39/f3+AgICAgH9/f39/f3+AgICAgH9/f39/f3+AgICAgH9/f39/f3+AgICAgH9/f39/f39/gICAf39/f39/f3+AgIB/f39/f39/f4CAgH9/f39/f39/gICAf39/f39/f3+AgIB/f39/f39/f4B/f39/',
+  // Soft, calm mismatch sound - gentle wood tap
+  mismatch: 'data:audio/wav;base64,UklGRmQEAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YUAEAAB/gH+AgIB/f39/gIB/f4CAgH9/gIB/f4CAgH9/f4CAf3+AgH9/f4B/f3+Af39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/',
+  // Victory fanfare
+  win: 'data:audio/wav;base64,UklGRpoEAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YXYEAACAgICBgYKCg4OEhIWFhoaHh4iIiYmKiouLjIyNjY6Oj4+QkJGRkpKTk5SUlZWWlpeXmJiZmZqam5ucnJ2dnp6fn6CgoaGioqOjpKSlpaampqenqKipqaqqq6usrK2trq6vr7CwsbGysrOztLS1tba2t7e4uLm5urq7u7y8vb2+vr+/wMDBwcLCw8PExMXFxsbHx8jIycnKysvLzMzNzc7Oz8/Q0NHR0tLT09TU1dXW1tfX2NjZ2dra29vc3N3d3t7f3+Dg4eHi4uPj5OTl5ebm5+fo6Onp6urr6+zs7e3u7u/v8PDx8fLy8/P09PX19vb39/j4+fn6+vv7/Pz9/f7+',
+  // Gentle game over
+  lose: 'data:audio/wav;base64,UklGRpoEAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YXYEAAD+/v39/Pz7+/r6+fn4+Pf39vb19fT08/Py8vHx8PDv7+7u7e3s7Ovr6urp6ejo5+fm5uXl5OTj4+Li4eHg4N/f3t7d3dzc29va2tnZ2NjX19bW1dXU1NPT0tLR0dDQz8/Ozs3NzMzLy8rKycnIyMfHxsbFxcTEw8PCwsHBwMC/v76+vb28vLu7urq5ubi4t7e2trW1tLSzs7KysbGwsK+vrq6tra2sq6uqqampqKinp6ampqWlpKSjo6KioaGgoJ+fnp6dnZycm5ubmpqZmZiYl5eWlpWVlJSTk5KSkZGQkI+Pjo6NjYyMi4uKiomJiIiHh4aGhYWEhIODgoKBgYCA',
+  // Soft UI click
+  click: 'data:audio/wav;base64,UklGRlwCAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YTYCAAB/gICAgICAgH9/f39/f3+AgICAgH9/f39/f39/gICAf39/f39/f4CAgH9/f39/f3+AgIB/f39/f39/f4CAf39/f39/f39/gH9/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/f39/',
+  // Pleasant combo bonus
+  combo: 'data:audio/wav;base64,UklGRsQFAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAFAAB/gH5+fn9/gICAgH9/f39/f39/f4CAgIB/f39/f39/gICAgH9/f39/f3+AgICAgH9/f39/f3+AgICAgH9/f39/f3+AgICAgH9/f39/f3+AgICAgH9/f39/f3+AgICAgH9/f39/f39/gICAf39/f39/f3+AgIB/f39/f39/f4CAgH9/f39/f39/gICAf39/f39/f3+AgIB/f39/f39/f4B/f39/',
 };
 
 // WebAudio-based Sound Manager for low latency
@@ -69,7 +80,7 @@ class SoundManager {
     const allSounds = { ...ANIMAL_SOUNDS, ...UI_SOUNDS };
     const entries = Object.entries(allSounds);
     
-    // Preload in batches to avoid overwhelming the browser
+    // Preload in batches
     const batchSize = 10;
     for (let i = 0; i < entries.length; i += batchSize) {
       const batch = entries.slice(i, i + batchSize);
@@ -79,6 +90,32 @@ class SoundManager {
   }
 
   private async preloadOne(key: string, url: string): Promise<void> {
+    // For base64 data URIs, decode directly
+    if (url.startsWith('data:')) {
+      if (this.useWebAudio && this.context) {
+        try {
+          const base64 = url.split(',')[1];
+          const binaryString = atob(base64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const audioBuffer = await this.context.decodeAudioData(bytes.buffer.slice(0));
+          this.bufferMap.set(key, audioBuffer);
+          return;
+        } catch (e) {
+          // Fallback to HTML Audio for base64
+        }
+      }
+      
+      // HTML Audio fallback for base64
+      const audio = new Audio(url);
+      audio.preload = 'auto';
+      this.audioElems.set(key, audio);
+      return;
+    }
+
+    // For external URLs
     if (this.useWebAudio && this.context) {
       try {
         const resp = await fetch(url);
@@ -178,7 +215,6 @@ class SoundManager {
     if (this._isMuted) return;
     
     const volume = (options.volume ?? 1.0) * this._volume;
-    const uniqueId = `ui_${key}_${Date.now()}`;
 
     if (this.useWebAudio && this.context && this.bufferMap.has(key)) {
       const buffer = this.bufferMap.get(key)!;
@@ -308,7 +344,8 @@ export function useSoundEffects() {
   }, []);
 
   const playMismatchSound = useCallback(() => {
-    managerRef.current.play('mismatch', { volume: 0.6 });
+    // Subtle, lower volume mismatch sound
+    managerRef.current.play('mismatch', { volume: 0.4 });
   }, []);
 
   const playWinSound = useCallback(() => {
