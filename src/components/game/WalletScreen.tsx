@@ -6,7 +6,7 @@ import { useNFTCollection } from '@/hooks/useNFTCollection';
 import { useFarcaster } from '@/contexts/FarcasterContext';
 import { FarcasterSignIn, FarcasterIcon } from './FarcasterSignIn';
 import { cn } from '@/lib/utils';
-import { QRCodeSVG } from 'qrcode.react';
+
 
 interface WalletScreenProps {
   onBack: () => void;
@@ -277,13 +277,14 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               </CardHeader>
               <CardContent className="pt-0 pb-4">
                 <div className="flex flex-col items-center gap-4">
-                  {/* QR Code */}
+                  {/* QR Code using API service */}
                   <div className="p-3 bg-white rounded-xl">
-                    <QRCodeSVG 
-                      value={`https://warpcast.com/~/frames?url=${encodeURIComponent(window.location.origin)}`}
-                      size={140}
-                      level="M"
-                      fgColor="#8B5CF6"
+                    <img 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`https://warpcast.com/~/frames?url=${encodeURIComponent(window.location.origin)}`)}&color=8B5CF6`}
+                      alt="Scan to open in Warpcast"
+                      width={140}
+                      height={140}
+                      className="block"
                     />
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
