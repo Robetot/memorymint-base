@@ -21,7 +21,6 @@ pragma solidity ^0.8.20;
 // OpenZeppelin v4.9.3 via jsDelivr CDN (Remix compatible)
 import "https://cdn.jsdelivr.net/npm/@openzeppelin/contracts@4.9.3/contracts/token/ERC721/ERC721.sol";
 import "https://cdn.jsdelivr.net/npm/@openzeppelin/contracts@4.9.3/contracts/access/Ownable.sol";
-import "https://cdn.jsdelivr.net/npm/@openzeppelin/contracts@4.9.3/contracts/utils/Strings.sol";
 
 /// @dev IERC4906 interface for metadata updates (EIP-4906)
 interface IERC4906 {
@@ -37,7 +36,6 @@ interface IERC4906 {
  * @notice Production NFT contract for Memory Flip Game on Base Mainnet
  */
 contract MemoryMintFarcaster is ERC721, Ownable, IERC4906 {
-    using Strings for uint256;
 
     // ============ Storage ============
     
