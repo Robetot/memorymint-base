@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
  * @title MemoryMintFarcaster - Production ERC-721 for Memory Flip Game
  * @author MemoryMint Team
  * @notice Base Mainnet optimized NFT with Farcaster integration
- * @dev Minimal gas, ERC4906 MetadataUpdate events, Remix-compatible imports
+ * @dev No external imports - fully self-contained for Remix compatibility
  * 
  * Features:
  * - Public mintNFT(string tokenURI) for anyone to mint
@@ -18,60 +18,136 @@ pragma solidity ^0.8.20;
  * Compile: Solidity 0.8.20, Optimizer 200 runs, EVM: paris
  */
 
-// OpenZeppelin v4.9.3 via jsDelivr CDN (Remix compatible)
-import "https://cdn.jsdelivr.net/npm/@openzeppelin/contracts@4.9.3/contracts/token/ERC721/ERC721.sol";
-import "https://cdn.jsdelivr.net/npm/@openzeppelin/contracts@4.9.3/contracts/access/Ownable.sol";
+// ============ Custom Errors ============
+error NotOwner();
+error ZeroAddress();
+error TokenNotExist();
+error NotApproved();
+error NotTokenOwner();
+error InvalidReceiver();
+error EmptyTokenURI();
 
-/// @dev IERC4906 interface for metadata updates (EIP-4906)
-interface IERC4906 {
-    /// @notice Emitted when the metadata of a token is changed
-    event MetadataUpdate(uint256 _tokenId);
+contract MemoryMintFarcaster {
+    // ============ ERC721 Events ============
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+    event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
+    event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
     
-    /// @notice Emitted when the metadata of a range of tokens is changed
+    // ============ ERC4906 Events (Metadata Updates for Farcaster) ============
+    event MetadataUpdate(uint256 _tokenId);
     event BatchMetadataUpdate(uint256 _fromTokenId, uint256 _toTokenId);
-}
-
-/**
- * @title MemoryMintFarcaster
- * @notice Production NFT contract for Memory Flip Game on Base Mainnet
- */
-contract MemoryMintFarcaster is ERC721, Ownable, IERC4906 {
+    
+    // ============ Custom Events ============
+    event NFTMinted(address indexed to, uint256 indexed tokenId, string tokenURI);
+    event NFTBurned(address indexed owner, uint256 indexed tokenId);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     // ============ Storage ============
-    
-    /// @dev Next token ID to mint (starts at 1)
+    string private _name;
+    string private _symbol;
+    address private _contractOwner;
     uint256 private _nextTokenId;
     
-    /// @dev Mapping from token ID to token URI
+    mapping(uint256 => address) private _owners;
+    mapping(address => uint256) private _balances;
+    mapping(uint256 => address) private _tokenApprovals;
+    mapping(address => mapping(address => bool)) private _operatorApprovals;
     mapping(uint256 => string) private _tokenURIs;
-    
-    // ============ Events ============
-    
-    /// @notice Emitted when a new NFT is minted
-    event NFTMinted(
-        address indexed to,
-        uint256 indexed tokenId,
-        string tokenURI
-    );
-    
-    /// @notice Emitted when a token is burned by admin
-    event NFTBurned(
-        address indexed owner,
-        uint256 indexed tokenId
-    );
 
     // ============ Constructor ============
-    
-    /**
-     * @notice Deploy the MemoryMintFarcaster contract
-     * @param name_ Token collection name
-     * @param symbol_ Token collection symbol
-     */
-    constructor(
-        string memory name_,
-        string memory symbol_
-    ) ERC721(name_, symbol_) {
-        _nextTokenId = 1; // Start token IDs at 1
+    constructor(string memory name_, string memory symbol_) {
+        _name = name_;
+        _symbol = symbol_;
+        _contractOwner = msg.sender;
+        _nextTokenId = 1;
+        emit OwnershipTransferred(address(0), msg.sender);
+    }
+
+    // ============ Modifiers ============
+    modifier onlyOwner() {
+        if (msg.sender != _contractOwner) revert NotOwner();
+        _;
+    }
+
+    // ============ ERC721 Metadata ============
+    function name() external view returns (string memory) {
+        return _name;
+    }
+
+    function symbol() external view returns (string memory) {
+        return _symbol;
+    }
+
+    function tokenURI(uint256 tokenId) external view returns (string memory) {
+        if (_owners[tokenId] == address(0)) revert TokenNotExist();
+        return _tokenURIs[tokenId];
+    }
+
+    // ============ ERC721 Core ============
+    function balanceOf(address owner_) external view returns (uint256) {
+        if (owner_ == address(0)) revert ZeroAddress();
+        return _balances[owner_];
+    }
+
+    function ownerOf(uint256 tokenId) public view returns (address) {
+        address owner_ = _owners[tokenId];
+        if (owner_ == address(0)) revert TokenNotExist();
+        return owner_;
+    }
+
+    function approve(address to, uint256 tokenId) external {
+        address owner_ = _owners[tokenId];
+        if (msg.sender != owner_ && !_operatorApprovals[owner_][msg.sender]) revert NotApproved();
+        _tokenApprovals[tokenId] = to;
+        emit Approval(owner_, to, tokenId);
+    }
+
+    function getApproved(uint256 tokenId) external view returns (address) {
+        if (_owners[tokenId] == address(0)) revert TokenNotExist();
+        return _tokenApprovals[tokenId];
+    }
+
+    function setApprovalForAll(address operator, bool approved) external {
+        _operatorApprovals[msg.sender][operator] = approved;
+        emit ApprovalForAll(msg.sender, operator, approved);
+    }
+
+    function isApprovedForAll(address owner_, address operator) external view returns (bool) {
+        return _operatorApprovals[owner_][operator];
+    }
+
+    function transferFrom(address from, address to, uint256 tokenId) public {
+        if (to == address(0)) revert ZeroAddress();
+        address owner_ = _owners[tokenId];
+        if (owner_ != from) revert NotTokenOwner();
+        if (msg.sender != owner_ && 
+            _tokenApprovals[tokenId] != msg.sender && 
+            !_operatorApprovals[owner_][msg.sender]) revert NotApproved();
+        
+        unchecked {
+            _balances[from]--;
+            _balances[to]++;
+        }
+        _owners[tokenId] = to;
+        delete _tokenApprovals[tokenId];
+        
+        emit Transfer(from, to, tokenId);
+    }
+
+    function safeTransferFrom(address from, address to, uint256 tokenId) external {
+        safeTransferFrom(from, to, tokenId, "");
+    }
+
+    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public {
+        transferFrom(from, to, tokenId);
+        if (to.code.length > 0) {
+            (bool success, bytes memory result) = to.call(
+                abi.encodeWithSelector(0x150b7a02, msg.sender, from, tokenId, data)
+            );
+            if (!success || (result.length >= 32 && abi.decode(result, (bytes4)) != 0x150b7a02)) {
+                revert InvalidReceiver();
+            }
+        }
     }
 
     // ============ Public Minting ============
@@ -80,7 +156,6 @@ contract MemoryMintFarcaster is ERC721, Ownable, IERC4906 {
      * @notice Mint a new NFT to the caller with custom tokenURI
      * @param tokenURI_ The metadata URI for this token (IPFS or data URI)
      * @return tokenId The newly minted token ID
-     * @dev Anyone can call this - designed for game integration
      */
     function mintNFT(string calldata tokenURI_) external returns (uint256) {
         return _mintWithURI(msg.sender, tokenURI_);
@@ -91,7 +166,6 @@ contract MemoryMintFarcaster is ERC721, Ownable, IERC4906 {
      * @param to Recipient address
      * @param tokenURI_ The metadata URI for this token
      * @return tokenId The newly minted token ID
-     * @dev Alternative mint function for flexibility
      */
     function safeMint(address to, string calldata tokenURI_) external returns (uint256) {
         return _mintWithURI(to, tokenURI_);
@@ -102,17 +176,19 @@ contract MemoryMintFarcaster is ERC721, Ownable, IERC4906 {
     /**
      * @notice Burn a token (admin only)
      * @param tokenId The token ID to burn
-     * @dev Only contract owner can burn tokens
      */
     function adminBurn(uint256 tokenId) external onlyOwner {
         address tokenOwner = ownerOf(tokenId);
         
-        // Clear token URI
+        unchecked {
+            _balances[tokenOwner]--;
+        }
+        
+        delete _owners[tokenId];
+        delete _tokenApprovals[tokenId];
         delete _tokenURIs[tokenId];
         
-        // Burn the token
-        _burn(tokenId);
-        
+        emit Transfer(tokenOwner, address(0), tokenId);
         emit NFTBurned(tokenOwner, tokenId);
     }
     
@@ -120,13 +196,10 @@ contract MemoryMintFarcaster is ERC721, Ownable, IERC4906 {
      * @notice Update token metadata URI (admin only)
      * @param tokenId The token ID to update
      * @param newTokenURI The new metadata URI
-     * @dev Emits MetadataUpdate for Farcaster/marketplace indexers
      */
     function updateTokenURI(uint256 tokenId, string calldata newTokenURI) external onlyOwner {
-        require(_exists(tokenId), "Token does not exist");
+        if (_owners[tokenId] == address(0)) revert TokenNotExist();
         _tokenURIs[tokenId] = newTokenURI;
-        
-        // Emit ERC4906 MetadataUpdate event
         emit MetadataUpdate(tokenId);
     }
     
@@ -134,27 +207,34 @@ contract MemoryMintFarcaster is ERC721, Ownable, IERC4906 {
      * @notice Emit batch metadata update event (admin only)
      * @param fromTokenId Start of token range
      * @param toTokenId End of token range
-     * @dev Useful for bulk metadata refreshes
      */
     function emitBatchMetadataUpdate(uint256 fromTokenId, uint256 toTokenId) external onlyOwner {
         emit BatchMetadataUpdate(fromTokenId, toTokenId);
+    }
+    
+    /**
+     * @notice Transfer contract ownership
+     * @param newOwner New owner address
+     */
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert ZeroAddress();
+        emit OwnershipTransferred(_contractOwner, newOwner);
+        _contractOwner = newOwner;
+    }
+    
+    /**
+     * @notice Get contract owner
+     * @return Current owner address
+     */
+    function owner() external view returns (address) {
+        return _contractOwner;
     }
 
     // ============ View Functions ============
     
     /**
-     * @notice Get the metadata URI for a token
-     * @param tokenId The token ID to query
-     * @return The token's metadata URI
-     */
-    function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        require(_exists(tokenId), "Token does not exist");
-        return _tokenURIs[tokenId];
-    }
-    
-    /**
      * @notice Get the total number of tokens minted
-     * @return Total supply (minted tokens, may include burned)
+     * @return Total supply
      */
     function totalSupply() external view returns (uint256) {
         unchecked {
@@ -174,54 +254,47 @@ contract MemoryMintFarcaster is ERC721, Ownable, IERC4906 {
     
     /**
      * @notice Check if contract supports an interface
-     * @param interfaceId The interface identifier to check
-     * @return True if the interface is supported
-     * @dev Includes ERC4906 (0x49064906) for metadata updates
+     * @param interfaceId The interface identifier
+     * @return True if supported
      */
-    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return 
-            interfaceId == 0x49064906 || // ERC4906 (Metadata Update Extension)
-            super.supportsInterface(interfaceId);
+            interfaceId == 0x01ffc9a7 || // ERC165
+            interfaceId == 0x80ac58cd || // ERC721
+            interfaceId == 0x5b5e139f || // ERC721Metadata
+            interfaceId == 0x49064906;   // ERC4906 (Metadata Update)
     }
 
     // ============ Internal Functions ============
     
-    /**
-     * @dev Internal function to mint with URI
-     * @param to Recipient address
-     * @param tokenURI_ Token metadata URI
-     * @return tokenId The minted token ID
-     */
     function _mintWithURI(address to, string calldata tokenURI_) private returns (uint256) {
-        require(to != address(0), "Cannot mint to zero address");
-        require(bytes(tokenURI_).length > 0, "Token URI required");
+        if (to == address(0)) revert ZeroAddress();
+        if (bytes(tokenURI_).length == 0) revert EmptyTokenURI();
         
         uint256 tokenId = _nextTokenId;
         
-        // Safe increment (unchecked for gas savings, overflow practically impossible)
         unchecked {
             _nextTokenId++;
+            _balances[to]++;
         }
         
-        // Mint the token
-        _safeMint(to, tokenId);
-        
-        // Store the token URI
+        _owners[tokenId] = to;
         _tokenURIs[tokenId] = tokenURI_;
         
-        // Emit events for indexers (Farcaster, OpenSea, etc.)
+        emit Transfer(address(0), to, tokenId);
         emit NFTMinted(to, tokenId, tokenURI_);
         emit MetadataUpdate(tokenId);
         
+        // Safe mint check
+        if (to.code.length > 0) {
+            (bool success, bytes memory result) = to.call(
+                abi.encodeWithSelector(0x150b7a02, msg.sender, address(0), tokenId, "")
+            );
+            if (!success || (result.length >= 32 && abi.decode(result, (bytes4)) != 0x150b7a02)) {
+                revert InvalidReceiver();
+            }
+        }
+        
         return tokenId;
-    }
-    
-    /**
-     * @dev Check if a token exists
-     * @param tokenId Token ID to check
-     * @return True if the token exists
-     */
-    function _exists(uint256 tokenId) internal view returns (bool) {
-        return _ownerOf(tokenId) != address(0);
     }
 }
