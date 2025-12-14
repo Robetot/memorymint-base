@@ -94,7 +94,15 @@ export function WelcomeScreen({
             className="w-16 h-16 md:w-20 md:h-20 bg-card rounded-xl shadow-lg overflow-hidden animate-bounce-in border-2 border-border hover:border-primary transition-all hover:scale-110"
             style={{ animationDelay: `${i * 0.1}s` }}
           >
-            <img src={animal.img} alt={animal.name} className="w-full h-full object-cover" />
+            <img 
+              src={animal.img} 
+              alt={animal.name} 
+              className="w-full h-full object-cover" 
+              loading="lazy"
+              decoding="async"
+              width={80}
+              height={80}
+            />
           </div>
         ))}
       </div>

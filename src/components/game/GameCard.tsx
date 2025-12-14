@@ -79,6 +79,10 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
               src={cardBackImg} 
               alt="Card back"
               className="w-full h-full object-cover"
+              loading="eager"
+              decoding="async"
+              width={128}
+              height={128}
             />
             {/* Hover glow overlay */}
             {isHovered && !disabled && !card.isFlipped && !card.isMatched && (
@@ -101,6 +105,10 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
               src={card.imageUrl} 
               alt={card.animalName}
               className="w-full h-full object-cover"
+              loading="lazy"
+              decoding="async"
+              width={128}
+              height={128}
             />
             {/* Match celebration overlay */}
             {isAnimating && (
