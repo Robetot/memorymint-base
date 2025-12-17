@@ -89,9 +89,12 @@ export function useNFTMint() {
       
       if (feeHistory?.baseFeePerGas?.[0]) {
         const baseFee = parseInt(feeHistory.baseFeePerGas[0], 16);
+        // Use a small priority fee and ensure maxFee is always larger
+        const priorityFee = Math.max(1000000, Math.floor(baseFee * 0.1)); // ~0.001 gwei or 10% of base
+        const maxFee = Math.max(baseFee * 2 + priorityFee, priorityFee * 2);
         return {
-          maxPriorityFeePerGas: '0x5F5E100', // 0.1 gwei
-          maxFeePerGas: '0x' + Math.floor(baseFee * 1.3).toString(16),
+          maxPriorityFeePerGas: '0x' + priorityFee.toString(16),
+          maxFeePerGas: '0x' + maxFee.toString(16),
         };
       }
     } catch {
