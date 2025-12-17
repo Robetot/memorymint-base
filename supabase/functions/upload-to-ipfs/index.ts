@@ -146,14 +146,16 @@ serve(async (req) => {
     const hashArray = Array.from(new Uint8Array(hashBuffer))
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
     
-    // Create a pseudo-IPFS CID (in production, use actual IPFS)
+    // Create a pseudo-IPFS CID (in production, upload metadata JSON to IPFS)
     const cid = `bafkrei${hashHex.slice(0, 52)}`
-    
-    // For demo, we'll use a data URI as the token URI
-    // In production, this would be ipfs://[CID]
+
+    // IMPORTANT: Never mint with a giant data: URI (it explodes gas). Use a short ipfs:// URI.
+    const tokenURI = `ipfs://${cid}`
+
+    // Keep a data URI for client-side preview/debug only (not meant to be stored on-chain)
     const metadataJson = JSON.stringify(nftMetadata)
     const metadataBase64 = btoa(unescape(encodeURIComponent(metadataJson)))
-    const tokenURI = `data:application/json;base64,${metadataBase64}`
+    const metadataDataUri = `data:application/json;base64,${metadataBase64}`
 
     console.log('Metadata created with pseudo-CID:', cid)
 
@@ -162,6 +164,7 @@ serve(async (req) => {
         success: true,
         cid,
         tokenURI,
+        metadataDataUri,
         ipfsUrl: `ipfs://${cid}`,
         gatewayUrl: `https://ipfs.io/ipfs/${cid}`
       }),
