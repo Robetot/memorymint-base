@@ -237,7 +237,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [verifyBaseNetwork, getEIP1559Params, waitForReceipt]);
+  }, [verifyBaseNetwork, waitForReceipt]);
 
   // Batch mint for power users
   const batchMintNFT = useCallback(async (
@@ -316,7 +316,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [verifyBaseNetwork, getEIP1559Params, waitForReceipt]);
+  }, [verifyBaseNetwork, waitForReceipt]);
 
   // Quick mint (no tokenURI - uses contract's baseURI + tokenId)
   const quickMint = useCallback(async (walletAddress: string): Promise<boolean> => {
@@ -387,7 +387,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [verifyBaseNetwork, getEIP1559Params, waitForReceipt]);
+  }, [verifyBaseNetwork, waitForReceipt]);
 
   const resetMintState = useCallback(() => {
     setMintState({
