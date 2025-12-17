@@ -27,15 +27,15 @@ function checkRateLimit(clientIp: string): { allowed: boolean; remaining: number
   return { allowed: true, remaining: RATE_LIMIT_MAX - record.count }
 }
 
-// Allowed style values
+// Allowed style values - must match frontend STYLE_OPTIONS prompts
 const ALLOWED_STYLES = [
-  'classic oil painting style',
-  'pixel art retro game style',
-  'anime illustration style',
-  '3D rendered sculpture style',
-  'cyberpunk neon style',
-  'dark gothic fantasy style',
-  'mythic fantasy illustration style'
+  'oil painting style, classical art, rich colors, brushwork texture',
+  'pixel art style, 8-bit retro, vibrant colors, nostalgic',
+  'anime style, japanese animation, vibrant, detailed',
+  '3d rendered, clay sculpture, soft lighting, depth',
+  'cyberpunk style, neon lights, futuristic, dark atmosphere',
+  'dark gothic style, mysterious, dramatic shadows, ornate details',
+  'fantasy art style, magical, ethereal, epic composition'
 ]
 
 serve(async (req) => {
