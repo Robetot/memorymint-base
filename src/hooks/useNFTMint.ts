@@ -1,13 +1,31 @@
 import { useState, useCallback } from 'react';
-import { encodeFunctionData, parseAbi } from 'viem';
+import { encodeFunctionData, parseAbi, decodeErrorResult } from 'viem';
 
 // MemoryMint contract address on Base Mainnet
 const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
 
-// Minimal ABI needed for minting (works with MemoryMintPro/MemoryMintUltra)
+// Minimal ABI needed for minting (works with MemoryMintUltra)
 const CONTRACT_ABI = parseAbi([
   'function mintNFT(string tokenURI) returns (uint256)',
   'function batchMint(uint256 quantity) returns (uint256)',
+]);
+
+// Custom errors (for precise UX messaging)
+const CONTRACT_ERROR_ABI = parseAbi([
+  'error Paused()',
+  'error AlreadyMinted()',
+  'error InvalidQuantity()',
+  'error MaxBatchExceeded()',
+  'error TransferToNonReceiver()',
+  'error ReentrancyGuard()',
+  'error MetadataFrozen()',
+  'error NotOwner()',
+  'error ZeroAddress()',
+  'error TokenNotExist()',
+  'error NotApproved()',
+  'error NotAuthorized()',
+  'error NameAlreadySet()',
+  'error EmptyName()',
 ]);
 
 export interface MintState {
@@ -35,6 +53,49 @@ function encodeBatchMintCallData(quantity: number): `0x${string}` {
   });
 }
 
+function decodeMintError(error: unknown): string {
+  const err: any = error;
+
+  if (err?.code === 4001) return 'Transaction rejected by user';
+
+  const revertData: unknown =
+    err?.data?.data ??
+    err?.data ??
+    err?.error?.data?.data ??
+    err?.error?.data;
+
+  if (typeof revertData === 'string' && revertData.startsWith('0x')) {
+    try {
+      const decoded = decodeErrorResult({
+        abi: CONTRACT_ERROR_ABI,
+        data: revertData as `0x${string}`,
+      });
+
+      switch (decoded.errorName) {
+        case 'Paused':
+          return 'Minting is currently paused';
+        case 'AlreadyMinted':
+          return 'Please wait a moment and try again (mint throttle)';
+        case 'InvalidQuantity':
+        case 'MaxBatchExceeded':
+          return 'Batch size must be 1–10';
+        case 'TransferToNonReceiver':
+          return 'Recipient cannot receive ERC-721 tokens';
+        case 'ReentrancyGuard':
+          return 'Please retry (temporary mint lock)';
+        default:
+          return `Mint failed: ${decoded.errorName}`;
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const rawMsg: string | undefined = err?.data?.message || err?.error?.message || err?.message;
+  if (rawMsg) return rawMsg;
+  return 'Minting failed';
+}
+
 export function useNFTMint() {
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
@@ -55,12 +116,6 @@ export function useNFTMint() {
       return false;
     }
   }, []);
-
-  // Let the wallet/provider set fee fields (prevents inflated max fee displays on Base)
-  const getEIP1559Params = useCallback(async (): Promise<Record<string, string>> => {
-    return {};
-  }, []);
-
 
   const waitForReceipt = useCallback(async (txHash: string): Promise<{ success: boolean; tokenIds: string[] }> => {
     let receipt = null;
@@ -144,21 +199,12 @@ export function useNFTMint() {
       // Mint using mintNFT(string)
       const data = encodeMintNFTCallData(tokenURI);
       
-      // Estimate gas (if this fails, the tx would revert)
-      const gasEstimate = await window.ethereum.request({
-        method: 'eth_estimateGas',
-        params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
-      }) as string;
-
-      // Add 20% buffer
-      const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
-      
-      // Let the wallet estimate fees (Base is cheap); we only provide gas limit.
+      // IMPORTANT: do NOT set a padded gasLimit; it inflates the wallet UI fee display.
+      // Let the wallet estimate gas + fees accurately on Base.
       const txParams = {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
         data,
-        gas,
       };
 
       const txHash = await window.ethereum.request({
@@ -183,26 +229,11 @@ export function useNFTMint() {
       return success;
     } catch (error: unknown) {
       console.error('Minting error:', error);
-      
-      const err: any = error;
-      const rawMsg: string | undefined =
-        err?.data?.message || err?.error?.message || err?.message;
 
-      let errorMessage = 'Minting failed';
-      if (err?.code === 4001) {
-        errorMessage = 'Transaction rejected by user';
-      } else if (rawMsg?.includes('OnePerBlock')) {
-        errorMessage = 'Please wait for the next block';
-      } else if (rawMsg?.includes('Paused')) {
-        errorMessage = 'Minting is currently paused';
-      } else if (rawMsg) {
-        errorMessage = rawMsg;
-      }
-      
       setMintState(prev => ({
         ...prev,
         isMinting: false,
-        error: errorMessage,
+        error: decodeMintError(error),
       }));
       return false;
     }
@@ -248,20 +279,11 @@ export function useNFTMint() {
       
       const data = encodeBatchMintCallData(quantity);
       
-      // Estimate gas (if this fails, the tx would revert)
-      const gasEstimate = await window.ethereum.request({
-        method: 'eth_estimateGas',
-        params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
-      }) as string;
-
-      const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
-      
-      // Let the wallet estimate fees (Base is cheap); we only provide gas limit.
+      // Let wallet estimate gas + fees (no padded gasLimit)
       const txParams = {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
         data,
-        gas,
       };
 
       const txHash = await window.ethereum.request({
@@ -286,28 +308,11 @@ export function useNFTMint() {
       return success;
     } catch (error: unknown) {
       console.error('Batch minting error:', error);
-      
-      const err: any = error;
-      const rawMsg: string | undefined =
-        err?.data?.message || err?.error?.message || err?.message;
 
-      let errorMessage = 'Batch minting failed';
-      if (err?.code === 4001) {
-        errorMessage = 'Transaction rejected by user';
-      } else if (rawMsg?.includes('OnePerBlock')) {
-        errorMessage = 'Please wait for the next block';
-      } else if (rawMsg?.includes('BatchTooLarge')) {
-        errorMessage = 'Maximum 10 NFTs per batch';
-      } else if (rawMsg?.includes('Paused')) {
-        errorMessage = 'Minting is currently paused';
-      } else if (rawMsg) {
-        errorMessage = rawMsg;
-      }
-      
       setMintState(prev => ({
         ...prev,
         isMinting: false,
-        error: errorMessage,
+        error: decodeMintError(error),
       }));
       return false;
     }
@@ -345,19 +350,11 @@ export function useNFTMint() {
       
       const data = encodeMintNFTCallData('');
       
-      const gasEstimate = await window.ethereum.request({
-        method: 'eth_estimateGas',
-        params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
-      }) as string;
-
-      const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
-      
-      // Let the wallet estimate fees (Base is cheap); we only provide gas limit.
+      // Let wallet estimate gas + fees (no padded gasLimit)
       const txParams = {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
         data,
-        gas,
       };
 
       const txHash = await window.ethereum.request({
@@ -382,24 +379,11 @@ export function useNFTMint() {
       return success;
     } catch (error: unknown) {
       console.error('Quick mint error:', error);
-      
-      const err: any = error;
-      const rawMsg: string | undefined =
-        err?.data?.message || err?.error?.message || err?.message;
 
-      let errorMessage = 'Quick mint failed';
-      if (err?.code === 4001) {
-        errorMessage = 'Transaction rejected by user';
-      } else if (rawMsg?.includes('OnePerBlock')) {
-        errorMessage = 'Please wait for the next block';
-      } else if (rawMsg) {
-        errorMessage = rawMsg;
-      }
-      
       setMintState(prev => ({
         ...prev,
         isMinting: false,
-        error: errorMessage,
+        error: decodeMintError(error),
       }));
       return false;
     }
