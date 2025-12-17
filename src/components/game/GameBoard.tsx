@@ -70,11 +70,19 @@ export function GameBoard({
     setParticles(prev => prev.filter(p => p.id !== id));
   }, []);
   
-  // Limit and auto-cleanup particles
+  // Limit and auto-cleanup particles with timeout fallback
   useEffect(() => {
     // Remove excess particles (keep max 4)
     if (particles.length > 4) {
       setParticles(prev => prev.slice(-4));
+    }
+    
+    // Auto-cleanup stale particles after 3 seconds
+    if (particles.length > 0) {
+      const timeout = setTimeout(() => {
+        setParticles(prev => prev.length > 0 ? prev.slice(1) : prev);
+      }, 3000);
+      return () => clearTimeout(timeout);
     }
   }, [particles.length]);
 

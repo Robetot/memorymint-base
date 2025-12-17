@@ -36,8 +36,11 @@ const Index = () => {
   const [currentView, setCurrentView] = useState<GameView>('welcome');
   const [selectedLevel, setSelectedLevel] = useState<number>(1);
   const [lastScore, setLastScore] = useState(0);
+  const [lastRarity, setLastRarity] = useState<RarityResult | null>(null);
+  const [lastGameStats, setLastGameStats] = useState<{ moves: number; time: number; maxCombo: number } | null>(null);
   const [showTutorial, setShowTutorial] = useState(false);
   const [dailyChallengeConfig, setDailyChallengeConfig] = useState<{ gridSize: number; timeLimit: number } | null>(null);
+  const [gameKey, setGameKey] = useState(0); // Key to force re-mount
   const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
   const { achievements, newUnlock, dismissNewUnlock, unlockedCount, totalCount } = useAchievements();
 
@@ -46,7 +49,7 @@ const Index = () => {
     if (settings.showTutorial) {
       setShowTutorial(true);
     }
-  }, []);
+  }, [settings.showTutorial]);
 
   const handleStartGame = () => {
     setCurrentView('levels');
@@ -93,18 +96,16 @@ const Index = () => {
     setCurrentView('achievements');
   };
 
-  const handleCreateArt = (score: number, rarity: RarityResult) => {
+  const handleCreateArt = (score: number, rarity: RarityResult, stats?: { moves: number; time: number; maxCombo: number }) => {
     setLastScore(score);
+    setLastRarity(rarity);
+    setLastGameStats(stats || null);
     setCurrentView('ai-art');
   };
 
   const handleNextLevel = (nextLevel: number) => {
     setSelectedLevel(nextLevel);
-    // Force re-mount GameScreen by briefly switching views
-    setCurrentView('welcome');
-    setTimeout(() => {
-      setCurrentView('game');
-    }, 0);
+    setGameKey(prev => prev + 1); // Force re-mount without view flicker
   };
 
   const handleTutorialComplete = () => {
@@ -149,6 +150,7 @@ const Index = () => {
       case 'game':
         return (
           <GameScreen 
+            key={gameKey}
             onBackToMenu={handleBackToMenu}
             level={selectedLevel}
             onCreateArt={handleCreateArt}
@@ -163,6 +165,10 @@ const Index = () => {
             score={lastScore}
             onBack={handleBackToMenu}
             onComplete={handleBackToMenu}
+            moves={lastGameStats?.moves}
+            time={lastGameStats?.time}
+            maxCombo={lastGameStats?.maxCombo}
+            difficulty={selectedLevel <= 2 ? 'easy' : selectedLevel <= 5 ? 'medium' : 'hard'}
           />
         );
       case 'settings':
