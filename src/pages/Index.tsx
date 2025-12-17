@@ -1,8 +1,9 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WelcomeScreen } from '@/components/game/WelcomeScreen';
 import { useSettings } from '@/hooks/useSettings';
 import { useAchievements } from '@/hooks/useAchievements';
+import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { RarityResult } from '@/utils/rarityCalculator';
 
 // Lazy load components not needed on initial page load
@@ -43,6 +44,53 @@ const Index = () => {
   const [gameKey, setGameKey] = useState(0); // Key to force re-mount
   const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
   const { achievements, newUnlock, dismissNewUnlock, unlockedCount, totalCount } = useAchievements();
+  
+  // Background music system
+  const { isPlaying, toggle: toggleMusic, setVolume: setMusicVolume, changeTheme } = useBackgroundMusic(settings.musicTheme);
+  const hasUserInteracted = useRef(false);
+  
+  // Handle user interaction to enable audio (browser autoplay policy)
+  const handleUserInteraction = useCallback(() => {
+    if (!hasUserInteracted.current) {
+      hasUserInteracted.current = true;
+      // Start music on first interaction if enabled in settings
+      if (settings.musicEnabled && !isPlaying) {
+        toggleMusic();
+      }
+    }
+  }, [settings.musicEnabled, isPlaying, toggleMusic]);
+  
+  // Add global click listener for first interaction
+  useEffect(() => {
+    const handler = () => handleUserInteraction();
+    document.addEventListener('click', handler, { once: true });
+    document.addEventListener('touchstart', handler, { once: true });
+    return () => {
+      document.removeEventListener('click', handler);
+      document.removeEventListener('touchstart', handler);
+    };
+  }, [handleUserInteraction]);
+  
+  // Sync music state with settings
+  useEffect(() => {
+    if (hasUserInteracted.current) {
+      if (settings.musicEnabled && !isPlaying) {
+        toggleMusic();
+      } else if (!settings.musicEnabled && isPlaying) {
+        toggleMusic();
+      }
+    }
+  }, [settings.musicEnabled, isPlaying, toggleMusic]);
+  
+  // Update music volume when settings change
+  useEffect(() => {
+    setMusicVolume(settings.musicVolume);
+  }, [settings.musicVolume, setMusicVolume]);
+  
+  // Update music theme when settings change
+  useEffect(() => {
+    changeTheme(settings.musicTheme);
+  }, [settings.musicTheme, changeTheme]);
 
   // Show tutorial on first visit
   useEffect(() => {

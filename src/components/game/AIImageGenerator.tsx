@@ -43,6 +43,7 @@ export function AIImageGenerator({
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [rollsRemaining, setRollsRemaining] = useState(3);
+  const [mintStep, setMintStep] = useState<'idle' | 'uploading' | 'confirming' | 'waiting' | 'success'>('idle');
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
   const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress } = useNFTMint();
@@ -84,12 +85,42 @@ export function AIImageGenerator({
     await handleGenerate();
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!generatedImage) return;
-    const link = document.createElement('a');
-    link.href = generatedImage;
-    link.download = `memorymint-${Date.now()}.png`;
-    link.click();
+    
+    try {
+      // Handle base64 data URLs properly for all browsers
+      if (generatedImage.startsWith('data:')) {
+        // Convert base64 to blob for reliable download across browsers
+        const response = await fetch(generatedImage);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `memorymint-${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up blob URL after download
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+        toast.success('Image downloaded!');
+      } else {
+        // For regular URLs, use standard download
+        const link = document.createElement('a');
+        link.href = generatedImage;
+        link.download = `memorymint-${Date.now()}.png`;
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('Image downloaded!');
+      }
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast.error('Download failed. Try right-clicking the image and selecting "Save image as..."');
+    }
   };
 
   const handleMint = async () => {
@@ -98,8 +129,9 @@ export function AIImageGenerator({
     const style = STYLE_OPTIONS.find(s => s.id === selectedStyle);
     if (!style) return;
 
-    // First upload to IPFS
-    toast.info('Uploading metadata to IPFS...');
+    // Step 1: Upload to IPFS
+    setMintStep('uploading');
+    toast.info('Step 1/3: Uploading to IPFS...');
     
     const metadata = {
       name: `MemoryMint #${Date.now()}`,
@@ -115,17 +147,24 @@ export function AIImageGenerator({
     const result = await uploadToIPFS(generatedImage, metadata);
     
     if (!result) {
+      setMintStep('idle');
       toast.error(uploadError || 'Failed to upload metadata');
       return;
     }
 
-    toast.success('Metadata uploaded! Starting mint...');
+    // Step 2: Confirm transaction in wallet
+    setMintStep('confirming');
+    toast.success('Step 2/3: Please confirm in your wallet...');
 
     // Mint with the short token URI from IPFS upload
     const mintResult = await mintNFT(result.tokenURI, address!);
     
     if (mintResult) {
-      toast.success('NFT minted successfully!');
+      // Step 3: Wait for confirmation
+      setMintStep('success');
+      toast.success('Step 3/3: NFT minted successfully!');
+    } else {
+      setMintStep('idle');
     }
   };
 
@@ -133,6 +172,16 @@ export function AIImageGenerator({
     const success = await connectWallet(type);
     if (success) {
       toast.success('Wallet connected!');
+    }
+  };
+
+  const getMintStepText = () => {
+    switch (mintStep) {
+      case 'uploading': return { title: 'Uploading to IPFS...', subtitle: 'Storing your artwork permanently (Step 1/3)' };
+      case 'confirming': return { title: 'Confirm in Wallet', subtitle: 'Approve the transaction to mint (Step 2/3)' };
+      case 'waiting': return { title: 'Processing...', subtitle: 'Waiting for blockchain confirmation (Step 3/3)' };
+      case 'success': return { title: 'Success!', subtitle: 'Your NFT has been minted' };
+      default: return { title: '', subtitle: '' };
     }
   };
 
@@ -282,17 +331,26 @@ export function AIImageGenerator({
               </div>
             </div>
 
-            {/* Mint Status */}
-            {(isMinting || isUploading) && (
-              <div className="mb-4 p-4 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-3">
-                <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                <div>
-                  <p className="font-medium text-foreground">
-                    {isUploading ? 'Uploading to IPFS...' : 'Minting your NFT...'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {isUploading ? 'Preparing metadata' : 'Please confirm the transaction in your wallet'}
-                  </p>
+            {/* Mint Status - Enhanced Progress */}
+            {mintStep !== 'idle' && mintStep !== 'success' && (
+              <div className="mb-4 p-4 rounded-xl bg-primary/10 border border-primary/20">
+                <div className="flex items-center gap-3 mb-3">
+                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  <div>
+                    <p className="font-medium text-foreground">{getMintStepText().title}</p>
+                    <p className="text-sm text-muted-foreground">{getMintStepText().subtitle}</p>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-primary to-secondary transition-all duration-500"
+                    style={{ 
+                      width: mintStep === 'uploading' ? '33%' : 
+                             mintStep === 'confirming' ? '66%' : 
+                             mintStep === 'waiting' ? '90%' : '100%' 
+                    }}
+                  />
                 </div>
               </div>
             )}
