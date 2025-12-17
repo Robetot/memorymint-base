@@ -56,28 +56,11 @@ export function useNFTMint() {
     }
   }, []);
 
+  // Let the wallet/provider set fee fields (prevents inflated max fee displays on Base)
   const getEIP1559Params = useCallback(async (): Promise<Record<string, string>> => {
-    try {
-      const feeHistory = await window.ethereum!.request({
-        method: 'eth_feeHistory',
-        params: ['0x1', 'latest', [25]],
-      }) as { baseFeePerGas: string[]; reward: string[][] };
-      
-      if (feeHistory?.baseFeePerGas?.[0]) {
-        const baseFee = parseInt(feeHistory.baseFeePerGas[0], 16);
-        // Use a small priority fee and ensure maxFee is always larger
-        const priorityFee = Math.max(1000000, Math.floor(baseFee * 0.1)); // ~0.001 gwei or 10% of base
-        const maxFee = Math.max(baseFee * 2 + priorityFee, priorityFee * 2);
-        return {
-          maxPriorityFeePerGas: '0x' + priorityFee.toString(16),
-          maxFeePerGas: '0x' + maxFee.toString(16),
-        };
-      }
-    } catch {
-      console.log('Fallback to legacy tx pricing');
-    }
     return {};
   }, []);
+
 
   const waitForReceipt = useCallback(async (txHash: string): Promise<{ success: boolean; tokenIds: string[] }> => {
     let receipt = null;
@@ -170,14 +153,12 @@ export function useNFTMint() {
       // Add 20% buffer
       const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
       
-      // Build EIP-1559 transaction
-      const eipParams = await getEIP1559Params();
+      // Let the wallet estimate fees (Base is cheap); we only provide gas limit.
       const txParams = {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
         data,
         gas,
-        ...eipParams,
       };
 
       const txHash = await window.ethereum.request({
@@ -203,15 +184,19 @@ export function useNFTMint() {
     } catch (error: unknown) {
       console.error('Minting error:', error);
       
+      const err: any = error;
+      const rawMsg: string | undefined =
+        err?.data?.message || err?.error?.message || err?.message;
+
       let errorMessage = 'Minting failed';
-      if ((error as { code?: number })?.code === 4001) {
+      if (err?.code === 4001) {
         errorMessage = 'Transaction rejected by user';
-      } else if ((error as { message?: string })?.message?.includes('OnePerBlock')) {
+      } else if (rawMsg?.includes('OnePerBlock')) {
         errorMessage = 'Please wait for the next block';
-      } else if ((error as { message?: string })?.message?.includes('Paused')) {
+      } else if (rawMsg?.includes('Paused')) {
         errorMessage = 'Minting is currently paused';
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
+      } else if (rawMsg) {
+        errorMessage = rawMsg;
       }
       
       setMintState(prev => ({
@@ -271,13 +256,12 @@ export function useNFTMint() {
 
       const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
       
-      const eipParams = await getEIP1559Params();
+      // Let the wallet estimate fees (Base is cheap); we only provide gas limit.
       const txParams = {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
         data,
         gas,
-        ...eipParams,
       };
 
       const txHash = await window.ethereum.request({
@@ -303,17 +287,21 @@ export function useNFTMint() {
     } catch (error: unknown) {
       console.error('Batch minting error:', error);
       
+      const err: any = error;
+      const rawMsg: string | undefined =
+        err?.data?.message || err?.error?.message || err?.message;
+
       let errorMessage = 'Batch minting failed';
-      if ((error as { code?: number })?.code === 4001) {
+      if (err?.code === 4001) {
         errorMessage = 'Transaction rejected by user';
-      } else if ((error as { message?: string })?.message?.includes('OnePerBlock')) {
+      } else if (rawMsg?.includes('OnePerBlock')) {
         errorMessage = 'Please wait for the next block';
-      } else if ((error as { message?: string })?.message?.includes('BatchTooLarge')) {
+      } else if (rawMsg?.includes('BatchTooLarge')) {
         errorMessage = 'Maximum 10 NFTs per batch';
-      } else if ((error as { message?: string })?.message?.includes('Paused')) {
+      } else if (rawMsg?.includes('Paused')) {
         errorMessage = 'Minting is currently paused';
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
+      } else if (rawMsg) {
+        errorMessage = rawMsg;
       }
       
       setMintState(prev => ({
@@ -364,13 +352,12 @@ export function useNFTMint() {
 
       const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
       
-      const eipParams = await getEIP1559Params();
+      // Let the wallet estimate fees (Base is cheap); we only provide gas limit.
       const txParams = {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
         data,
         gas,
-        ...eipParams,
       };
 
       const txHash = await window.ethereum.request({
@@ -396,13 +383,17 @@ export function useNFTMint() {
     } catch (error: unknown) {
       console.error('Quick mint error:', error);
       
+      const err: any = error;
+      const rawMsg: string | undefined =
+        err?.data?.message || err?.error?.message || err?.message;
+
       let errorMessage = 'Quick mint failed';
-      if ((error as { code?: number })?.code === 4001) {
+      if (err?.code === 4001) {
         errorMessage = 'Transaction rejected by user';
-      } else if ((error as { message?: string })?.message?.includes('OnePerBlock')) {
+      } else if (rawMsg?.includes('OnePerBlock')) {
         errorMessage = 'Please wait for the next block';
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
+      } else if (rawMsg) {
+        errorMessage = rawMsg;
       }
       
       setMintState(prev => ({
