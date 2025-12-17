@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 
-// MemoryMintUltra contract address - Update after deployment
-const NFT_CONTRACT_ADDRESS = '0xA4952804C10a2eA5cF8ae0AD683364901186395b';
+// MemoryMintUltra contract address on Base Mainnet
+const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
 
 export interface MintState {
   isMinting: boolean;

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 
-const NFT_CONTRACT_ADDRESS = '0x73c505573E2A86f29eD0a990280477872b3c6c45';
+const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
 
 // ERC721 Enumerable ABI for fetching owned tokens
 const ERC721_ABI = [
