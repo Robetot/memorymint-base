@@ -1,7 +1,14 @@
 import { useState, useCallback } from 'react';
+import { encodeFunctionData, parseAbi } from 'viem';
 
-// MemoryMintUltra contract address on Base Mainnet
+// MemoryMint contract address on Base Mainnet
 const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
+
+// Minimal ABI needed for minting (works with MemoryMintPro/MemoryMintUltra)
+const CONTRACT_ABI = parseAbi([
+  'function mintNFT(string tokenURI) returns (uint256)',
+  'function batchMint(uint256 quantity) returns (uint256)',
+]);
 
 export interface MintState {
   isMinting: boolean;
@@ -12,51 +19,20 @@ export interface MintState {
   success: boolean;
 }
 
-// Function selectors for MemoryMintUltra
-const FUNCTION_SELECTORS = {
-  'mint()': '0x1249c58b',
-  'safeMint(address,string)': '0xd204c45e',
-  'batchMint(address,uint256)': '0x248b71fc',
-};
-
-function padAddress(address: string): string {
-  return address.toLowerCase().replace('0x', '').padStart(64, '0');
+function encodeMintNFTCallData(tokenURI: string): `0x${string}` {
+  return encodeFunctionData({
+    abi: CONTRACT_ABI,
+    functionName: 'mintNFT',
+    args: [tokenURI],
+  });
 }
 
-function padUint256(value: number): string {
-  return value.toString(16).padStart(64, '0');
-}
-
-function encodeString(str: string): string {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(str);
-  const length = bytes.length.toString(16).padStart(64, '0');
-  const paddedLength = Math.ceil(bytes.length / 32) * 32;
-  
-  let hexData = '';
-  for (const byte of bytes) {
-    hexData += byte.toString(16).padStart(2, '0');
-  }
-  hexData = hexData.padEnd(paddedLength * 2, '0');
-  
-  return length + hexData;
-}
-
-function encodeSafeMintCallData(address: string, tokenURI: string): string {
-  const selector = FUNCTION_SELECTORS['safeMint(address,string)'];
-  const paddedAddress = padAddress(address);
-  const stringOffset = '0000000000000000000000000000000000000000000000000000000000000040';
-  const stringData = encodeString(tokenURI);
-  
-  return selector + paddedAddress + stringOffset + stringData;
-}
-
-function encodeBatchMintCallData(address: string, quantity: number): string {
-  const selector = FUNCTION_SELECTORS['batchMint(address,uint256)'];
-  const paddedAddress = padAddress(address);
-  const paddedQuantity = padUint256(quantity);
-  
-  return selector + paddedAddress + paddedQuantity;
+function encodeBatchMintCallData(quantity: number): `0x${string}` {
+  return encodeFunctionData({
+    abi: CONTRACT_ABI,
+    functionName: 'batchMint',
+    args: [BigInt(quantity)],
+  });
 }
 
 export function useNFTMint() {
@@ -180,21 +156,16 @@ export function useNFTMint() {
     });
 
     try {
-      console.log('Minting NFT via MemoryMintUltra...');
+      console.log('Minting NFT via MemoryMint...');
       
-      // Use safeMint(address, string) for game integration
-      const data = encodeSafeMintCallData(walletAddress, tokenURI);
+      // Mint using mintNFT(string)
+      const data = encodeMintNFTCallData(tokenURI);
       
-      // Estimate gas
-      let gasEstimate: string;
-      try {
-        gasEstimate = await window.ethereum.request({
-          method: 'eth_estimateGas',
-          params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
-        }) as string;
-      } catch {
-        gasEstimate = '0x13880'; // 80k fallback
-      }
+      // Estimate gas (if this fails, the tx would revert)
+      const gasEstimate = await window.ethereum.request({
+        method: 'eth_estimateGas',
+        params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+      }) as string;
 
       // Add 20% buffer
       const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
@@ -290,19 +261,13 @@ export function useNFTMint() {
     try {
       console.log(`Batch minting ${quantity} NFTs...`);
       
-      const data = encodeBatchMintCallData(walletAddress, quantity);
+      const data = encodeBatchMintCallData(quantity);
       
-      // Estimate gas
-      let gasEstimate: string;
-      try {
-        gasEstimate = await window.ethereum.request({
-          method: 'eth_estimateGas',
-          params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
-        }) as string;
-      } catch {
-        // Estimate ~50k per NFT
-        gasEstimate = '0x' + (50000 * quantity + 30000).toString(16);
-      }
+      // Estimate gas (if this fails, the tx would revert)
+      const gasEstimate = await window.ethereum.request({
+        method: 'eth_estimateGas',
+        params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+      }) as string;
 
       const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
       
@@ -388,19 +353,14 @@ export function useNFTMint() {
     });
 
     try {
-      console.log('Quick minting via mint()...');
+      console.log("Quick minting via mintNFT('')...");
       
-      const data = FUNCTION_SELECTORS['mint()'];
+      const data = encodeMintNFTCallData('');
       
-      let gasEstimate: string;
-      try {
-        gasEstimate = await window.ethereum.request({
-          method: 'eth_estimateGas',
-          params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
-        }) as string;
-      } catch {
-        gasEstimate = '0xC350'; // 50k fallback
-      }
+      const gasEstimate = await window.ethereum.request({
+        method: 'eth_estimateGas',
+        params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+      }) as string;
 
       const gas = '0x' + Math.floor(parseInt(gasEstimate, 16) * 1.2).toString(16);
       
