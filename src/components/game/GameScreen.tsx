@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 interface GameScreenProps {
   onBackToMenu: () => void;
   level: number;
-  onCreateArt?: (score: number, rarity: RarityResult) => void;
+  onCreateArt?: (score: number, rarity: RarityResult, stats?: { moves: number; time: number; maxCombo: number }) => void;
   onNextLevel?: (nextLevel: number) => void;
 }
 
@@ -237,7 +237,8 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
 
   const handleCreateArt = () => {
     if (onCreateArt && rarity) {
-      onCreateArt(gameState.score, rarity);
+      const timeTaken = config.time - gameState.timeRemaining;
+      onCreateArt(gameState.score, rarity, { moves: gameState.moves, time: timeTaken, maxCombo: gameState.maxCombo });
     }
   };
 
