@@ -114,9 +114,9 @@ serve(async (req) => {
       )
     }
 
-    const accessToken = Deno.env.get('HUGGING_FACE_ACCESS_TOKEN')
-    if (!accessToken) {
-      console.error('HUGGING_FACE_ACCESS_TOKEN is not set')
+    const apiKey = Deno.env.get('LOVABLE_API_KEY')
+    if (!apiKey) {
+      console.error('LOVABLE_API_KEY is not set')
       return new Response(
         JSON.stringify({ error: 'Image generation service not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -124,52 +124,69 @@ serve(async (req) => {
     }
 
     // Combine user prompt with style prompt
-    const fullPrompt = `${sanitizedPrompt}, ${style}, high quality, detailed, masterpiece`
+    const fullPrompt = `${sanitizedPrompt}, ${style}, high quality, detailed, masterpiece, 1024x1024`
     console.log(`Generating image for IP ${clientIp}, remaining: ${remaining}`)
 
-    // Use the Hugging Face router endpoint
-    const response = await fetch(
-      'https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell',
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          inputs: fullPrompt,
-        }),
-      }
-    )
+    // Use Lovable AI Gateway with image generation model
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash-image-preview',
+        messages: [
+          {
+            role: 'user',
+            content: `Generate a beautiful, high-quality image: ${fullPrompt}`
+          }
+        ],
+        modalities: ['image', 'text']
+      }),
+    })
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('Hugging Face API error:', response.status, errorText)
-      // Don't expose external API details to client
+      console.error('Lovable AI API error:', response.status, errorText)
+      
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ error: 'Service temporarily unavailable. Please try again later.' }),
+          { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      
       return new Response(
         JSON.stringify({ error: 'Image generation failed. Please try again.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    // Get the image as array buffer
-    const arrayBuffer = await response.arrayBuffer()
-    const uint8Array = new Uint8Array(arrayBuffer)
+    const data = await response.json()
     
-    // Convert to base64
-    let binary = ''
-    const chunkSize = 8192
-    for (let i = 0; i < uint8Array.length; i += chunkSize) {
-      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length))
-      binary += String.fromCharCode(...chunk)
+    // Extract the image from the response
+    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url
+    
+    if (!imageUrl) {
+      console.error('No image in response:', JSON.stringify(data))
+      return new Response(
+        JSON.stringify({ error: 'Image generation failed. Please try again.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
-    const base64 = btoa(binary)
-    const imageData = `data:image/png;base64,${base64}`
 
-    console.log('Image generated successfully')
+    console.log('Image generated successfully via Lovable AI')
 
     return new Response(
-      JSON.stringify({ image: imageData }),
+      JSON.stringify({ image: imageUrl }),
       { 
         headers: { 
           ...corsHeaders, 
@@ -180,7 +197,6 @@ serve(async (req) => {
     )
   } catch (error: unknown) {
     console.error('Error generating image:', error)
-    // Don't expose internal error details to client
     return new Response(
       JSON.stringify({ error: 'Failed to generate image. Please try again.' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
