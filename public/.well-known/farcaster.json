@@ -15,12 +15,21 @@
     "description": "MemoryMint is a free-to-play memory card game on Base. Match pairs, prove your skill, and mint NFTs based on your performance. No pay-to-win, just pure skill.",
     "screenshotUrls": [],
     "primaryCategory": "games",
-    "tags": ["memory", "game", "nft", "base", "skill"],
+    "tags": ["memory", "game", "nft", "base", "skill", "baseapp"],
     "heroImageUrl": "https://lovable.dev/opengraph-image-p98pqg.png",
     "tagline": "Match cards. Mint NFTs. Free forever.",
     "ogTitle": "MemoryMint - Free Skill-Based Memory Game on Base",
     "ogDescription": "Free memory game on Base blockchain. Match cards, earn skill-based NFTs.",
     "ogImageUrl": "https://lovable.dev/opengraph-image-p98pqg.png",
     "noindex": false
+  },
+  "frame": {
+    "version": "1",
+    "name": "MemoryMint",
+    "homeUrl": "https://618363dd-35f3-4aa2-8e61-1dc35cd72402.lovableproject.com",
+    "iconUrl": "https://618363dd-35f3-4aa2-8e61-1dc35cd72402.lovableproject.com/favicon.ico",
+    "splashImageUrl": "https://lovable.dev/opengraph-image-p98pqg.png",
+    "splashBackgroundColor": "#1a1a2e",
+    "webhookUrl": ""
   }
 }

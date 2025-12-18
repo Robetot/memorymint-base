@@ -14,7 +14,7 @@ const BASE_CHAIN_CONFIG = {
   blockExplorerUrls: ['https://basescan.org'],
 };
 
-export type WalletType = 'metamask' | 'coinbase';
+export type WalletType = 'metamask' | 'coinbase' | 'baseapp';
 
 export interface WalletState {
   isConnected: boolean;
@@ -24,6 +24,8 @@ export interface WalletState {
   chainId: string | null;
   isCorrectChain: boolean;
   error: string | null;
+  isSmartWallet: boolean;
+  isBaseApp: boolean;
 }
 
 declare global {
@@ -31,11 +33,39 @@ declare global {
     ethereum?: {
       isMetaMask?: boolean;
       isCoinbaseWallet?: boolean;
+      isSmartWallet?: boolean;
+      isPasskeyWallet?: boolean;
       request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
       on: (event: string, callback: (...args: unknown[]) => void) => void;
       removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
     };
   }
+}
+
+// Detect if running in Base App environment
+function detectBaseApp(): boolean {
+  if (typeof window === 'undefined' || !window.ethereum) return false;
+  
+  const ethereum = window.ethereum;
+  
+  // Check for smart wallet indicators (Base App uses smart wallets)
+  if (ethereum.isSmartWallet || ethereum.isPasskeyWallet) {
+    return true;
+  }
+  
+  // Check user agent for Base/Coinbase indicators
+  const userAgent = navigator.userAgent.toLowerCase();
+  if (ethereum.isCoinbaseWallet && (userAgent.includes('base') || userAgent.includes('coinbase'))) {
+    return true;
+  }
+  
+  // Check URL params
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has('baseapp') || urlParams.get('source') === 'baseapp') {
+    return true;
+  }
+  
+  return false;
 }
 
 export function useWallet() {
@@ -47,7 +77,45 @@ export function useWallet() {
     chainId: null,
     isCorrectChain: false,
     error: null,
+    isSmartWallet: false,
+    isBaseApp: false,
   });
+
+  // Detect Base App on mount
+  useEffect(() => {
+    const isBaseApp = detectBaseApp();
+    setWalletState(prev => ({ ...prev, isBaseApp }));
+    
+    // Auto-connect if in Base App
+    if (isBaseApp && window.ethereum) {
+      checkExistingConnection();
+    }
+  }, []);
+
+  const checkExistingConnection = async () => {
+    if (!window.ethereum) return;
+    
+    try {
+      const accounts = await window.ethereum.request({ method: 'eth_accounts' }) as string[];
+      if (accounts && accounts.length > 0) {
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
+        const isCorrect = chainId.toLowerCase() === BASE_CHAIN_ID.toLowerCase();
+        const isSmartWallet = !!(window.ethereum.isSmartWallet || window.ethereum.isPasskeyWallet);
+        
+        setWalletState(prev => ({
+          ...prev,
+          isConnected: true,
+          address: accounts[0],
+          walletType: prev.isBaseApp ? 'baseapp' : (window.ethereum?.isCoinbaseWallet ? 'coinbase' : 'metamask'),
+          chainId,
+          isCorrectChain: isCorrect,
+          isSmartWallet,
+        }));
+      }
+    } catch (err) {
+      console.log('No existing wallet connection');
+    }
+  };
 
   const checkChain = useCallback(async () => {
     if (!window.ethereum) return false;
@@ -68,6 +136,7 @@ export function useWallet() {
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: BASE_CHAIN_ID }],
       });
+      setWalletState(prev => ({ ...prev, chainId: BASE_CHAIN_ID, isCorrectChain: true }));
       return true;
     } catch (switchError: unknown) {
       // Chain not added, try to add it
@@ -77,6 +146,7 @@ export function useWallet() {
             method: 'wallet_addEthereumChain',
             params: [BASE_CHAIN_CONFIG],
           });
+          setWalletState(prev => ({ ...prev, chainId: BASE_CHAIN_ID, isCorrectChain: true }));
           return true;
         } catch {
           return false;
@@ -91,13 +161,20 @@ export function useWallet() {
 
     try {
       if (!window.ethereum) {
-        const walletUrl = walletType === 'metamask' 
-          ? 'https://metamask.io/download/' 
-          : 'https://www.coinbase.com/wallet';
+        // Redirect based on wallet type
+        let walletUrl: string;
+        if (walletType === 'baseapp') {
+          walletUrl = 'https://base.org/wallet';
+        } else if (walletType === 'coinbase') {
+          walletUrl = 'https://www.coinbase.com/wallet';
+        } else {
+          walletUrl = 'https://metamask.io/download/';
+        }
+        
         setWalletState(prev => ({
           ...prev,
           isConnecting: false,
-          error: `Please install ${walletType === 'metamask' ? 'MetaMask' : 'Coinbase Wallet'} first`,
+          error: `Please install ${walletType === 'baseapp' ? 'Base App' : walletType === 'metamask' ? 'MetaMask' : 'Coinbase Wallet'} first`,
         }));
         window.open(walletUrl, '_blank');
         return false;
@@ -113,6 +190,7 @@ export function useWallet() {
       }
 
       const address = accounts[0];
+      const isSmartWallet = !!(window.ethereum.isSmartWallet || window.ethereum.isPasskeyWallet);
       
       // Check and switch to Base chain
       const isCorrectChain = await checkChain();
@@ -136,6 +214,8 @@ export function useWallet() {
         chainId: BASE_CHAIN_ID,
         isCorrectChain: true,
         error: null,
+        isSmartWallet,
+        isBaseApp: walletType === 'baseapp' || detectBaseApp(),
       });
 
       return true;
@@ -159,6 +239,8 @@ export function useWallet() {
       chainId: null,
       isCorrectChain: false,
       error: null,
+      isSmartWallet: false,
+      isBaseApp: detectBaseApp(),
     });
   }, []);
 
