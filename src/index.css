@@ -416,3 +416,61 @@
   animation: rainbow-border 2s linear infinite;
   border-width: 3px;
 }
+
+/* Farcaster Auth-Kit Button Overrides */
+.farcaster-signin-wrapper,
+.farcaster-button-wrapper {
+  --fc-button-bg: hsl(var(--primary));
+  --fc-button-color: hsl(var(--primary-foreground));
+}
+
+/* Override auth-kit signin button styles */
+.fc-authkit-signin-button button,
+.farcaster-signin-wrapper button,
+.farcaster-button-wrapper button {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(280 85% 45%)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border: none !important;
+  border-radius: var(--radius) !important;
+  font-weight: 600 !important;
+  padding: 0.75rem 1.5rem !important;
+  font-size: 0.95rem !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 4px 14px hsl(var(--primary) / 0.3) !important;
+  width: 100% !important;
+  min-height: 48px !important;
+}
+
+.fc-authkit-signin-button button:hover,
+.farcaster-signin-wrapper button:hover,
+.farcaster-button-wrapper button:hover {
+  background: linear-gradient(135deg, hsl(280 85% 50%), hsl(280 85% 40%)) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 20px hsl(var(--primary) / 0.4) !important;
+}
+
+.fc-authkit-signin-button button:active,
+.farcaster-signin-wrapper button:active,
+.farcaster-button-wrapper button:active {
+  transform: translateY(0) !important;
+}
+
+/* Hide QR modal if it somehow appears */
+.fc-authkit-qr-modal,
+.fc-authkit-modal[data-type="qr"] {
+  display: none !important;
+}
+
+/* Dark mode adjustments */
+.dark .fc-authkit-signin-button button,
+.dark .farcaster-signin-wrapper button,
+.dark .farcaster-button-wrapper button {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(280 85% 50%)) !important;
+  box-shadow: 0 4px 14px hsl(var(--primary) / 0.4) !important;
+}
+
+.dark .fc-authkit-signin-button button:hover,
+.dark .farcaster-signin-wrapper button:hover,
+.dark .farcaster-button-wrapper button:hover {
+  box-shadow: 0 6px 20px hsl(var(--primary) / 0.5) !important;
+}
