@@ -116,6 +116,35 @@ export function useNFTCollection(address: string | null) {
     }
   }, []);
 
+  const fetchFromIPFS = useCallback(async (cid: string): Promise<any> => {
+    const gateways = [
+      'https://ipfs.io/ipfs/',
+      'https://gateway.pinata.cloud/ipfs/',
+      'https://cloudflare-ipfs.com/ipfs/',
+      'https://dweb.link/ipfs/',
+    ];
+
+    for (const gateway of gateways) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch(`${gateway}${cid}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          return await response.json();
+        }
+      } catch (err) {
+        console.warn(`Gateway ${gateway} failed, trying next...`);
+        continue;
+      }
+    }
+    throw new Error('All IPFS gateways failed');
+  }, []);
+
   const parseMetadata = useCallback(async (tokenURI: string): Promise<NFTItem['metadata']> => {
     try {
       if (tokenURI.startsWith('data:application/json;base64,')) {
@@ -124,17 +153,19 @@ export function useNFTCollection(address: string | null) {
         return JSON.parse(json);
       } else if (tokenURI.startsWith('ipfs://')) {
         const cid = tokenURI.replace('ipfs://', '');
-        const response = await fetch(`https://ipfs.io/ipfs/${cid}`);
-        return await response.json();
+        return await fetchFromIPFS(cid);
       } else if (tokenURI.startsWith('http')) {
-        const response = await fetch(tokenURI);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        const response = await fetch(tokenURI, { signal: controller.signal });
+        clearTimeout(timeout);
         return await response.json();
       }
     } catch (err) {
       console.error('Error parsing metadata:', err);
     }
     return undefined;
-  }, []);
+  }, [fetchFromIPFS]);
 
   const fetchCollection = useCallback(async () => {
     if (!address || !window.ethereum) {
