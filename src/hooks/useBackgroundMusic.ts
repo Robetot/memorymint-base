@@ -35,10 +35,11 @@ export function useBackgroundMusic(theme: MusicTheme = 'chill') {
   });
   const [currentTheme, setCurrentTheme] = useState<MusicTheme>(theme);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  
 
-  // Initialize or change audio when theme changes
-  useEffect(() => {
-    const themeData = MUSIC_THEMES[currentTheme];
+  // Load and play audio - only called when user enables music
+  const loadAndPlay = useCallback((themeKey: MusicTheme) => {
+    const themeData = MUSIC_THEMES[themeKey];
     
     // Stop existing audio
     if (audioRef.current) {
@@ -46,51 +47,59 @@ export function useBackgroundMusic(theme: MusicTheme = 'chill') {
       audioRef.current = null;
     }
 
-    audioRef.current = new Audio(themeData.url);
-    audioRef.current.loop = true;
-    audioRef.current.volume = 0.3;
+    const audio = new Audio();
+    audio.loop = true;
+    audio.volume = 0.3;
+    
+    // Handle load errors silently
+    audio.addEventListener('error', () => {
+      setIsPlaying(false);
+    });
 
-    // Resume playing if enabled
-    if (isEnabled) {
-      audioRef.current.play().catch(() => {
-        // Autoplay blocked
-      });
+    audio.src = themeData.url;
+    audioRef.current = audio;
+    
+    audio.play().then(() => {
       setIsPlaying(true);
-    }
+    }).catch(() => {
+      setIsPlaying(false);
+    });
+  }, []);
 
+  // Update theme when prop changes (only if currently playing)
+  useEffect(() => {
+    if (theme !== currentTheme) {
+      setCurrentTheme(theme);
+      if (isPlaying && audioRef.current) {
+        loadAndPlay(theme);
+      }
+    }
+  }, [theme, currentTheme, isPlaying, loadAndPlay]);
+
+  // Cleanup on unmount
+  useEffect(() => {
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
       }
     };
-  }, [currentTheme]);
-
-  // Update theme when prop changes
-  useEffect(() => {
-    if (theme !== currentTheme) {
-      setCurrentTheme(theme);
-    }
-  }, [theme, currentTheme]);
+  }, []);
 
   const toggle = useCallback(() => {
-    if (!audioRef.current) return;
-
     if (isPlaying) {
-      audioRef.current.pause();
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
       setIsPlaying(false);
       setIsEnabled(false);
       localStorage.setItem(STORAGE_KEY, 'false');
     } else {
-      audioRef.current.play().then(() => {
-        setIsPlaying(true);
-        setIsEnabled(true);
-        localStorage.setItem(STORAGE_KEY, 'true');
-      }).catch(() => {
-        console.log('Autoplay blocked');
-      });
+      loadAndPlay(currentTheme);
+      setIsEnabled(true);
+      localStorage.setItem(STORAGE_KEY, 'true');
     }
-  }, [isPlaying]);
+  }, [isPlaying, currentTheme, loadAndPlay]);
 
   const setVolume = useCallback((volume: number) => {
     if (audioRef.current) {
