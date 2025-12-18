@@ -43,6 +43,14 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         disabled={disabled || card.isFlipped || card.isMatched}
+        aria-label={
+          card.isMatched 
+            ? `Matched card: ${card.animalName}` 
+            : card.isFlipped 
+              ? `Revealed card: ${card.animalName}` 
+              : `Card ${card.id + 1}. Click to flip`
+        }
+        aria-pressed={card.isFlipped || card.isMatched}
         className={cn(
           'relative w-full aspect-square perspective-1000 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 focus:ring-offset-background',
           'transition-all duration-200 ease-out',

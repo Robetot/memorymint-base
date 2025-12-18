@@ -163,15 +163,28 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         );
         setRarity(rarityResult);
         
-        // Check if it's a high score
+        // Check if it's a high score - auto-submit if name exists, otherwise show modal
         const topScore = getTopScore(level);
         if (gameState.score > topScore || topScore === 0) {
-          setShowScoreSubmit(true);
+          if (settings.playerName) {
+            // Auto-submit with saved name directly
+            addEntry({
+              playerName: settings.playerName,
+              score: gameState.score,
+              moves: gameState.moves,
+              time: config.time - gameState.timeRemaining,
+              difficulty: `Level ${level}`,
+              maxCombo: gameState.maxCombo,
+            });
+            // Don't show score submit modal - go straight to game over
+          } else {
+            setShowScoreSubmit(true);
+          }
         }
       }
       // No sounds on win or lose
     }
-  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge]);
+  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, settings.playerName, addEntry]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -284,8 +297,9 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
           size="icon"
           onClick={handleBackToMenu}
           className="rounded-full"
+          aria-label="Back to menu"
         >
-          <ArrowLeft className="w-5 h-5" />
+          <ArrowLeft className="w-5 h-5" aria-hidden="true" />
         </Button>
 
         <div className="text-center">
@@ -309,8 +323,9 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
               'rounded-full',
               hintsRemaining > 0 && 'text-accent'
             )}
+            aria-label={`Use hint. ${hintsRemaining} hints remaining`}
           >
-            <Lightbulb className="w-5 h-5" />
+            <Lightbulb className="w-5 h-5" aria-hidden="true" />
           </Button>
           
           {/* Pause Button */}
@@ -320,8 +335,9 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
             onClick={handlePause}
             disabled={!gameState.isPlaying}
             className="rounded-full"
+            aria-label="Pause game"
           >
-            <Pause className="w-5 h-5" />
+            <Pause className="w-5 h-5" aria-hidden="true" />
           </Button>
           
           {/* Music Toggle */}
@@ -330,11 +346,13 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
             size="icon"
             onClick={toggleMusic}
             className="rounded-full"
+            aria-label={isMusicPlaying ? "Turn off background music" : "Turn on background music"}
+            aria-pressed={isMusicPlaying}
           >
             {isMusicPlaying ? (
-              <Music className="w-5 h-5 text-primary" />
+              <Music className="w-5 h-5 text-primary" aria-hidden="true" />
             ) : (
-              <Music2 className="w-5 h-5" />
+              <Music2 className="w-5 h-5" aria-hidden="true" />
             )}
           </Button>
           
@@ -344,11 +362,13 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
             size="icon"
             onClick={toggleMute}
             className="rounded-full"
+            aria-label={isMuted ? "Unmute sound effects" : "Mute sound effects"}
+            aria-pressed={isMuted}
           >
             {isMuted ? (
-              <VolumeX className="w-5 h-5" />
+              <VolumeX className="w-5 h-5" aria-hidden="true" />
             ) : (
-              <Volume2 className="w-5 h-5" />
+              <Volume2 className="w-5 h-5" aria-hidden="true" />
             )}
           </Button>
         </div>
