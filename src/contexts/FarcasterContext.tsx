@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { useProfile } from '@farcaster/auth-kit';
 
 // Lazy import SDK to avoid errors in non-Farcaster environments
 let sdk: any = null;
@@ -60,6 +61,21 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
   const [isMiniApp, setIsMiniApp] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [context, setContext] = useState<any | null>(null);
+  
+  // Get auth-kit profile for browser-based sign-in
+  const { isAuthenticated: authKitAuthenticated, profile: authKitProfile } = useProfile();
+
+  // Sync auth-kit profile to user state
+  useEffect(() => {
+    if (authKitAuthenticated && authKitProfile?.fid && !isMiniApp) {
+      setUser({
+        fid: authKitProfile.fid,
+        username: authKitProfile.username,
+        displayName: authKitProfile.displayName,
+        pfpUrl: authKitProfile.pfpUrl,
+      });
+    }
+  }, [authKitAuthenticated, authKitProfile, isMiniApp]);
 
   // Check if running inside a Farcaster client
   useEffect(() => {
