@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
 import { useFarcaster } from '@/contexts/FarcasterContext';
@@ -240,69 +240,21 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
       {/* Connection Options (only show if not connected) */}
       {!isFullyConnected && (
         <div className="grid gap-4 w-full max-w-md">
-          {/* Farcaster Sign In - Prominent when in Mini App */}
-          {isMiniApp && (
-            <>
-              <FarcasterSignIn 
-                onSignIn={handleFarcasterSignIn}
-                isLoading={isFarcasterLoading}
-              />
-              <div className="relative my-2">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-border" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-2 text-muted-foreground">or connect wallet</span>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Farcaster option for browser (non-mini-app) - Opens in Warpcast with QR */}
-          {!isMiniApp && (
-            <Card className="overflow-hidden">
-              <CardHeader className="flex flex-row items-center gap-4 pb-2">
-                <div 
-                  className="w-12 h-12 rounded-xl flex items-center justify-center"
-                  style={{ backgroundColor: '#8B5CF620' }}
-                >
-                  <FarcasterIcon className="w-7 h-7" />
-                </div>
-                <div className="flex-1">
-                  <CardTitle className="text-lg">Play on Farcaster</CardTitle>
-                  <CardDescription className="font-body">
-                    Scan QR or click to open in Warpcast
-                  </CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0 pb-4">
-                <div className="flex flex-col items-center gap-4">
-                  {/* QR Code using API service */}
-                  <div className="p-3 bg-white rounded-xl">
-                    <img 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`https://warpcast.com/~/frames?url=${encodeURIComponent(window.location.origin)}`)}&color=8B5CF6`}
-                      alt="Scan to open in Warpcast"
-                      width={140}
-                      height={140}
-                      className="block"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Smartphone className="w-3 h-3" />
-                    <span>Scan with your phone camera</span>
-                  </div>
-                  <Button 
-                    variant="outline" 
-                    className="w-full border-[#8B5CF6]/30 hover:border-[#8B5CF6] hover:bg-[#8B5CF6]/10"
-                    onClick={handleFarcasterSignIn}
-                  >
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    Open in Warpcast
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Farcaster Sign In - Always visible */}
+          <FarcasterSignIn 
+            onSignIn={handleFarcasterSignIn}
+            isLoading={isFarcasterLoading}
+            onSuccess={() => onConnected()}
+          />
+          
+          <div className="relative my-2">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">or connect wallet</span>
+            </div>
+          </div>
 
           {/* MetaMask */}
           <Card 
