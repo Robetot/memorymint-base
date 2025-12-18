@@ -5,10 +5,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Simple in-memory rate limiting (per IP)
+// Rate limiting
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>()
-const RATE_LIMIT_MAX = 5 // Max requests per window (stricter for IPFS uploads)
-const RATE_LIMIT_WINDOW_MS = 60 * 1000 // 1 minute window
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW_MS = 60 * 1000
 
 function checkRateLimit(clientIp: string): { allowed: boolean; remaining: number } {
   const now = Date.now()
@@ -27,22 +27,86 @@ function checkRateLimit(clientIp: string): { allowed: boolean; remaining: number
   return { allowed: true, remaining: RATE_LIMIT_MAX - record.count }
 }
 
-// Max image data size (5MB base64 encoded)
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024
 
+// Upload file to Pinata IPFS
+async function uploadToPinata(
+  content: Uint8Array | string, 
+  filename: string, 
+  contentType: string,
+  pinataJwt: string
+): Promise<string> {
+  const formData = new FormData()
+  
+  let blob: Blob
+  if (typeof content === 'string') {
+    blob = new Blob([content], { type: contentType })
+  } else {
+    // Convert Uint8Array to regular array for Blob compatibility
+    blob = new Blob([new Uint8Array(content)], { type: contentType })
+  }
+  
+  formData.append('file', blob, filename)
+  
+  // Add pinata metadata
+  const pinataMetadata = JSON.stringify({
+    name: filename,
+    keyvalues: {
+      app: 'MemoryMint',
+      timestamp: new Date().toISOString()
+    }
+  })
+  formData.append('pinataMetadata', pinataMetadata)
+
+  const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${pinataJwt}`,
+    },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    console.error('Pinata upload failed:', response.status, errorText)
+    throw new Error(`Pinata upload failed: ${response.status}`)
+  }
+
+  const result = await response.json()
+  return result.IpfsHash
+}
+
+// Convert base64 to Uint8Array
+function base64ToUint8Array(base64: string): Uint8Array {
+  // Remove data URI prefix if present
+  const base64Data = base64.includes(',') ? base64.split(',')[1] : base64
+  const binaryString = atob(base64Data)
+  const bytes = new Uint8Array(binaryString.length)
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i)
+  }
+  return bytes
+}
+
+// Detect image type from base64 data URI
+function getImageType(dataUri: string): string {
+  if (dataUri.includes('image/png')) return 'png'
+  if (dataUri.includes('image/jpeg') || dataUri.includes('image/jpg')) return 'jpg'
+  if (dataUri.includes('image/gif')) return 'gif'
+  if (dataUri.includes('image/webp')) return 'webp'
+  return 'png' // default
+}
+
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }
 
   try {
-    // Get client IP for rate limiting
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
                      req.headers.get('cf-connecting-ip') || 
                      'unknown'
     
-    // Check rate limit
     const { allowed, remaining } = checkRateLimit(clientIp)
     if (!allowed) {
       console.log(`Rate limit exceeded for IP: ${clientIp}`)
@@ -57,6 +121,16 @@ serve(async (req) => {
             'Retry-After': '60'
           } 
         }
+      )
+    }
+
+    // Get Pinata JWT
+    const pinataJwt = Deno.env.get('PINATA_JWT')
+    if (!pinataJwt) {
+      console.error('PINATA_JWT not configured')
+      return new Response(
+        JSON.stringify({ error: 'IPFS service not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
@@ -78,7 +152,6 @@ serve(async (req) => {
       )
     }
 
-    // Validate image data size
     if (imageData.length > MAX_IMAGE_SIZE) {
       return new Response(
         JSON.stringify({ error: 'Image data exceeds maximum size limit' }),
@@ -86,17 +159,7 @@ serve(async (req) => {
       )
     }
 
-    // Validate image data format (must be base64 or data URI)
-    const isValidImageFormat = imageData.startsWith('data:image/') || 
-                               /^[A-Za-z0-9+/=]+$/.test(imageData.replace(/\s/g, ''))
-    if (!isValidImageFormat) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid image data format' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Sanitize metadata fields
+    // Sanitize metadata
     const sanitizedName = typeof metadata.name === 'string' 
       ? metadata.name.slice(0, 100).replace(/[\x00-\x1F\x7F-\x9F]/g, '') 
       : 'MemoryMint NFT'
@@ -105,11 +168,10 @@ serve(async (req) => {
       ? metadata.description.slice(0, 500).replace(/[\x00-\x1F\x7F-\x9F]/g, '')
       : 'A skill-based NFT from MemoryMint'
 
-    // Validate attributes array if present
     let sanitizedAttributes: Array<{ trait_type: string; value: string | number }> = []
     if (Array.isArray(metadata.attributes)) {
       sanitizedAttributes = metadata.attributes
-        .slice(0, 20) // Max 20 attributes
+        .slice(0, 20)
         .filter((attr: unknown) => 
           typeof attr === 'object' && 
           attr !== null && 
@@ -122,51 +184,57 @@ serve(async (req) => {
         }))
     }
 
-    console.log(`Uploading to IPFS for IP ${clientIp}, remaining: ${remaining}`)
+    console.log(`Uploading to IPFS via Pinata for IP ${clientIp}`)
 
-    // Convert base64 image to proper format for metadata
-    const imageBase64 = imageData.startsWith('data:') 
-      ? imageData 
-      : `data:image/png;base64,${imageData}`
+    // Step 1: Upload image to IPFS
+    const imageType = getImageType(imageData)
+    const imageBytes = base64ToUint8Array(imageData)
+    const timestamp = Date.now()
+    const imageFilename = `memorymint-${timestamp}.${imageType}`
+    
+    console.log(`Uploading image: ${imageFilename} (${imageBytes.length} bytes)`)
+    const imageCid = await uploadToPinata(
+      imageBytes, 
+      imageFilename, 
+      `image/${imageType}`,
+      pinataJwt
+    )
+    console.log(`Image uploaded to IPFS: ${imageCid}`)
 
-    // Create the metadata object with sanitized data
+    // Step 2: Create metadata JSON with IPFS image URL
     const nftMetadata = {
       name: sanitizedName,
       description: sanitizedDescription,
-      image: imageBase64,
-      attributes: sanitizedAttributes,
+      image: `ipfs://${imageCid}`,
       external_url: 'https://memorymint.app',
-      created_at: new Date().toISOString(),
+      attributes: sanitizedAttributes,
     }
 
-    // Create a deterministic hash for the content
-    const encoder = new TextEncoder()
-    const data = encoder.encode(JSON.stringify(nftMetadata))
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+    // Step 3: Upload metadata JSON to IPFS
+    const metadataJson = JSON.stringify(nftMetadata, null, 2)
+    const metadataFilename = `memorymint-metadata-${timestamp}.json`
     
-    // Create a pseudo-IPFS CID (in production, upload metadata JSON to IPFS)
-    const cid = `bafkrei${hashHex.slice(0, 52)}`
+    console.log(`Uploading metadata: ${metadataFilename}`)
+    const metadataCid = await uploadToPinata(
+      metadataJson,
+      metadataFilename,
+      'application/json',
+      pinataJwt
+    )
+    console.log(`Metadata uploaded to IPFS: ${metadataCid}`)
 
-    // IMPORTANT: Never mint with a giant data: URI (it explodes gas). Use a short ipfs:// URI.
-    const tokenURI = `ipfs://${cid}`
-
-    // Keep a data URI for client-side preview/debug only (not meant to be stored on-chain)
-    const metadataJson = JSON.stringify(nftMetadata)
-    const metadataBase64 = btoa(unescape(encodeURIComponent(metadataJson)))
-    const metadataDataUri = `data:application/json;base64,${metadataBase64}`
-
-    console.log('Metadata created with pseudo-CID:', cid)
+    // Return the metadata CID as tokenURI
+    const tokenURI = `ipfs://${metadataCid}`
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        cid,
+        cid: metadataCid,
         tokenURI,
-        metadataDataUri,
-        ipfsUrl: `ipfs://${cid}`,
-        gatewayUrl: `https://ipfs.io/ipfs/${cid}`
+        imageCid,
+        imageUrl: `ipfs://${imageCid}`,
+        gatewayUrl: `https://gateway.pinata.cloud/ipfs/${metadataCid}`,
+        imageGatewayUrl: `https://gateway.pinata.cloud/ipfs/${imageCid}`,
       }),
       { 
         headers: { 
@@ -178,9 +246,9 @@ serve(async (req) => {
     )
   } catch (error: unknown) {
     console.error('Error uploading to IPFS:', error)
-    // Don't expose internal error details to client
+    const message = error instanceof Error ? error.message : 'Upload failed'
     return new Response(
-      JSON.stringify({ error: 'Failed to upload to IPFS. Please try again.' }),
+      JSON.stringify({ error: `Failed to upload to IPFS: ${message}` }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
