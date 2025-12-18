@@ -62,7 +62,8 @@ export function DailyChallengeCard({ challenge, streak, onStart }: DailyChalleng
           ) : (
             <button
               onClick={onStart}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-bold text-sm hover:bg-primary/90 transition-colors transform hover:scale-105"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-bold text-sm hover:bg-primary/90 transition-colors transform hover:scale-105 min-h-[44px]"
+              aria-label={`Start daily challenge: ${challenge.title}`}
             >
               Play Challenge
             </button>

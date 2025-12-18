@@ -86,8 +86,9 @@ export function QuickShareButton({
       variant="ghost"
       onClick={handleQuickShare}
       className={className}
+      aria-label={`Share score of ${score.toLocaleString()} points to Farcaster`}
     >
-      <Share2 className="w-4 h-4" />
+      <Share2 className="w-4 h-4" aria-hidden="true" />
     </Button>
   );
 }
