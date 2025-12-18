@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthKitProvider } from "@farcaster/auth-kit";
 import { FarcasterProvider } from "@/contexts/FarcasterContext";
+import { BaseAppProvider } from "@/contexts/BaseAppContext";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
@@ -29,17 +30,19 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthKitProvider config={authKitConfig}>
       <FarcasterProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
+        <BaseAppProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </BaseAppProvider>
       </FarcasterProvider>
     </AuthKitProvider>
   </QueryClientProvider>

@@ -1,9 +1,10 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone } from 'lucide-react';
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
 import { useFarcaster } from '@/contexts/FarcasterContext';
+import { useBaseApp } from '@/contexts/BaseAppContext';
 import { FarcasterSignIn, FarcasterIcon } from './FarcasterSignIn';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +14,20 @@ interface WalletScreenProps {
   onConnected: () => void;
 }
 
+// Base App icon component
+function BaseAppIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <circle cx="12" cy="12" r="12" fill="#0052FF"/>
+      <path 
+        d="M12 4C7.58 4 4 7.58 4 12s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm0 14.4c-3.53 0-6.4-2.87-6.4-6.4S8.47 5.6 12 5.6s6.4 2.87 6.4 6.4-2.87 6.4-6.4 6.4z" 
+        fill="white"
+      />
+      <circle cx="12" cy="12" r="3" fill="white"/>
+    </svg>
+  );
+}
+
 export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   const { 
     isConnected, 
@@ -20,6 +35,8 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     address, 
     error, 
     isCorrectChain,
+    isSmartWallet,
+    isBaseApp: isBaseAppWallet,
     connectWallet, 
     formatAddress,
     switchToBase 
@@ -34,12 +51,33 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     error: farcasterError 
   } = useFarcaster();
 
-  const { nfts, isLoading: isLoadingNFTs, error: nftError, refetch, contractAddress } = useNFTCollection(address);
+  const {
+    isBaseApp,
+    isConnected: isBaseAppConnected,
+    walletAddress: baseAppAddress,
+    connect: baseAppConnect,
+    isLoading: isBaseAppLoading,
+  } = useBaseApp();
+
+  const { nfts, isLoading: isLoadingNFTs, error: nftError, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
 
   const handleConnect = async (type: WalletType) => {
     const success = await connectWallet(type);
     if (success) {
       onConnected();
+    }
+  };
+
+  const handleBaseAppConnect = async () => {
+    if (isBaseApp) {
+      const success = await baseAppConnect();
+      if (success) {
+        onConnected();
+      }
+    } else {
+      // Open Base App with deep link
+      const appUrl = encodeURIComponent(window.location.origin);
+      window.open(`https://base.org/wallet?url=${appUrl}`, '_blank');
     }
   };
 
@@ -64,9 +102,9 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     }
   };
 
-  // Consider connected if either wallet or Farcaster is connected
-  const isFullyConnected = isConnected || isFarcasterAuth;
-  const displayAddress = address || (farcasterUser ? `fid:${farcasterUser.fid}` : null);
+  // Consider connected if either wallet, Farcaster, or Base App is connected
+  const isFullyConnected = isConnected || isFarcasterAuth || isBaseAppConnected;
+  const displayAddress = address || baseAppAddress || (farcasterUser ? `fid:${farcasterUser.fid}` : null);
   // Don't show "requires Farcaster client" as an error - it's expected in browsers
   const displayError = error || (farcasterError && !farcasterError.includes('Farcaster client') ? farcasterError : null);
 
@@ -92,6 +130,12 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
             : 'Connect your wallet to play MemoryMint on Base and mint your skill-based NFTs'
           }
         </p>
+        {(isBaseApp || isBaseAppWallet) && (
+          <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-[#0052FF]/10 rounded-full">
+            <BaseAppIcon className="w-4 h-4" />
+            <span className="text-xs text-[#0052FF] font-medium">Base App Detected</span>
+          </div>
+        )}
       </div>
 
       {/* Connected State - Wallet */}
@@ -100,14 +144,35 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
           <CardContent className="flex items-center gap-3 py-4">
             <Check className="w-5 h-5 text-success" />
             <div className="flex-1">
-              <p className="font-body text-sm text-muted-foreground">Wallet Connected</p>
+              <p className="font-body text-sm text-muted-foreground">
+                {isSmartWallet ? 'Smart Wallet Connected' : 'Wallet Connected'}
+              </p>
               <p className="font-mono text-foreground">{formatAddress(address)}</p>
+              {isSmartWallet && (
+                <span className="text-xs text-[#0052FF] font-medium">Base Smart Wallet</span>
+              )}
             </div>
             {!isCorrectChain && (
               <Button size="sm" onClick={handleSwitchNetwork} variant="outline">
                 Switch to Base
               </Button>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Connected State - Base App */}
+      {isBaseAppConnected && baseAppAddress && !isConnected && (
+        <Card className="w-full max-w-md mb-4 border-[#0052FF] bg-[#0052FF]/10">
+          <CardContent className="flex items-center gap-3 py-4">
+            <div className="w-10 h-10 rounded-full overflow-hidden bg-[#0052FF]/20 flex items-center justify-center">
+              <BaseAppIcon className="w-6 h-6" />
+            </div>
+            <div className="flex-1">
+              <p className="font-body text-sm text-muted-foreground">Base App Connected</p>
+              <p className="font-mono text-foreground">{formatAddress(baseAppAddress)}</p>
+            </div>
+            <Check className="w-5 h-5 text-[#0052FF]" />
           </CardContent>
         </Card>
       )}
@@ -150,7 +215,7 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
       )}
 
       {/* NFT Collection */}
-      {isConnected && address && (
+      {(isConnected || isBaseAppConnected) && (address || baseAppAddress) && (
         <div className="w-full max-w-2xl mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-display font-bold text-foreground">Your NFT Collection</h2>
@@ -240,6 +305,41 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
       {/* Connection Options (only show if not connected) */}
       {!isFullyConnected && (
         <div className="grid gap-4 w-full max-w-md">
+          {/* Base App - Featured for Base App users */}
+          {(isBaseApp || isBaseAppWallet) && (
+            <>
+              <Card 
+                className="cursor-pointer border-[#0052FF]/50 bg-[#0052FF]/5 hover:border-[#0052FF] transition-all hover:scale-[1.02] group"
+                onClick={() => !isBaseAppLoading && handleBaseAppConnect()}
+              >
+                <CardHeader className="flex flex-row items-center gap-4 pb-2">
+                  <div className="w-12 h-12 rounded-xl bg-[#0052FF]/20 flex items-center justify-center">
+                    <BaseAppIcon className="w-8 h-8" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-lg group-hover:text-[#0052FF] transition-colors flex items-center gap-2">
+                      Base App
+                      <span className="text-xs bg-[#0052FF] text-white px-2 py-0.5 rounded-full">Recommended</span>
+                    </CardTitle>
+                    <CardDescription className="font-body">Connect with Base smart wallet</CardDescription>
+                  </div>
+                  {isBaseAppLoading && (
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  )}
+                </CardHeader>
+              </Card>
+              
+              <div className="relative my-2">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">or other wallets</span>
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Farcaster Sign In - Always visible */}
           <FarcasterSignIn 
             onSignIn={handleFarcasterSignIn}
@@ -255,6 +355,47 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               <span className="bg-background px-2 text-muted-foreground">or connect wallet</span>
             </div>
           </div>
+
+          {/* Base App option for non-Base App users */}
+          {!isBaseApp && !isBaseAppWallet && (
+            <Card 
+              className="cursor-pointer hover:border-[#0052FF]/50 transition-all hover:scale-[1.02] group"
+              onClick={() => handleBaseAppConnect()}
+            >
+              <CardHeader className="flex flex-row items-center gap-4 pb-2">
+                <div className="w-12 h-12 rounded-xl bg-[#0052FF]/10 flex items-center justify-center">
+                  <BaseAppIcon className="w-8 h-8" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-lg group-hover:text-[#0052FF] transition-colors">Base App</CardTitle>
+                  <CardDescription className="font-body">Connect with Base smart wallet</CardDescription>
+                </div>
+                <Smartphone className="w-5 h-5 text-muted-foreground" />
+              </CardHeader>
+            </Card>
+          )}
+
+          {/* Coinbase Wallet */}
+          <Card 
+            className="cursor-pointer hover:border-primary/50 transition-all hover:scale-[1.02] group"
+            onClick={() => !isConnecting && handleConnect('coinbase')}
+          >
+            <CardHeader className="flex flex-row items-center gap-4 pb-2">
+              <div className="w-12 h-12 rounded-xl bg-[#0052FF]/10 flex items-center justify-center">
+                <svg viewBox="0 0 40 40" className="w-8 h-8">
+                  <circle cx="20" cy="20" r="20" fill="#0052FF"/>
+                  <path fill="white" d="M20 6a14 14 0 100 28 14 14 0 000-28zm-4.5 18.5a1 1 0 01-1-1v-7a1 1 0 011-1h9a1 1 0 011 1v7a1 1 0 01-1 1h-9z"/>
+                </svg>
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-lg group-hover:text-primary transition-colors">Coinbase Wallet</CardTitle>
+                <CardDescription className="font-body">Connect with Coinbase Wallet</CardDescription>
+              </div>
+              {isConnecting && (
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              )}
+            </CardHeader>
+          </Card>
 
           {/* MetaMask */}
           <Card 
@@ -287,28 +428,6 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               )}
             </CardHeader>
           </Card>
-
-          {/* Coinbase Wallet */}
-          <Card 
-            className="cursor-pointer hover:border-primary/50 transition-all hover:scale-[1.02] group"
-            onClick={() => !isConnecting && handleConnect('coinbase')}
-          >
-            <CardHeader className="flex flex-row items-center gap-4 pb-2">
-              <div className="w-12 h-12 rounded-xl bg-[#0052FF]/10 flex items-center justify-center">
-                <svg viewBox="0 0 40 40" className="w-8 h-8">
-                  <circle cx="20" cy="20" r="20" fill="#0052FF"/>
-                  <path fill="white" d="M20 6a14 14 0 100 28 14 14 0 000-28zm-4.5 18.5a1 1 0 01-1-1v-7a1 1 0 011-1h9a1 1 0 011 1v7a1 1 0 01-1 1h-9z"/>
-                </svg>
-              </div>
-              <div className="flex-1">
-                <CardTitle className="text-lg group-hover:text-primary transition-colors">Coinbase Wallet</CardTitle>
-                <CardDescription className="font-body">Connect with Coinbase Wallet</CardDescription>
-              </div>
-              {isConnecting && (
-                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-              )}
-            </CardHeader>
-          </Card>
         </div>
       )}
 
@@ -325,6 +444,12 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
             <FarcasterIcon className="w-4 h-4" />
           </div>
           <span className="text-sm text-muted-foreground font-body">Farcaster</span>
+        </div>
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-card/50 rounded-full border border-border">
+          <div className="w-6 h-6 rounded-full bg-[#0052FF] flex items-center justify-center">
+            <BaseAppIcon className="w-4 h-4" />
+          </div>
+          <span className="text-sm text-muted-foreground font-body">Base App</span>
         </div>
       </div>
     </div>
