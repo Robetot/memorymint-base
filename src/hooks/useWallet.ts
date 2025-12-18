@@ -68,6 +68,30 @@ function detectBaseApp(): boolean {
   return false;
 }
 
+const WALLET_STORAGE_KEY = 'memorymint_wallet';
+
+// Load saved wallet state from localStorage
+function loadSavedWallet(): { walletType: WalletType | null; address: string | null } {
+  try {
+    const saved = localStorage.getItem(WALLET_STORAGE_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch {}
+  return { walletType: null, address: null };
+}
+
+// Save wallet state to localStorage
+function saveWalletState(walletType: WalletType | null, address: string | null) {
+  try {
+    if (walletType && address) {
+      localStorage.setItem(WALLET_STORAGE_KEY, JSON.stringify({ walletType, address }));
+    } else {
+      localStorage.removeItem(WALLET_STORAGE_KEY);
+    }
+  } catch {}
+}
+
 export function useWallet() {
   const [walletState, setWalletState] = useState<WalletState>({
     isConnected: false,
@@ -81,13 +105,14 @@ export function useWallet() {
     isBaseApp: false,
   });
 
-  // Detect Base App on mount
+  // Detect Base App and restore connection on mount
   useEffect(() => {
     const isBaseApp = detectBaseApp();
     setWalletState(prev => ({ ...prev, isBaseApp }));
     
-    // Auto-connect if in Base App
-    if (isBaseApp && window.ethereum) {
+    // Auto-connect if in Base App or has saved connection
+    const savedWallet = loadSavedWallet();
+    if ((isBaseApp || savedWallet.address) && window.ethereum) {
       checkExistingConnection();
     }
   }, []);
@@ -206,7 +231,7 @@ export function useWallet() {
         }
       }
 
-      setWalletState({
+      const finalState = {
         isConnected: true,
         isConnecting: false,
         address,
@@ -216,7 +241,10 @@ export function useWallet() {
         error: null,
         isSmartWallet,
         isBaseApp: walletType === 'baseapp' || detectBaseApp(),
-      });
+      };
+      
+      setWalletState(finalState);
+      saveWalletState(walletType, address);
 
       return true;
     } catch (error: unknown) {
@@ -242,6 +270,7 @@ export function useWallet() {
       isSmartWallet: false,
       isBaseApp: detectBaseApp(),
     });
+    saveWalletState(null, null);
   }, []);
 
   // Listen for account and chain changes
