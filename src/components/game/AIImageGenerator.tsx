@@ -8,6 +8,7 @@ import { useNFTMint } from '@/hooks/useNFTMint';
 import { useAIGenerate } from '@/hooks/useAIGenerate';
 import { useIPFSUpload } from '@/hooks/useIPFSUpload';
 import { calculateRarity } from '@/utils/rarityCalculator';
+import { getLevel } from '@/data/levels';
 import { toast } from 'sonner';
 
 interface AIImageGeneratorProps {
@@ -51,7 +52,6 @@ export function AIImageGenerator({
   const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
 
   // Calculate rarity based on game performance using level
-  const { getLevel } = require('@/data/levels');
   const levelConfig = getLevel(level);
   const totalPairs = Math.floor((levelConfig.gridColumns * levelConfig.gridRows) / 2);
   const rarity = calculateRarity(
