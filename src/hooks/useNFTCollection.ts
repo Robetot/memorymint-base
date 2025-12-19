@@ -115,16 +115,17 @@ export function useNFTCollection(address: string | null) {
     return balance;
   }, []);
 
-  // Get total supply to know the range of tokens
-  const fetchTotalSupply = useCallback(async (): Promise<number> => {
-    // totalSupply() = 0x18160ddd
-    const data = '0x18160ddd';
-    console.log('[NFT] Fetching total supply...');
+  // Get next token ID to know the range of tokens
+  // We use nextTokenId() instead of totalSupply() because it's more reliable
+  const fetchNextTokenId = useCallback(async (): Promise<number> => {
+    // nextTokenId() = 0x75794a3c (returns the next token ID to be minted)
+    const data = '0x75794a3c';
+    console.log('[NFT] Fetching next token ID...');
     
     const result = await fetchWithPublicRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-    const supply = parseInt(result as string, 16);
-    console.log(`[NFT] Total supply: ${result} = ${supply}`);
-    return supply;
+    const nextId = parseInt(result as string, 16);
+    console.log(`[NFT] Next token ID: ${result} = ${nextId}`);
+    return nextId;
   }, []);
 
   // Check owner of a specific token
@@ -271,10 +272,11 @@ export function useNFTCollection(address: string | null) {
         return;
       }
 
-      // Get total supply to know range
+      // Get next token ID to know range (tokens are 1 to nextTokenId-1)
       setState(prev => ({ ...prev, debugInfo: `Found ${balance} NFTs, scanning tokens...` }));
-      const totalSupply = await fetchTotalSupply();
-      console.log(`[NFT] Total supply: ${totalSupply}`);
+      const nextTokenId = await fetchNextTokenId();
+      const totalSupply = nextTokenId - 1; // Tokens are 1-indexed, so last token is nextTokenId - 1
+      console.log(`[NFT] Next token ID: ${nextTokenId}, total minted: ${totalSupply}`);
 
       // Scan tokens to find ones owned by this address
       const ownedTokenIds: number[] = [];
@@ -369,7 +371,7 @@ export function useNFTCollection(address: string | null) {
     } finally {
       fetchingRef.current = false;
     }
-  }, [address, checkNetwork, fetchBalance, fetchTotalSupply, fetchOwnerOf, fetchTokenURI, fetchMetadata]);
+  }, [address, checkNetwork, fetchBalance, fetchNextTokenId, fetchOwnerOf, fetchTokenURI, fetchMetadata]);
 
   // Auto-fetch on mount and address change
   useEffect(() => {
