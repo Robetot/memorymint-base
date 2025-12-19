@@ -216,7 +216,7 @@ const Index = () => {
             moves={lastGameStats?.moves}
             time={lastGameStats?.time}
             maxCombo={lastGameStats?.maxCombo}
-            difficulty={selectedLevel <= 2 ? 'easy' : selectedLevel <= 5 ? 'medium' : 'hard'}
+            level={selectedLevel}
           />
         );
       case 'settings':
