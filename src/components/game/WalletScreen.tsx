@@ -75,7 +75,7 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     isLoading: isBaseAppLoading,
   } = useBaseApp();
 
-  const { nfts, isLoading: isLoadingNFTs, error: nftError, chainError, debugInfo, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
+  const { nfts, isLoading: isLoadingNFTs, error: nftError, chainError, balance, debug, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
 
   const handleDisconnectClick = (type: 'wallet' | 'farcaster' | 'baseapp') => {
     setDisconnectType(type);
@@ -342,10 +342,16 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
                 <p className="text-sm text-muted-foreground/70 mt-1">
                   Play a game and mint your first NFT!
                 </p>
-                {debugInfo && (
-                  <p className="text-xs text-muted-foreground/50 mt-3 font-mono">
-                    Debug: {debugInfo}
-                  </p>
+                {import.meta.env.DEV && debug && (
+                  <div className="mt-4 text-left">
+                    <div className="text-xs font-mono text-muted-foreground/70 space-y-1">
+                      <div>address: {debug.address}</div>
+                      <div>chainId: {debug.chainId ?? 'unknown'}</div>
+                      <div>contract: {debug.contract}</div>
+                      <div>balanceOf: {String(debug.balance ?? 'unknown')}</div>
+                      <div>tokenIds: {debug.discoveredTokenIds.join(', ') || '[]'}</div>
+                    </div>
+                  </div>
                 )}
                 <Button variant="outline" className="mt-4" onClick={() => refetch()}>
                   <RefreshCw className="w-4 h-4 mr-2" />

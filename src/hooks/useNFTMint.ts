@@ -117,50 +117,85 @@ export function useNFTMint() {
     }
   }, []);
 
-  const waitForReceipt = useCallback(async (txHash: string): Promise<{ success: boolean; tokenIds: string[] }> => {
-    let receipt = null;
-    let attempts = 0;
-    const maxAttempts = 60;
+  const waitForReceipt = useCallback(
+    async (txHash: string): Promise<{ success: boolean; tokenIds: string[]; blockNumber?: string }> => {
+      let receipt: any = null;
+      let attempts = 0;
+      const maxAttempts = 60;
 
-    while (!receipt && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      try {
-        receipt = await window.ethereum!.request({
-          method: 'eth_getTransactionReceipt',
-          params: [txHash],
-        });
-      } catch {
-        // Continue polling
+      while (!receipt && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        try {
+          receipt = await window.ethereum!.request({
+            method: 'eth_getTransactionReceipt',
+            params: [txHash],
+          });
+        } catch {
+          // Continue polling
+        }
+        attempts++;
       }
-      attempts++;
-    }
 
-    if (!receipt) {
-      return { success: true, tokenIds: [] }; // Pending but submitted
-    }
+      if (!receipt) {
+        return { success: true, tokenIds: [] }; // Pending but submitted
+      }
 
-    const status = (receipt as { status: string }).status;
-    if (status !== '0x1') {
-      throw new Error('Transaction failed on-chain');
-    }
+      const status = receipt.status as string;
+      if (status !== '0x1') {
+        throw new Error('Transaction failed on-chain');
+      }
 
-    // Extract all tokenIds from Transfer events
-    const logs = (receipt as { logs: Array<{ topics: string[] }> }).logs;
-    const tokenIds: string[] = [];
-    
-    if (logs?.length > 0) {
-      const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-      
-      for (const log of logs) {
-        if (log.topics.length >= 4 && log.topics[0] === transferTopic) {
-          const tokenId = parseInt(log.topics[3], 16).toString();
-          tokenIds.push(tokenId);
+      // Extract all tokenIds from Transfer events
+      const logs = (receipt.logs as Array<{ topics: string[] }>) || [];
+      const tokenIds: string[] = [];
+
+      if (logs.length > 0) {
+        const transferTopic =
+          '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+        for (const log of logs) {
+          if (log.topics.length >= 4 && log.topics[0] === transferTopic) {
+            const tokenId = parseInt(log.topics[3], 16).toString();
+            tokenIds.push(tokenId);
+          }
         }
       }
-    }
 
-    return { success: true, tokenIds };
+      return { success: true, tokenIds, blockNumber: receipt.blockNumber as string | undefined };
+    },
+    []
+  );
+
+
+  const waitForOneConfirmation = useCallback(async (minedBlockHex?: string) => {
+    if (!window.ethereum || !minedBlockHex) return;
+
+    const mined = parseInt(minedBlockHex, 16);
+    const target = mined + 1;
+
+    for (let i = 0; i < 30; i++) {
+      try {
+        const currentHex = (await window.ethereum.request({ method: 'eth_blockNumber' })) as string;
+        const current = parseInt(currentHex, 16);
+        if (current >= target) return;
+      } catch {
+        // ignore
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }, []);
+
+  const notifyMinted = useCallback((walletAddress: string, tokenIds: string[], txHash: string) => {
+    window.dispatchEvent(
+      new CustomEvent('memorymint:nft-minted', {
+        detail: {
+          address: walletAddress,
+          tokenIds,
+          txHash,
+        },
+      })
+    );
   }, []);
 
   // Single NFT mint (game integration - uses safeMint with tokenURI)
@@ -195,10 +230,10 @@ export function useNFTMint() {
 
     try {
       console.log('Minting NFT via MemoryMint...');
-      
+
       // Mint using mintNFT(string)
       const data = encodeMintNFTCallData(tokenURI);
-      
+
       // IMPORTANT: do NOT set a padded gasLimit; it inflates the wallet UI fee display.
       // Let the wallet estimate gas + fees accurately on Base.
       const txParams = {
@@ -207,16 +242,17 @@ export function useNFTMint() {
         data,
       };
 
-      const txHash = await window.ethereum.request({
+      const txHash = (await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [txParams],
-      }) as string;
+      })) as string;
 
       console.log('Transaction submitted:', txHash);
       setMintState(prev => ({ ...prev, txHash }));
 
-      const { success, tokenIds } = await waitForReceipt(txHash);
-      
+      const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
+      await waitForOneConfirmation(blockNumber);
+
       setMintState({
         isMinting: false,
         txHash,
@@ -225,6 +261,10 @@ export function useNFTMint() {
         error: null,
         success,
       });
+
+      if (success) {
+        notifyMinted(walletAddress, tokenIds, txHash);
+      }
 
       return success;
     } catch (error: unknown) {
@@ -237,7 +277,8 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [verifyBaseNetwork, waitForReceipt]);
+  }, [notifyMinted, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+
 
   // Batch mint for power users
   const batchMintNFT = useCallback(async (
@@ -276,9 +317,9 @@ export function useNFTMint() {
 
     try {
       console.log(`Batch minting ${quantity} NFTs...`);
-      
+
       const data = encodeBatchMintCallData(quantity);
-      
+
       // Let wallet estimate gas + fees (no padded gasLimit)
       const txParams = {
         from: walletAddress,
@@ -286,16 +327,17 @@ export function useNFTMint() {
         data,
       };
 
-      const txHash = await window.ethereum.request({
+      const txHash = (await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [txParams],
-      }) as string;
+      })) as string;
 
       console.log('Batch transaction submitted:', txHash);
       setMintState(prev => ({ ...prev, txHash }));
 
-      const { success, tokenIds } = await waitForReceipt(txHash);
-      
+      const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
+      await waitForOneConfirmation(blockNumber);
+
       setMintState({
         isMinting: false,
         txHash,
@@ -304,6 +346,10 @@ export function useNFTMint() {
         error: null,
         success,
       });
+
+      if (success) {
+        notifyMinted(walletAddress, tokenIds, txHash);
+      }
 
       return success;
     } catch (error: unknown) {
@@ -316,7 +362,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [verifyBaseNetwork, waitForReceipt]);
+  }, [notifyMinted, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   // Quick mint (no tokenURI - uses contract's baseURI + tokenId)
   const quickMint = useCallback(async (walletAddress: string): Promise<boolean> => {
@@ -347,9 +393,9 @@ export function useNFTMint() {
 
     try {
       console.log("Quick minting via mintNFT('')...");
-      
+
       const data = encodeMintNFTCallData('');
-      
+
       // Let wallet estimate gas + fees (no padded gasLimit)
       const txParams = {
         from: walletAddress,
@@ -357,16 +403,17 @@ export function useNFTMint() {
         data,
       };
 
-      const txHash = await window.ethereum.request({
+      const txHash = (await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [txParams],
-      }) as string;
+      })) as string;
 
       console.log('Quick mint submitted:', txHash);
       setMintState(prev => ({ ...prev, txHash }));
 
-      const { success, tokenIds } = await waitForReceipt(txHash);
-      
+      const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
+      await waitForOneConfirmation(blockNumber);
+
       setMintState({
         isMinting: false,
         txHash,
@@ -375,6 +422,10 @@ export function useNFTMint() {
         error: null,
         success,
       });
+
+      if (success) {
+        notifyMinted(walletAddress, tokenIds, txHash);
+      }
 
       return success;
     } catch (error: unknown) {
@@ -387,7 +438,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [verifyBaseNetwork, waitForReceipt]);
+  }, [notifyMinted, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   const resetMintState = useCallback(() => {
     setMintState({
