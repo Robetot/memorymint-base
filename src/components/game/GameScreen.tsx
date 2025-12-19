@@ -10,6 +10,7 @@ import { ComboDisplay } from './ComboDisplay';
 import { PerfectIndicator } from './PerfectIndicator';
 import { TimerWarning } from './TimerWarning';
 import { PowerUpsBar } from './PowerUpsBar';
+import { MechanicIndicators, FogOverlay } from './MechanicIndicators';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 
@@ -32,8 +33,8 @@ interface GameScreenProps {
 }
 
 export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: GameScreenProps) {
-  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame, shuffleUnmatched, addTime } = useGameState(level);
-  const config = getLevel(level);
+  const { gameState, startGame, flipCard, checkMatch, totalPairs, pauseGame, resumeGame, shuffleUnmatched, addTime, gridSize, gridRows, hasMechanic, config } = useGameState(level);
+  const levelConfig = getLevel(level);
   const { settings, updateSetting } = useSettings();
   const {
     playAnimalSound,
@@ -135,7 +136,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
       if (gameState.isWin) {
         // Track achievements
         trackLevelComplete();
-        const completionTime = config.time - gameState.timeRemaining;
+        const completionTime = levelConfig.time - gameState.timeRemaining;
         trackSpeed(completionTime);
         if (perfectGame) {
           trackPerfectGame();
@@ -150,7 +151,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         const rarityResult = calculateRarity(
           level,
           gameState.timeRemaining,
-          config.time,
+          levelConfig.time,
           gameState.moves,
           totalPairs,
           gameState.maxCombo,
@@ -167,7 +168,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
               playerName: settings.playerName,
               score: gameState.score,
               moves: gameState.moves,
-              time: config.time - gameState.timeRemaining,
+              time: levelConfig.time - gameState.timeRemaining,
               difficulty: `Level ${level}`,
               maxCombo: gameState.maxCombo,
             });
@@ -179,7 +180,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
       }
       // No sounds on win or lose
     }
-  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, config.time, config.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, settings.playerName, addEntry]);
+  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, levelConfig.time, levelConfig.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, settings.playerName, addEntry]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -232,12 +233,12 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
       playerName: name,
       score: gameState.score,
       moves: gameState.moves,
-      time: config.time - gameState.timeRemaining,
+      time: levelConfig.time - gameState.timeRemaining,
       difficulty: `Level ${level}`,
       maxCombo: gameState.maxCombo,
     });
     setShowScoreSubmit(false);
-  }, [settings.playerName, updateSetting, addEntry, gameState.score, gameState.moves, gameState.timeRemaining, config.time, level, gameState.maxCombo]);
+  }, [settings.playerName, updateSetting, addEntry, gameState.score, gameState.moves, gameState.timeRemaining, levelConfig.time, level, gameState.maxCombo]);
 
   const handleScoreSkip = () => {
     setShowScoreSubmit(false);
@@ -245,7 +246,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
 
   const handleCreateArt = () => {
     if (onCreateArt && rarity) {
-      const timeTaken = config.time - gameState.timeRemaining;
+      const timeTaken = levelConfig.time - gameState.timeRemaining;
       onCreateArt(gameState.score, rarity, { moves: gameState.moves, time: timeTaken, maxCombo: gameState.maxCombo });
     }
   };
@@ -301,7 +302,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
           <h1 className="text-xl md:text-2xl font-display font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
             MemoryMint
           </h1>
-          <p className="text-xs text-muted-foreground">{config.label} • {config.gridSize}x{config.gridSize}</p>
+          <p className="text-xs text-muted-foreground">{levelConfig.label} • {gridSize}x{gridRows}</p>
         </div>
 
         <div className="flex gap-1">
@@ -386,6 +387,16 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         disabled={!gameState.isPlaying || isPaused || gameState.isGameOver}
       />
 
+      {/* Mechanic Indicators */}
+      <MechanicIndicators
+        activeMechanics={levelConfig.mechanics}
+        mechanicState={gameState.mechanics}
+        totalPairs={totalPairs}
+      />
+
+      {/* Fog Overlay */}
+      <FogOverlay enabled={gameState.mechanics.fogEnabled && gameState.isPlaying} />
+
       {/* Freeze Effect Overlay */}
       {activeEffect === 'freeze' && (
         <div className="fixed inset-0 pointer-events-none z-40 border-4 border-cyan-400/50 animate-pulse">
@@ -427,6 +438,8 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         hintedCardIds={hintedCardIds}
         combo={gameState.combo}
         revealAll={revealAll}
+        gridColumns={gridSize}
+        gridRows={gridRows}
       />
 
       {/* Pause Menu */}
@@ -461,7 +474,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
           onBackToMenu={handleBackToMenu}
           onCreateArt={gameState.isWin ? handleCreateArt : undefined}
           onNextLevel={gameState.isWin && level < getMaxLevel() ? handleNextLevel : undefined}
-          gameTime={config.time}
+          gameTime={levelConfig.time}
           rarity={rarity}
           currentLevel={level}
         />
