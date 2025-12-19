@@ -402,18 +402,41 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
             </div>
           )}
 
-          <div className="mt-4 text-center">
-            <a 
-              href={`https://basescan.org/address/${contractAddress}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-muted-foreground hover:text-primary flex items-center justify-center gap-1"
-            >
-              View contract on BaseScan <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
-        </div>
-      )}
+           <div className="mt-4 text-center">
+             <a 
+               href={`https://basescan.org/address/${contractAddress}`}
+               target="_blank"
+               rel="noopener noreferrer"
+               className="text-xs text-muted-foreground hover:text-primary flex items-center justify-center gap-1"
+             >
+               View contract on BaseScan <ExternalLink className="w-3 h-3" />
+             </a>
+
+             {import.meta.env.DEV && debug && (
+               <details className="mt-3 text-left rounded-lg border border-border bg-card/40 p-3">
+                 <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                   NFT Debug
+                 </summary>
+                 <div className="mt-2 text-xs font-mono text-muted-foreground/80 space-y-1">
+                   <div>address: {debug.address}</div>
+                   <div>chainId: {debug.chainId ?? 'unknown'}</div>
+                   <div>contract: {debug.contract}</div>
+                   <div>balanceOf: {String(debug.balance ?? 'unknown')}</div>
+                   <div>tokenIds: {debug.discoveredTokenIds.join(', ') || '[]'}</div>
+                   <div>tokenURIs:</div>
+                   <pre className="whitespace-pre-wrap break-words">{JSON.stringify(debug.tokenURIs, null, 2)}</pre>
+                   {debug.errors.length > 0 && (
+                     <>
+                       <div>errors:</div>
+                       <pre className="whitespace-pre-wrap break-words">{JSON.stringify(debug.errors, null, 2)}</pre>
+                     </>
+                   )}
+                 </div>
+               </details>
+             )}
+           </div>
+         </div>
+       )}
 
       {/* Connection Options (only show if not connected) */}
       {!isFullyConnected && (
