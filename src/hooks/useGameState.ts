@@ -1,9 +1,25 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ANIMALS, AnimalData } from '@/data/animals';
-import { LevelConfig, getLevel } from '@/data/levels';
+import { ANIMALS, AnimalData, isEmojiAnimal } from '@/data/animals';
+import { LevelConfig, getLevel, LevelMechanic } from '@/data/levels';
 import { autoCorrectDeck, validateDeck, CardData } from '@/utils/deckValidator';
 
 export type { CardData } from '@/utils/deckValidator';
+
+export interface MechanicState {
+  shuffleTriggered: boolean;
+  shuffleCount: number;
+  mistakeCount: number;
+  maxMistakes: number;
+  fogEnabled: boolean;
+  flashPreviewDone: boolean;
+  decoyCards: number[];
+  comboRequired: number;
+  hiddenMatches: boolean;
+  decayingCards: Set<number>;
+  timerHidden: boolean;
+  rotatedCards: Set<number>;
+  oneChanceActive: boolean;
+}
 
 export interface GameState {
   cards: CardData[];
@@ -18,6 +34,8 @@ export interface GameState {
   isWin: boolean;
   score: number;
   isPaused: boolean;
+  mechanics: MechanicState;
+  previewMode: boolean;
 }
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -29,16 +47,11 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-/**
- * Creates a validated deck of cards for the game.
- * Uses the deck validator to ensure no duplicate pairs or missing cards.
- */
-function createValidatedCards(gridSize: number): CardData[] {
-  // Use the auto-correcting deck validator
-  const cards = autoCorrectDeck(gridSize);
-  
-  // Log validation for debugging
-  const pairsNeeded = (gridSize * gridSize) / 2;
+function createValidatedCards(cols: number, rows?: number): CardData[] {
+  const actualRows = rows || cols;
+  const totalCards = cols * actualRows;
+  const cards = autoCorrectDeck(totalCards);
+  const pairsNeeded = totalCards / 2;
   const validation = validateDeck(cards, pairsNeeded);
   
   if (!validation.isValid) {
@@ -50,21 +63,45 @@ function createValidatedCards(gridSize: number): CardData[] {
   return cards;
 }
 
+function getInitialMechanicState(config: LevelConfig): MechanicState {
+  const hasMechanic = (m: LevelMechanic) => config.mechanics.includes(m) || config.mechanics.includes('all_mechanics');
+  
+  return {
+    shuffleTriggered: false,
+    shuffleCount: hasMechanic('double_shuffle') ? 2 : hasMechanic('shuffle') ? 1 : 0,
+    mistakeCount: 0,
+    maxMistakes: hasMechanic('one_chance') ? 1 : hasMechanic('limited_mistakes') ? 3 : Infinity,
+    fogEnabled: hasMechanic('fog'),
+    flashPreviewDone: !hasMechanic('flash_preview'),
+    decoyCards: [],
+    comboRequired: hasMechanic('combo_required') ? 3 : 0,
+    hiddenMatches: hasMechanic('hidden_matches'),
+    decayingCards: new Set(),
+    timerHidden: hasMechanic('no_timer_display'),
+    rotatedCards: new Set(),
+    oneChanceActive: hasMechanic('one_chance'),
+  };
+}
+
 export function useGameState(level: number = 1) {
   const config: LevelConfig = getLevel(level);
-  const gridSize = config.gridSize;
+  const gridSize = config.gridColumns;
+  const gridRows = config.gridRows;
   const gameTime = config.time;
-  
-  // Calculate expected pairs from grid size
-  const expectedPairs = (gridSize * gridSize) / 2;
+  const expectedPairs = (gridSize * gridRows) / 2;
   
   const [gameState, setGameState] = useState<GameState>(() => {
-    const cards = createValidatedCards(gridSize);
-    // Ensure totalPairs matches actual deck (safety check)
-    const actualPairs = cards.length / 2;
-    if (actualPairs !== expectedPairs) {
-      console.error(`Deck size mismatch: expected ${expectedPairs} pairs, got ${actualPairs}`);
+    const cards = createValidatedCards(gridSize, gridRows);
+    const hasMechanic = (m: LevelMechanic) => config.mechanics.includes(m) || config.mechanics.includes('all_mechanics');
+    
+    // Add decoy cards if mechanic active
+    let decoyIndices: number[] = [];
+    if (hasMechanic('decoys')) {
+      // Add 2-4 decoy card indices
+      const decoyCount = Math.min(4, Math.floor(cards.length * 0.1));
+      decoyIndices = shuffleArray([...Array(cards.length).keys()]).slice(0, decoyCount);
     }
+    
     return {
       cards,
       flippedCards: [],
@@ -78,29 +115,149 @@ export function useGameState(level: number = 1) {
       isWin: false,
       score: 0,
       isPaused: false,
+      previewMode: hasMechanic('flash_preview'),
+      mechanics: {
+        ...getInitialMechanicState(config),
+        decoyCards: decoyIndices,
+      },
     };
   });
   
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  // CRITICAL: totalPairs must match actual deck size, not just config
+  const shuffleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const decayTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const rotationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const previewTimerRef = useRef<NodeJS.Timeout | null>(null);
   const totalPairs = gameState.cards.length / 2;
+  
+  const hasMechanic = useCallback((m: LevelMechanic) => 
+    config.mechanics.includes(m) || config.mechanics.includes('all_mechanics'),
+  [config.mechanics]);
 
-  // Validate deck on level change
+  // Flash preview timer
   useEffect(() => {
-    const pairsNeeded = (gridSize * gridSize) / 2;
-    const validation = validateDeck(gameState.cards, pairsNeeded);
-    
-    if (!validation.isValid && gameState.isPlaying) {
-      console.warn('Invalid deck detected during gameplay, regenerating...');
+    if (gameState.isPlaying && gameState.previewMode && !gameState.mechanics.flashPreviewDone) {
+      // Show all cards for 2 seconds
       setGameState(prev => ({
         ...prev,
-        cards: createValidatedCards(gridSize),
+        cards: prev.cards.map(c => ({ ...c, isFlipped: true })),
       }));
+      
+      previewTimerRef.current = setTimeout(() => {
+        setGameState(prev => ({
+          ...prev,
+          cards: prev.cards.map(c => ({ ...c, isFlipped: c.isMatched })),
+          previewMode: false,
+          mechanics: { ...prev.mechanics, flashPreviewDone: true },
+        }));
+      }, 2000);
     }
-  }, [gridSize, gameState.isPlaying]);
+    
+    return () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    };
+  }, [gameState.isPlaying, gameState.previewMode, gameState.mechanics.flashPreviewDone]);
 
+  // Mid-game shuffle mechanic
   useEffect(() => {
-    if (gameState.isPlaying && !gameState.isGameOver && !gameState.isPaused) {
+    if (gameState.isPlaying && !gameState.isGameOver && gameState.mechanics.shuffleCount > 0 && !gameState.mechanics.shuffleTriggered) {
+      const shuffleThreshold = hasMechanic('double_shuffle') ? 0.5 : 0.4;
+      const progressRatio = gameState.matchedPairs / totalPairs;
+      
+      if (progressRatio >= shuffleThreshold) {
+        shuffleTimerRef.current = setTimeout(() => {
+          setGameState(prev => {
+            const unmatchedCards = prev.cards.filter(c => !c.isMatched);
+            const matchedCards = prev.cards.filter(c => c.isMatched);
+            const unmatchedPositions = unmatchedCards.map(c => c.id);
+            const shuffledPositions = shuffleArray([...unmatchedPositions]);
+            
+            const shuffledUnmatched = unmatchedCards.map((card, index) => ({
+              ...card,
+              id: shuffledPositions[index],
+              isFlipped: false,
+            }));
+            
+            const allCards = [...matchedCards, ...shuffledUnmatched].sort((a, b) => a.id - b.id);
+            
+            return {
+              ...prev,
+              cards: allCards,
+              flippedCards: [],
+              mechanics: {
+                ...prev.mechanics,
+                shuffleTriggered: true,
+                shuffleCount: prev.mechanics.shuffleCount - 1,
+              },
+            };
+          });
+        }, 500);
+      }
+    }
+    
+    return () => {
+      if (shuffleTimerRef.current) clearTimeout(shuffleTimerRef.current);
+    };
+  }, [gameState.matchedPairs, gameState.isPlaying, gameState.isGameOver, gameState.mechanics.shuffleCount, gameState.mechanics.shuffleTriggered, totalPairs, hasMechanic]);
+
+  // Card decay mechanic
+  useEffect(() => {
+    if (gameState.isPlaying && hasMechanic('card_decay') && !gameState.isGameOver) {
+      decayTimerRef.current = setInterval(() => {
+        setGameState(prev => {
+          const unmatchedCards = prev.cards.filter(c => !c.isMatched && !c.isFlipped);
+          if (unmatchedCards.length === 0) return prev;
+          
+          // Randomly decay some cards (make them harder to see)
+          const decayCount = Math.min(3, unmatchedCards.length);
+          const toDecay = shuffleArray(unmatchedCards.map(c => c.id)).slice(0, decayCount);
+          
+          return {
+            ...prev,
+            mechanics: {
+              ...prev.mechanics,
+              decayingCards: new Set([...prev.mechanics.decayingCards, ...toDecay]),
+            },
+          };
+        });
+      }, 8000);
+    }
+    
+    return () => {
+      if (decayTimerRef.current) clearInterval(decayTimerRef.current);
+    };
+  }, [gameState.isPlaying, gameState.isGameOver, hasMechanic]);
+
+  // Card rotation mechanic
+  useEffect(() => {
+    if (gameState.isPlaying && hasMechanic('card_rotation') && !gameState.isGameOver) {
+      rotationTimerRef.current = setInterval(() => {
+        setGameState(prev => {
+          const unmatchedCards = prev.cards.filter(c => !c.isMatched);
+          if (unmatchedCards.length === 0) return prev;
+          
+          const rotateCount = Math.min(6, unmatchedCards.length);
+          const toRotate = shuffleArray(unmatchedCards.map(c => c.id)).slice(0, rotateCount);
+          
+          return {
+            ...prev,
+            mechanics: {
+              ...prev.mechanics,
+              rotatedCards: new Set(toRotate),
+            },
+          };
+        });
+      }, 5000);
+    }
+    
+    return () => {
+      if (rotationTimerRef.current) clearInterval(rotationTimerRef.current);
+    };
+  }, [gameState.isPlaying, gameState.isGameOver, hasMechanic]);
+
+  // Main game timer
+  useEffect(() => {
+    if (gameState.isPlaying && !gameState.isGameOver && !gameState.isPaused && !gameState.previewMode) {
       timerRef.current = setInterval(() => {
         setGameState((prev) => {
           if (prev.timeRemaining <= 1) {
@@ -118,15 +275,19 @@ export function useGameState(level: number = 1) {
     }
     
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [gameState.isPlaying, gameState.isGameOver, gameState.isPaused]);
+  }, [gameState.isPlaying, gameState.isGameOver, gameState.isPaused, gameState.previewMode]);
 
   const startGame = useCallback(() => {
-    // Create and validate a fresh deck
-    const validatedCards = createValidatedCards(gridSize);
+    const validatedCards = createValidatedCards(gridSize, gridRows);
+    const hasMechanicLocal = (m: LevelMechanic) => config.mechanics.includes(m) || config.mechanics.includes('all_mechanics');
+    
+    let decoyIndices: number[] = [];
+    if (hasMechanicLocal('decoys')) {
+      const decoyCount = Math.min(4, Math.floor(validatedCards.length * 0.1));
+      decoyIndices = shuffleArray([...Array(validatedCards.length).keys()]).slice(0, decoyCount);
+    }
     
     setGameState({
       cards: validatedCards,
@@ -141,74 +302,68 @@ export function useGameState(level: number = 1) {
       isWin: false,
       score: 0,
       isPaused: false,
+      previewMode: hasMechanicLocal('flash_preview'),
+      mechanics: {
+        ...getInitialMechanicState(config),
+        decoyCards: decoyIndices,
+      },
     });
-  }, [gridSize, gameTime]);
+  }, [gridSize, gridRows, gameTime, config]);
 
   const pauseGame = useCallback(() => {
-    setGameState((prev) => ({
-      ...prev,
-      isPaused: true,
-    }));
+    setGameState((prev) => ({ ...prev, isPaused: true }));
   }, []);
 
   const resumeGame = useCallback(() => {
-    setGameState((prev) => ({
-      ...prev,
-      isPaused: false,
-    }));
+    setGameState((prev) => ({ ...prev, isPaused: false }));
   }, []);
 
   const addTime = useCallback((seconds: number) => {
-    setGameState((prev) => ({
-      ...prev,
-      timeRemaining: prev.timeRemaining + seconds,
-    }));
+    setGameState((prev) => ({ ...prev, timeRemaining: prev.timeRemaining + seconds }));
   }, []);
 
   const shuffleUnmatched = useCallback(() => {
     setGameState((prev) => {
       const unmatchedCards = prev.cards.filter(c => !c.isMatched);
       const matchedCards = prev.cards.filter(c => c.isMatched);
-      
-      // Get positions and shuffle them
       const unmatchedPositions = unmatchedCards.map(c => c.id);
       const shuffledPositions = shuffleArray([...unmatchedPositions]);
-      
-      // Reassign positions
       const shuffledUnmatched = unmatchedCards.map((card, index) => ({
         ...card,
         id: shuffledPositions[index],
         isFlipped: false,
       }));
-      
-      // Combine and sort by id
       const allCards = [...matchedCards, ...shuffledUnmatched].sort((a, b) => a.id - b.id);
       
-      return {
-        ...prev,
-        cards: allCards,
-        flippedCards: [],
-      };
+      return { ...prev, cards: allCards, flippedCards: [] };
     });
   }, []);
 
   const flipCard = useCallback((cardId: number) => {
     setGameState((prev) => {
-      if (!prev.isPlaying || prev.flippedCards.length >= 2 || prev.isPaused) return prev;
+      if (!prev.isPlaying || prev.flippedCards.length >= 2 || prev.isPaused || prev.previewMode) return prev;
       
       const card = prev.cards.find((c) => c.id === cardId);
       if (!card || card.isFlipped || card.isMatched) return prev;
+      
+      // Check if this is a decoy card
+      if (prev.mechanics.decoyCards.includes(cardId)) {
+        // Decoy cards can be flipped but won't match anything
+      }
       
       const newCards = prev.cards.map((c) =>
         c.id === cardId ? { ...c, isFlipped: true } : c
       );
       
-      const newFlippedCards = [...prev.flippedCards, cardId];
-      
       return {
         ...prev,
         cards: newCards,
-        flippedCards: newFlippedCards,
+        flippedCards: [...prev.flippedCards, cardId],
+        // Clear decay on flipped card
+        mechanics: {
+          ...prev.mechanics,
+          decayingCards: new Set([...prev.mechanics.decayingCards].filter(id => id !== cardId)),
+        },
       };
     });
   }, []);
@@ -223,7 +378,9 @@ export function useGameState(level: number = 1) {
       
       if (!firstCard || !secondCard) return prev;
       
-      const isMatch = firstCard.animalId === secondCard.animalId;
+      // Check if either card is a decoy
+      const isDecoyMatch = prev.mechanics.decoyCards.includes(firstId) || prev.mechanics.decoyCards.includes(secondId);
+      const isMatch = !isDecoyMatch && firstCard.animalId === secondCard.animalId;
       const newMoves = prev.moves + 1;
       
       if (isMatch) {
@@ -235,16 +392,13 @@ export function useGameState(level: number = 1) {
         
         const newCards = prev.cards.map((c) =>
           c.id === firstId || c.id === secondId
-            ? { ...c, isMatched: true }
+            ? { ...c, isMatched: true, isFlipped: !prev.mechanics.hiddenMatches }
             : c
         );
         
         const newMatchedPairs = prev.matchedPairs + 1;
-        // CRITICAL: Calculate totalPairs from current state, not stale closure
         const actualTotalPairs = prev.cards.length / 2;
         const isWin = newMatchedPairs >= actualTotalPairs;
-        
-        console.log(`Match! ${newMatchedPairs}/${actualTotalPairs} pairs. Win: ${isWin}`);
         
         return {
           ...prev,
@@ -260,11 +414,34 @@ export function useGameState(level: number = 1) {
           isPlaying: !isWin,
         };
       } else {
+        // Mismatch
+        const newMistakeCount = prev.mechanics.mistakeCount + 1;
+        const gameOverFromMistakes = newMistakeCount >= prev.mechanics.maxMistakes;
+        
+        // Check combo requirement
+        const currentTotalPairs = prev.cards.length / 2;
+        const lostRequiredCombo = prev.mechanics.comboRequired > 0 && prev.combo >= prev.mechanics.comboRequired;
+        const gameOverFromCombo = lostRequiredCombo && prev.matchedPairs < currentTotalPairs / 2;
+        
         const newCards = prev.cards.map((c) =>
           c.id === firstId || c.id === secondId
             ? { ...c, isFlipped: false }
             : c
         );
+        
+        if (gameOverFromMistakes || (prev.mechanics.oneChanceActive && newMistakeCount > 0)) {
+          return {
+            ...prev,
+            cards: newCards,
+            flippedCards: [],
+            moves: newMoves,
+            combo: 0,
+            isGameOver: true,
+            isWin: false,
+            isPlaying: false,
+            mechanics: { ...prev.mechanics, mistakeCount: newMistakeCount },
+          };
+        }
         
         return {
           ...prev,
@@ -272,10 +449,33 @@ export function useGameState(level: number = 1) {
           flippedCards: [],
           moves: newMoves,
           combo: 0,
+          mechanics: { ...prev.mechanics, mistakeCount: newMistakeCount },
         };
       }
     });
   }, []);
+
+  // Get visible cards (for fog of war)
+  const getVisibleCards = useCallback((lastFlippedId?: number) => {
+    if (!gameState.mechanics.fogEnabled) return gameState.cards.map(c => c.id);
+    
+    // Only show cards near the last flipped card
+    if (!lastFlippedId && gameState.flippedCards.length === 0) {
+      // Show center cards initially
+      const centerIdx = Math.floor(gameState.cards.length / 2);
+      const visibleRange = 4;
+      return gameState.cards
+        .filter((_, i) => Math.abs(i - centerIdx) <= visibleRange)
+        .map(c => c.id);
+    }
+    
+    const baseId = lastFlippedId || gameState.flippedCards[0] || 0;
+    const visibleRange = 3;
+    
+    return gameState.cards
+      .filter(c => Math.abs(c.id - baseId) <= visibleRange || c.isMatched || c.isFlipped)
+      .map(c => c.id);
+  }, [gameState.cards, gameState.flippedCards, gameState.mechanics.fogEnabled]);
 
   return {
     gameState,
@@ -288,5 +488,9 @@ export function useGameState(level: number = 1) {
     shuffleUnmatched,
     totalPairs,
     gridSize,
+    gridRows,
+    hasMechanic,
+    getVisibleCards,
+    config,
   };
 }
