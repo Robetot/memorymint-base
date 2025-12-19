@@ -1,4 +1,5 @@
 // Animal card data with images
+// Extended collection to support 9×9 grids (40+ unique pairs needed)
 import calfImg from '@/assets/animals/calf.jpg';
 import puppyImg from '@/assets/animals/puppy.jpg';
 import ducklingImg from '@/assets/animals/duckling.jpg';
@@ -27,9 +28,8 @@ export interface AnimalData {
   image: string;
 }
 
-// 21 unique animals with proper images - no duplicates
-// Only include animals that have their own unique image file
-export const ANIMALS: AnimalData[] = [
+// 21 animals from actual image files
+const ANIMALS_FROM_FILES: AnimalData[] = [
   { id: 'cat', name: 'Cat', image: catImg },
   { id: 'calf', name: 'Calf', image: calfImg },
   { id: 'lamb', name: 'Lamb', image: lambImg },
@@ -52,6 +52,83 @@ export const ANIMALS: AnimalData[] = [
   { id: 'dolphin', name: 'Dolphin', image: dolphinImg },
   { id: 'koala', name: 'Koala', image: koalaImg },
 ];
+
+// Additional animals using emoji placeholders (for larger grids)
+// These use generated colored patterns with emoji overlay
+const EMOJI_ANIMALS: AnimalData[] = [
+  { id: 'lion', name: 'Lion', image: 'emoji:🦁' },
+  { id: 'elephant', name: 'Elephant', image: 'emoji:🐘' },
+  { id: 'giraffe', name: 'Giraffe', image: 'emoji:🦒' },
+  { id: 'zebra', name: 'Zebra', image: 'emoji:🦓' },
+  { id: 'monkey', name: 'Monkey', image: 'emoji:🐒' },
+  { id: 'gorilla', name: 'Gorilla', image: 'emoji:🦍' },
+  { id: 'hippo', name: 'Hippo', image: 'emoji:🦛' },
+  { id: 'rhino', name: 'Rhino', image: 'emoji:🦏' },
+  { id: 'bear', name: 'Bear', image: 'emoji:🐻' },
+  { id: 'wolf', name: 'Wolf', image: 'emoji:🐺' },
+  { id: 'rabbit', name: 'Rabbit', image: 'emoji:🐰' },
+  { id: 'hamster', name: 'Hamster', image: 'emoji:🐹' },
+  { id: 'mouse', name: 'Mouse', image: 'emoji:🐭' },
+  { id: 'cow', name: 'Cow', image: 'emoji:🐮' },
+  { id: 'pig', name: 'Pig', image: 'emoji:🐷' },
+  { id: 'frog', name: 'Frog', image: 'emoji:🐸' },
+  { id: 'turtle', name: 'Turtle', image: 'emoji:🐢' },
+  { id: 'snake', name: 'Snake', image: 'emoji:🐍' },
+  { id: 'dragon', name: 'Dragon', image: 'emoji:🐉' },
+  { id: 'unicorn', name: 'Unicorn', image: 'emoji:🦄' },
+  { id: 'horse', name: 'Horse', image: 'emoji:🐴' },
+  { id: 'octopus', name: 'Octopus', image: 'emoji:🐙' },
+  { id: 'whale', name: 'Whale', image: 'emoji:🐋' },
+  { id: 'shark', name: 'Shark', image: 'emoji:🦈' },
+  { id: 'fish', name: 'Fish', image: 'emoji:🐠' },
+  { id: 'butterfly', name: 'Butterfly', image: 'emoji:🦋' },
+  { id: 'bee', name: 'Bee', image: 'emoji:🐝' },
+  { id: 'ladybug', name: 'Ladybug', image: 'emoji:🐞' },
+  { id: 'snail', name: 'Snail', image: 'emoji:🐌' },
+  { id: 'crab', name: 'Crab', image: 'emoji:🦀' },
+  { id: 'lobster', name: 'Lobster', image: 'emoji:🦞' },
+  { id: 'shrimp', name: 'Shrimp', image: 'emoji:🦐' },
+  { id: 'peacock', name: 'Peacock', image: 'emoji:🦚' },
+  { id: 'flamingo', name: 'Flamingo', image: 'emoji:🦩' },
+  { id: 'eagle', name: 'Eagle', image: 'emoji:🦅' },
+  { id: 'dove', name: 'Dove', image: 'emoji:🕊️' },
+  { id: 'duck', name: 'Duck', image: 'emoji:🦆' },
+  { id: 'bat', name: 'Bat', image: 'emoji:🦇' },
+  { id: 'hedgehog', name: 'Hedgehog', image: 'emoji:🦔' },
+  { id: 'sloth', name: 'Sloth', image: 'emoji:🦥' },
+  { id: 'otter', name: 'Otter', image: 'emoji:🦦' },
+  { id: 'badger', name: 'Badger', image: 'emoji:🦡' },
+  { id: 'kangaroo', name: 'Kangaroo', image: 'emoji:🦘' },
+  { id: 'llama', name: 'Llama', image: 'emoji:🦙' },
+  { id: 'camel', name: 'Camel', image: 'emoji:🐫' },
+];
+
+// Combined animals: prioritize real images, supplement with emojis
+// Total: 21 + 44 = 65 animals (supports up to 9×9 = 81 cards = 40 pairs)
+export const ANIMALS: AnimalData[] = [...ANIMALS_FROM_FILES, ...EMOJI_ANIMALS];
+
+// Helper to check if image is emoji type
+export function isEmojiAnimal(image: string): boolean {
+  return image.startsWith('emoji:');
+}
+
+// Get emoji from emoji animal image
+export function getEmoji(image: string): string {
+  return image.replace('emoji:', '');
+}
+
+// Get the number of available unique animals
+export function getAvailableAnimalCount(): number {
+  return ANIMALS.length;
+}
+
+// Check if we have enough animals for a given grid size
+export function hasEnoughAnimals(gridSize: number, rows?: number): boolean {
+  const cols = gridSize;
+  const actualRows = rows || gridSize;
+  const pairsNeeded = (cols * actualRows) / 2;
+  return ANIMALS.length >= pairsNeeded;
+}
 
 export type Difficulty = '2x2' | '4x4' | '6x6';
 

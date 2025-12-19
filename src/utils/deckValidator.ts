@@ -1,4 +1,4 @@
-import { ANIMALS, AnimalData } from '@/data/animals';
+import { ANIMALS, AnimalData, isEmojiAnimal, getEmoji } from '@/data/animals';
 
 export interface CardData {
   id: number;
@@ -181,58 +181,44 @@ export function validateDeck(cards: CardData[], expectedPairs: number): { isVali
  * Returns a fresh, valid deck. Always succeeds.
  * CRITICAL: Must return a deck matching the requested gridSize.
  */
-export function autoCorrectDeck(gridSize: number): CardData[] {
+export function autoCorrectDeck(totalCards: number): CardData[] {
   // Get unique animals first
   const uniqueAnimals = getUniqueAnimals();
-  const totalCards = gridSize * gridSize;
   const pairsNeeded = totalCards / 2;
   
   // Validate we have enough animals for the requested grid
   if (pairsNeeded > uniqueAnimals.length) {
-    console.error(`Cannot create ${gridSize}x${gridSize} grid: need ${pairsNeeded} pairs but only have ${uniqueAnimals.length} animals`);
-    // Fall back to largest possible grid
-    const maxPairs = uniqueAnimals.length;
-    if (maxPairs >= 18) gridSize = 6;
-    else if (maxPairs >= 8) gridSize = 4;
-    else gridSize = 2;
+    console.error(`Cannot create deck with ${pairsNeeded} pairs: only have ${uniqueAnimals.length} animals`);
   }
   
-  let attempts = 0;
-  const maxAttempts = 5;
-
-  while (attempts < maxAttempts) {
-    const result = createValidatedDeck(gridSize);
-    if (result.isValid && result.cards.length === gridSize * gridSize) {
-      return result.cards;
-    }
-    console.warn(`Deck validation failed (attempt ${attempts + 1}):`, result.errors);
-    attempts++;
-  }
-
-  // Ultimate fallback: manually create a guaranteed valid deck for the requested size
-  console.error(`Using fallback: manually creating ${gridSize}x${gridSize} deck`);
-  const pairsToCreate = (gridSize * gridSize) / 2;
+  // Direct creation for flexible grid sizes
+  const pairsToCreate = Math.min(pairsNeeded, uniqueAnimals.length);
   const selectedAnimals = shuffleArray(uniqueAnimals).slice(0, pairsToCreate);
-  const fallbackCards: CardData[] = [];
+  const cards: CardData[] = [];
   
   selectedAnimals.forEach((animal, pairIndex) => {
-    fallbackCards.push({
+    // Handle emoji animals
+    const imageUrl = isEmojiAnimal(animal.image) 
+      ? `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23${['f0abfc','86efac','93c5fd','fcd34d','f87171','a5b4fc'][pairIndex % 6]}" width="100" height="100"/><text x="50" y="65" font-size="50" text-anchor="middle">${getEmoji(animal.image)}</text></svg>`)}`
+      : animal.image;
+    
+    cards.push({
       id: pairIndex * 2,
       animalId: animal.id,
       animalName: animal.name,
-      imageUrl: animal.image,
+      imageUrl,
       isFlipped: false,
       isMatched: false,
     });
-    fallbackCards.push({
+    cards.push({
       id: pairIndex * 2 + 1,
       animalId: animal.id,
       animalName: animal.name,
-      imageUrl: animal.image,
+      imageUrl,
       isFlipped: false,
       isMatched: false,
     });
   });
   
-  return shuffleArray(fallbackCards).map((card, index) => ({ ...card, id: index }));
+  return shuffleArray(cards).map((card, index) => ({ ...card, id: index }));
 }
