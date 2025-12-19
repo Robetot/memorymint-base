@@ -101,10 +101,6 @@ function addressToTopic(address: string): string {
   return "0x" + address.toLowerCase().replace("0x", "").padStart(64, "0");
 }
 
-function topicToAddress(topic: string): string {
-  return ("0x" + topic.slice(-40)).toLowerCase();
-}
-
 type RpcLog = {
   address?: string;
   topics: string[];
@@ -232,6 +228,23 @@ export function useNFTCollection(address: string | null) {
 
     const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"])) as string;
     return parseInt(result, 16);
+  }, []);
+
+  const fetchOwnerOf = useCallback(async (tokenId: bigint): Promise<string | null> => {
+    // ownerOf(uint256) = 0x6352211e
+    const paddedTokenId = tokenId.toString(16).padStart(64, "0");
+    const data = `0x6352211e${paddedTokenId}`;
+
+    try {
+      const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"])) as string;
+      if (!result || result.length < 66) return null;
+      const addr = ("0x" + result.slice(-40)).toLowerCase();
+      if (addr === ZERO_ADDRESS) return null;
+      return addr;
+    } catch {
+      // If burned or invalid tokenId, many contracts revert.
+      return null;
+    }
   }, []);
 
   const fetchTokenURI = useCallback(async (tokenId: bigint): Promise<string | null> => {
@@ -547,6 +560,8 @@ export function useNFTCollection(address: string | null) {
 
   const refetch = useCallback(() => {
     attemptedSwitchRef.current = false; // allow switch prompt again on manual refresh
+    recentMintTokenIdsRef.current.clear(); // clear stale recent mints on manual refresh
+    discoveryStartedAtRef.current = null;
     return fetchCollection(true);
   }, [fetchCollection]);
 
