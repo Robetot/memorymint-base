@@ -147,13 +147,8 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         saveUnlockedLevel(nextLevel);
         
         // Calculate rarity based on level
-        const difficultyMap: Record<number, '2x2' | '4x4' | '6x6'> = {
-          2: '2x2', 4: '4x4', 6: '6x6'
-        };
-        const difficulty = difficultyMap[config.gridSize] || '4x4';
-        
         const rarityResult = calculateRarity(
-          difficulty,
+          level,
           gameState.timeRemaining,
           config.time,
           gameState.moves,

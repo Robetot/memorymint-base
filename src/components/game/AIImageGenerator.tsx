@@ -17,7 +17,7 @@ interface AIImageGeneratorProps {
   moves?: number;
   time?: number;
   maxCombo?: number;
-  difficulty?: 'easy' | 'medium' | 'hard';
+  level?: number;
 }
 
 const STYLE_OPTIONS = [
@@ -37,7 +37,7 @@ export function AIImageGenerator({
   moves = 0,
   time = 0,
   maxCombo = 0,
-  difficulty = 'medium'
+  level = 1
 }: AIImageGeneratorProps) {
   const [prompt, setPrompt] = useState('');
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
@@ -50,13 +50,14 @@ export function AIImageGenerator({
   const { isGenerating, generateImage, error: generateError } = useAIGenerate();
   const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
 
-  // Calculate rarity based on game performance
-  const difficultyMap = { easy: '4x4' as const, medium: '6x6' as const, hard: '6x6' as const };
-  const totalPairs = difficulty === 'easy' ? 8 : 18;
+  // Calculate rarity based on game performance using level
+  const { getLevel } = require('@/data/levels');
+  const levelConfig = getLevel(level);
+  const totalPairs = Math.floor((levelConfig.gridColumns * levelConfig.gridRows) / 2);
   const rarity = calculateRarity(
-    difficultyMap[difficulty],
+    level,
     time,
-    time > 0 ? time * 2 : 60,
+    levelConfig.time,
     moves,
     totalPairs,
     maxCombo,
