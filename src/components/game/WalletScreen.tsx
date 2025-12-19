@@ -75,7 +75,7 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     isLoading: isBaseAppLoading,
   } = useBaseApp();
 
-  const { nfts, isLoading: isLoadingNFTs, error: nftError, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
+  const { nfts, isLoading: isLoadingNFTs, error: nftError, chainError, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
 
   const handleDisconnectClick = (type: 'wallet' | 'farcaster' | 'baseapp') => {
     setDisconnectType(type);
@@ -309,14 +309,29 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
           </div>
 
           {isLoadingNFTs ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex flex-col items-center justify-center py-12 gap-2">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Scanning blockchain for your NFTs...</p>
             </div>
+          ) : chainError ? (
+            <Card className="border-amber-500/50 bg-amber-500/5">
+              <CardContent className="py-6 text-center">
+                <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+                <p className="text-sm text-amber-700 dark:text-amber-400">{chainError}</p>
+                <Button variant="outline" className="mt-3" onClick={handleSwitchNetwork}>
+                  Switch to Base Network
+                </Button>
+              </CardContent>
+            </Card>
           ) : nftError ? (
             <Card className="border-destructive/50 bg-destructive/5">
               <CardContent className="py-6 text-center">
                 <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-2" />
                 <p className="text-sm text-destructive">{nftError}</p>
+                <Button variant="outline" className="mt-3" onClick={() => refetch()}>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Try Again
+                </Button>
               </CardContent>
             </Card>
           ) : nfts.length === 0 ? (
