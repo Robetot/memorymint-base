@@ -6,11 +6,12 @@ const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
 // Base Mainnet chain ID
 const BASE_CHAIN_ID = '0x2105';
 
-// Multiple RPC endpoints for reliability
+// Multiple RPC endpoints for reliability - use public RPCs for reads
 const RPC_ENDPOINTS = [
   'https://mainnet.base.org',
   'https://base.llamarpc.com',
   'https://base.drpc.org',
+  'https://1rpc.io/base',
 ];
 
 export interface NFTItem {
@@ -29,35 +30,49 @@ interface FetchState {
   isLoading: boolean;
   error: string | null;
   chainError: string | null;
+  debugInfo: string | null;
 }
 
-async function fetchWithRPC(method: string, params: unknown[]): Promise<unknown> {
-  // Try wallet provider first (uses user's connected RPC)
-  if (window.ethereum) {
-    try {
-      return await window.ethereum.request({ method, params });
-    } catch (err) {
-      console.warn('Wallet RPC failed, trying public endpoints...', err);
-    }
-  }
-
-  // Fallback to public RPC endpoints
+// Use public RPC directly for read operations - more reliable than wallet provider
+async function fetchWithPublicRPC(method: string, params: unknown[]): Promise<unknown> {
+  const errors: string[] = [];
+  
   for (const rpc of RPC_ENDPOINTS) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      
       const response = await fetch(rpc, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeout);
+      
+      if (!response.ok) {
+        errors.push(`${rpc}: HTTP ${response.status}`);
+        continue;
+      }
+      
       const data = await response.json();
-      if (data.error) throw new Error(data.error.message);
+      
+      if (data.error) {
+        errors.push(`${rpc}: ${data.error.message}`);
+        continue;
+      }
+      
+      console.log(`[NFT] RPC ${rpc} succeeded for ${method}`);
       return data.result;
     } catch (err) {
-      console.warn(`RPC ${rpc} failed, trying next...`);
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      errors.push(`${rpc}: ${msg}`);
       continue;
     }
   }
-  throw new Error('All RPC endpoints failed');
+  
+  throw new Error(`All RPCs failed: ${errors.join('; ')}`);
 }
 
 export function useNFTCollection(address: string | null) {
@@ -66,60 +81,79 @@ export function useNFTCollection(address: string | null) {
     isLoading: false,
     error: null,
     chainError: null,
+    debugInfo: null,
   });
   const fetchingRef = useRef(false);
 
-  // Check if connected to Base network
+  // Check if connected to Base network (optional - we use public RPC anyway)
   const checkNetwork = useCallback(async (): Promise<boolean> => {
-    if (!window.ethereum) return true; // If no wallet, we'll use public RPC
+    if (!window.ethereum) return true;
     try {
       const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
-      return chainId.toLowerCase() === BASE_CHAIN_ID.toLowerCase();
-    } catch {
-      return false;
+      const isBase = chainId.toLowerCase() === BASE_CHAIN_ID.toLowerCase();
+      console.log(`[NFT] Chain check: ${chainId} (isBase: ${isBase})`);
+      return isBase;
+    } catch (err) {
+      console.warn('[NFT] Chain check failed:', err);
+      return true; // Assume base if we can't check
     }
   }, []);
 
   // Fetch balance using balanceOf(address)
   const fetchBalance = useCallback(async (ownerAddress: string): Promise<number> => {
+    // balanceOf(address) = 0x70a08231
     const paddedAddress = ownerAddress.toLowerCase().replace('0x', '').padStart(64, '0');
     const data = `0x70a08231${paddedAddress}`;
+    
+    console.log(`[NFT] Fetching balance for ${ownerAddress}`);
+    console.log(`[NFT] Contract: ${NFT_CONTRACT_ADDRESS}`);
+    console.log(`[NFT] Call data: ${data}`);
 
-    const result = await fetchWithRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-    return parseInt(result as string, 16);
+    const result = await fetchWithPublicRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+    const balance = parseInt(result as string, 16);
+    console.log(`[NFT] Balance result: ${result} = ${balance}`);
+    return balance;
   }, []);
 
   // Get total supply to know the range of tokens
   const fetchTotalSupply = useCallback(async (): Promise<number> => {
-    // totalSupply() selector
+    // totalSupply() = 0x18160ddd
     const data = '0x18160ddd';
-    const result = await fetchWithRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-    return parseInt(result as string, 16);
+    console.log('[NFT] Fetching total supply...');
+    
+    const result = await fetchWithPublicRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+    const supply = parseInt(result as string, 16);
+    console.log(`[NFT] Total supply: ${result} = ${supply}`);
+    return supply;
   }, []);
 
   // Check owner of a specific token
   const fetchOwnerOf = useCallback(async (tokenId: number): Promise<string | null> => {
+    // ownerOf(uint256) = 0x6352211e
     const paddedTokenId = tokenId.toString(16).padStart(64, '0');
     const data = `0x6352211e${paddedTokenId}`;
 
     try {
-      const result = await fetchWithRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+      const result = await fetchWithPublicRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
       if (result && typeof result === 'string' && result.length >= 66) {
-        return '0x' + result.slice(-40);
+        const owner = '0x' + result.slice(-40);
+        return owner;
       }
-    } catch {
-      // Token doesn't exist
+    } catch (err) {
+      // Token might not exist
+      console.warn(`[NFT] ownerOf(${tokenId}) failed:`, err);
     }
     return null;
   }, []);
 
   // Fetch tokenURI for a token
   const fetchTokenURI = useCallback(async (tokenId: number): Promise<string | null> => {
+    // tokenURI(uint256) = 0xc87b56dd
     const paddedTokenId = tokenId.toString(16).padStart(64, '0');
     const data = `0xc87b56dd${paddedTokenId}`;
 
     try {
-      const result = await fetchWithRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']) as string;
+      const result = await fetchWithPublicRPC('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']) as string;
       
       if (result && result.length > 130) {
         // Decode ABI-encoded string
@@ -135,7 +169,7 @@ export function useNFTCollection(address: string | null) {
         }
       }
     } catch (err) {
-      console.warn(`Failed to fetch tokenURI for token ${tokenId}:`, err);
+      console.warn(`[NFT] tokenURI(${tokenId}) failed:`, err);
     }
     return null;
   }, []);
@@ -152,14 +186,13 @@ export function useNFTCollection(address: string | null) {
       }
 
       // Handle IPFS URI
-      let url = tokenURI;
       if (tokenURI.startsWith('ipfs://')) {
         const cid = tokenURI.replace('ipfs://', '');
-        // Try multiple gateways
         const gateways = [
           'https://gateway.pinata.cloud/ipfs/',
           'https://ipfs.io/ipfs/',
           'https://cloudflare-ipfs.com/ipfs/',
+          'https://dweb.link/ipfs/',
         ];
         
         for (const gateway of gateways) {
@@ -178,12 +211,12 @@ export function useNFTCollection(address: string | null) {
       }
 
       // Handle HTTP URL
-      if (url.startsWith('http')) {
-        const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (tokenURI.startsWith('http')) {
+        const response = await fetch(tokenURI, { signal: AbortSignal.timeout(10000) });
         return await response.json();
       }
     } catch (err) {
-      console.warn('Failed to fetch metadata:', err);
+      console.warn('[NFT] Failed to fetch metadata:', err);
     }
     return undefined;
   }, []);
@@ -191,52 +224,69 @@ export function useNFTCollection(address: string | null) {
   // Main fetch function - scans all tokens to find user's NFTs
   const fetchCollection = useCallback(async (forceRefresh = false) => {
     if (!address) {
-      setState({ nfts: [], isLoading: false, error: null, chainError: null });
+      console.log('[NFT] No address provided, clearing NFTs');
+      setState({ nfts: [], isLoading: false, error: null, chainError: null, debugInfo: null });
       return;
     }
 
     // Prevent concurrent fetches
-    if (fetchingRef.current && !forceRefresh) return;
+    if (fetchingRef.current && !forceRefresh) {
+      console.log('[NFT] Already fetching, skipping');
+      return;
+    }
     fetchingRef.current = true;
 
-    setState(prev => ({ ...prev, isLoading: true, error: null, chainError: null }));
+    console.log('[NFT] Starting collection fetch for:', address);
+    setState(prev => ({ ...prev, isLoading: true, error: null, chainError: null, debugInfo: 'Starting fetch...' }));
 
     try {
-      // Check network
+      // Check network (informational only - we use public RPC)
       const isBase = await checkNetwork();
       if (!isBase && window.ethereum) {
+        console.log('[NFT] Not on Base network, showing warning');
         setState(prev => ({
           ...prev,
           isLoading: false,
-          chainError: 'Please switch to Base network to view your NFTs',
+          chainError: 'Switch to Base network for best experience',
+          debugInfo: 'Wrong network detected',
         }));
-        fetchingRef.current = false;
-        return;
+        // Continue anyway - we use public RPC
       }
 
       // First check balance
+      setState(prev => ({ ...prev, debugInfo: 'Checking NFT balance...' }));
       const balance = await fetchBalance(address);
-      console.log(`NFT balance for ${address}: ${balance}`);
+      console.log(`[NFT] Balance for ${address}: ${balance}`);
 
       if (balance === 0) {
-        setState({ nfts: [], isLoading: false, error: null, chainError: null });
+        console.log('[NFT] Balance is 0, no NFTs owned');
+        setState({ 
+          nfts: [], 
+          isLoading: false, 
+          error: null, 
+          chainError: null,
+          debugInfo: `Balance: 0 NFTs for ${address.slice(0, 10)}...`
+        });
         fetchingRef.current = false;
         return;
       }
 
       // Get total supply to know range
+      setState(prev => ({ ...prev, debugInfo: `Found ${balance} NFTs, scanning tokens...` }));
       const totalSupply = await fetchTotalSupply();
-      console.log(`Total NFT supply: ${totalSupply}`);
+      console.log(`[NFT] Total supply: ${totalSupply}`);
 
       // Scan tokens to find ones owned by this address
-      // Start from token 1 (contract starts at 1)
       const ownedTokenIds: number[] = [];
       const normalizedAddress = address.toLowerCase();
 
+      console.log(`[NFT] Scanning tokens 1-${totalSupply} for owner ${normalizedAddress}`);
+
       // Scan in batches for efficiency
-      const batchSize = 20;
+      const batchSize = 10;
       for (let start = 1; start <= totalSupply && ownedTokenIds.length < balance; start += batchSize) {
         const end = Math.min(start + batchSize - 1, totalSupply);
+        setState(prev => ({ ...prev, debugInfo: `Scanning tokens ${start}-${end}...` }));
         
         const promises = [];
         for (let tokenId = start; tokenId <= end; tokenId++) {
@@ -250,18 +300,37 @@ export function useNFTCollection(address: string | null) {
         
         const results = await Promise.all(promises);
         for (const { tokenId, owner } of results) {
+          console.log(`[NFT] Token ${tokenId} owner: ${owner}`);
           if (owner === normalizedAddress) {
+            console.log(`[NFT] ✓ Token ${tokenId} owned by user!`);
             ownedTokenIds.push(tokenId);
           }
         }
       }
 
-      console.log(`Found ${ownedTokenIds.length} NFTs owned by ${address}:`, ownedTokenIds);
+      console.log(`[NFT] Found ${ownedTokenIds.length} NFTs:`, ownedTokenIds);
+
+      if (ownedTokenIds.length === 0) {
+        console.log('[NFT] No owned tokens found despite balance > 0');
+        setState({ 
+          nfts: [], 
+          isLoading: false, 
+          error: null, 
+          chainError: null,
+          debugInfo: `Balance shows ${balance} but no tokens found in scan`
+        });
+        fetchingRef.current = false;
+        return;
+      }
 
       // Fetch metadata for each owned token
+      setState(prev => ({ ...prev, debugInfo: `Loading metadata for ${ownedTokenIds.length} NFTs...` }));
       const items: NFTItem[] = [];
+      
       for (const tokenId of ownedTokenIds) {
         const tokenURI = await fetchTokenURI(tokenId);
+        console.log(`[NFT] Token ${tokenId} URI:`, tokenURI);
+        
         const item: NFTItem = {
           tokenId: tokenId.toString(),
           tokenURI: tokenURI || '',
@@ -281,13 +350,21 @@ export function useNFTCollection(address: string | null) {
         items.push(item);
       }
 
-      setState({ nfts: items, isLoading: false, error: null, chainError: null });
+      console.log(`[NFT] Final collection:`, items);
+      setState({ 
+        nfts: items, 
+        isLoading: false, 
+        error: null, 
+        chainError: null,
+        debugInfo: `Loaded ${items.length} NFTs`
+      });
     } catch (err) {
-      console.error('Error fetching NFT collection:', err);
+      console.error('[NFT] Error fetching collection:', err);
       setState(prev => ({
         ...prev,
         isLoading: false,
         error: err instanceof Error ? err.message : 'Failed to fetch NFTs',
+        debugInfo: `Error: ${err instanceof Error ? err.message : 'Unknown'}`
       }));
     } finally {
       fetchingRef.current = false;
@@ -301,6 +378,8 @@ export function useNFTCollection(address: string | null) {
 
   // Return a proper refetch that forces refresh
   const refetch = useCallback(() => {
+    console.log('[NFT] Manual refresh triggered');
+    fetchingRef.current = false; // Reset the lock
     return fetchCollection(true);
   }, [fetchCollection]);
 
@@ -309,6 +388,7 @@ export function useNFTCollection(address: string | null) {
     isLoading: state.isLoading,
     error: state.error,
     chainError: state.chainError,
+    debugInfo: state.debugInfo,
     refetch,
     contractAddress: NFT_CONTRACT_ADDRESS,
   };
