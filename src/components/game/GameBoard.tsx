@@ -35,6 +35,8 @@ interface GameBoardProps {
   combo?: number;
   onScorePopup?: (x: number, y: number) => void;
   revealAll?: boolean;
+  gridColumns: number;
+  gridRows: number;
 }
 
 export function GameBoard({
@@ -50,6 +52,8 @@ export function GameBoard({
   hintedCardIds = [],
   combo = 0,
   revealAll = false,
+  gridColumns,
+  gridRows,
 }: GameBoardProps) {
   const [matchedCardIds, setMatchedCardIds] = useState<Set<number>>(new Set());
   const [showMatchAnimation, setShowMatchAnimation] = useState(false);
@@ -195,16 +199,36 @@ export function GameBoard({
     }
   }, []);
 
-  const gridSize = Math.sqrt(cards.length);
+  // Validate grid has correct number of cards
+  const expectedCards = gridColumns * gridRows;
+  if (cards.length !== expectedCards) {
+    console.error(`Grid mismatch: expected ${expectedCards} cards (${gridColumns}x${gridRows}), got ${cards.length}`);
+  }
+
+  // Determine grid size category for responsive sizing
+  const maxDimension = Math.max(gridColumns, gridRows);
+  const gridSizeCategory = maxDimension <= 2 ? 'tiny' : maxDimension <= 4 ? 'small' : maxDimension <= 6 ? 'medium' : 'large';
 
   return (
     <div 
       ref={boardRef}
       className={cn(
         'w-full mx-auto p-2 md:p-4 relative',
-        gridSize === 8 ? 'max-w-[95vw] md:max-w-2xl' : 'max-w-lg'
+        gridSizeCategory === 'large' ? 'max-w-[98vw] md:max-w-4xl' : 
+        gridSizeCategory === 'medium' ? 'max-w-[95vw] md:max-w-2xl' : 
+        'max-w-lg'
       )}
     >
+      {/* Error overlay if grid is broken */}
+      {cards.length !== expectedCards && cards.length > 0 && (
+        <div className="absolute inset-0 bg-destructive/10 backdrop-blur-sm z-50 flex items-center justify-center rounded-xl border-2 border-destructive">
+          <div className="text-center p-4">
+            <p className="text-destructive font-bold">Grid Error</p>
+            <p className="text-sm text-muted-foreground">Expected {expectedCards} cards, got {cards.length}</p>
+          </div>
+        </div>
+      )}
+
       {/* Floating Scores */}
       {floatingScores.map(score => (
         <FloatingScore
@@ -232,13 +256,11 @@ export function GameBoard({
       <ComboParticles combo={combo} />
 
       <div
-        className={cn(
-          'grid',
-          gridSize === 2 && 'grid-cols-2 max-w-[200px] mx-auto gap-3',
-          gridSize === 4 && 'grid-cols-4 gap-2 md:gap-3',
-          gridSize === 6 && 'grid-cols-6 gap-1 md:gap-2',
-          gridSize === 8 && 'grid-cols-8 gap-[2px] md:gap-1'
-        )}
+        className="grid gap-1 md:gap-2 mx-auto"
+        style={{
+          gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
+          maxWidth: gridSizeCategory === 'large' ? '100%' : gridSizeCategory === 'medium' ? '600px' : '400px',
+        }}
       >
         {cards.map((card) => (
           <GameCard
@@ -249,7 +271,7 @@ export function GameBoard({
             disabled={disabled || flippedCards.length >= 2 || revealAll}
             showMatchAnimation={showMatchAnimation && matchedCardIds.has(card.id)}
             isHinted={hintedCardIds.includes(card.id)}
-            gridSize={gridSize}
+            gridSize={maxDimension}
             isShaking={shakingCardIds.has(card.id)}
           />
         ))}
