@@ -175,6 +175,8 @@ export function useNFTCollection(address: string | null) {
 
   const fetchingRef = useRef(false);
   const attemptedSwitchRef = useRef(false);
+  const recentMintTokenIdsRef = useRef<Set<string>>(new Set());
+  const discoveryStartedAtRef = useRef<number | null>(null);
 
   const ensureBaseNetwork = useCallback(async (): Promise<{ ok: boolean; chainId: string | null }> => {
     if (!window.ethereum) {
@@ -302,42 +304,34 @@ export function useNFTCollection(address: string | null) {
     return undefined;
   }, []);
 
-  const fetchOwnedTokenIdsByEvents = useCallback(async (ownerAddress: string): Promise<string[]> => {
-    const toTopic = addressToTopic(ownerAddress);
+  const fetchOwnedTokenIdsByEvents = useCallback(
+    async (ownerAddress: string): Promise<string[]> => {
+      const owner = ownerAddress.toLowerCase();
+      const toTopic = addressToTopic(owner);
 
-    // incoming: Transfer(*, to=owner, tokenId)
-    const incoming = await getTransferLogsWithFallback([TRANSFER_TOPIC, null, toTopic]);
-    // outgoing: Transfer(from=owner, *, tokenId)
-    const outgoing = await getTransferLogsWithFallback([TRANSFER_TOPIC, toTopic, null]);
+      // Only query incoming transfers to this wallet (small result set) then validate via ownerOf.
+      const incoming = await getTransferLogsWithFallback([TRANSFER_TOPIC, null, toTopic]);
 
-    const all = [...incoming, ...outgoing];
+      const candidateIds = new Set<string>();
+      for (const log of incoming) {
+        if (!log.topics || log.topics.length < 4) continue;
+        if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) continue;
+        candidateIds.add(BigInt(log.topics[3]).toString());
+      }
 
-    // Sort deterministically so set updates are correct
-    all.sort((a, b) => {
-      const ab = parseInt(a.blockNumber, 16);
-      const bb = parseInt(b.blockNumber, 16);
-      if (ab !== bb) return ab - bb;
-      return parseInt(a.logIndex, 16) - parseInt(b.logIndex, 16);
-    });
+      const candidates = Array.from(candidateIds);
+      const owned: string[] = [];
+      for (const id of candidates) {
+        const currentOwner = await fetchOwnerOf(BigInt(id));
+        if (currentOwner && currentOwner === owner) owned.push(id);
+      }
 
-    const owner = ownerAddress.toLowerCase();
-    const owned = new Set<string>();
-
-    for (const log of all) {
-      if (!log.topics || log.topics.length < 4) continue;
-      if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) continue;
-
-      const from = topicToAddress(log.topics[1]);
-      const to = topicToAddress(log.topics[2]);
-      const tokenId = BigInt(log.topics[3]).toString();
-
-      if (to === owner) owned.add(tokenId);
-      if (from === owner) owned.delete(tokenId);
-      if (to === ZERO_ADDRESS) owned.delete(tokenId);
-    }
-
-    return Array.from(owned);
-  }, []);
+      // Sort newest-first for nicer UX (highest tokenId first)
+      owned.sort((a, b) => Number(BigInt(b) - BigInt(a)));
+      return owned;
+    },
+    [fetchOwnerOf]
+  );
 
   const fetchCollection = useCallback(
     async (forceRefresh = false) => {
@@ -403,20 +397,33 @@ export function useNFTCollection(address: string | null) {
         let tokenIds: string[] = [];
         try {
           tokenIds = await fetchOwnedTokenIdsByEvents(address);
+
+          // Merge in tokenIds we got directly from the mint receipt (more reliable than log scanning right after mint).
+          const recent = Array.from(recentMintTokenIdsRef.current);
+          if (recent.length > 0) {
+            tokenIds = Array.from(new Set([...tokenIds, ...recent]));
+            tokenIds.sort((a, b) => Number(BigInt(b) - BigInt(a)));
+          }
+
           debug.discoveredTokenIds = tokenIds;
         } catch (e) {
           debug.errors.push(e instanceof Error ? e.message : String(e));
         }
 
-        // Critical fallback: never show "No NFTs" when balance > 0
-        // If we cannot discover tokenIds (RPC/indexing limitations), render placeholders.
+        // If balance > 0 but token IDs aren't resolvable yet, show a temporary "discovering" UI.
         if (tokenIds.length === 0) {
+          if (!discoveryStartedAtRef.current) discoveryStartedAtRef.current = Date.now();
+          const elapsedMs = Date.now() - discoveryStartedAtRef.current;
+
+          const label = elapsedMs > 15_000 ? "metadata loading" : "discovering token IDs";
+
           const placeholders: NFTItem[] = Array.from({ length: Math.max(1, balance) }).map((_, i) => ({
             tokenId: `pending-${i + 1}`,
             tokenURI: "",
             metadata: {
-              name: `MemoryMint (indexing...) #${i + 1}`,
-              description: "Your NFTs are on-chain. Token IDs are still being discovered.",
+              name: `MemoryMint (${label}...)`,
+              description:
+                "Your NFTs are confirmed on-chain. We're syncing token IDs and metadata—tap Refresh if this persists.",
             },
           }));
 
@@ -430,6 +437,8 @@ export function useNFTCollection(address: string | null) {
           });
           return;
         }
+
+        discoveryStartedAtRef.current = null;
 
         // Fetch tokenURI + metadata; if anything fails we still keep the NFT card.
         const items: NFTItem[] = [];
@@ -475,12 +484,16 @@ export function useNFTCollection(address: string | null) {
 
         // Still honor the critical rule: if we *did* learn balance > 0, show placeholders.
         if (debug.balance && debug.balance > 0) {
+          if (!discoveryStartedAtRef.current) discoveryStartedAtRef.current = Date.now();
+          const elapsedMs = Date.now() - discoveryStartedAtRef.current;
+          const label = elapsedMs > 15_000 ? "metadata loading" : "discovering token IDs";
+
           const placeholders: NFTItem[] = Array.from({ length: Math.max(1, debug.balance) }).map((_, i) => ({
             tokenId: `pending-${i + 1}`,
             tokenURI: "",
             metadata: {
-              name: `MemoryMint (loading...) #${i + 1}`,
-              description: "Your NFTs are on-chain, but metadata is temporarily unavailable.",
+              name: `MemoryMint (${label}...)`,
+              description: "Your NFTs are on-chain, but the app couldn't sync metadata right now.",
             },
           }));
 
@@ -513,7 +526,17 @@ export function useNFTCollection(address: string | null) {
     const handler = (evt: Event) => {
       const e = evt as CustomEvent<{ address?: string; tokenIds?: string[]; txHash?: string }>;
       const mintedTo = e.detail?.address?.toLowerCase();
+      const mintedIds = (e.detail?.tokenIds ?? []).filter(Boolean);
+
       if (mintedTo && mintedTo === address?.toLowerCase()) {
+        if (mintedIds.length > 0) {
+          mintedIds.forEach((id) => recentMintTokenIdsRef.current.add(id));
+        }
+
+        if (import.meta.env.DEV) {
+          console.log("[NFT] mint event", { mintedTo, mintedIds, txHash: e.detail?.txHash });
+        }
+
         fetchCollection(true);
       }
     };

@@ -121,7 +121,7 @@ export function useNFTMint() {
     async (txHash: string): Promise<{ success: boolean; tokenIds: string[]; blockNumber?: string }> => {
       let receipt: any = null;
       let attempts = 0;
-      const maxAttempts = 60;
+      const maxAttempts = 120;
 
       while (!receipt && attempts < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -138,7 +138,7 @@ export function useNFTMint() {
       }
 
       if (!receipt) {
-        return { success: true, tokenIds: [] }; // Pending but submitted
+        throw new Error('Transaction is still pending. Please wait for confirmation and try again.');
       }
 
       const status = receipt.status as string;
