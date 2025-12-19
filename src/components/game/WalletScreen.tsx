@@ -1,13 +1,23 @@
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut } from 'lucide-react';
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
 import { useFarcaster } from '@/contexts/FarcasterContext';
 import { useBaseApp } from '@/contexts/BaseAppContext';
 import { FarcasterSignIn, FarcasterIcon } from './FarcasterSignIn';
 import { cn } from '@/lib/utils';
-
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface WalletScreenProps {
   onBack: () => void;
@@ -29,6 +39,9 @@ function BaseAppIcon({ className }: { className?: string }) {
 }
 
 export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
+  const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
+  const [disconnectType, setDisconnectType] = useState<'wallet' | 'farcaster' | 'baseapp'>('wallet');
+
   const { 
     isConnected, 
     isConnecting, 
@@ -39,7 +52,8 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     isBaseApp: isBaseAppWallet,
     connectWallet, 
     formatAddress,
-    switchToBase 
+    switchToBase,
+    disconnectWallet
   } = useWallet();
 
   const { 
@@ -48,6 +62,7 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     isLoading: isFarcasterLoading,
     isMiniApp,
     signIn: farcasterSignIn,
+    signOut: farcasterSignOut,
     error: farcasterError 
   } = useFarcaster();
 
@@ -56,10 +71,27 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     isConnected: isBaseAppConnected,
     walletAddress: baseAppAddress,
     connect: baseAppConnect,
+    disconnect: baseAppDisconnect,
     isLoading: isBaseAppLoading,
   } = useBaseApp();
 
   const { nfts, isLoading: isLoadingNFTs, error: nftError, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
+
+  const handleDisconnectClick = (type: 'wallet' | 'farcaster' | 'baseapp') => {
+    setDisconnectType(type);
+    setShowDisconnectDialog(true);
+  };
+
+  const handleConfirmDisconnect = () => {
+    if (disconnectType === 'wallet') {
+      disconnectWallet();
+    } else if (disconnectType === 'farcaster' && farcasterSignOut) {
+      farcasterSignOut();
+    } else if (disconnectType === 'baseapp' && baseAppDisconnect) {
+      baseAppDisconnect();
+    }
+    setShowDisconnectDialog(false);
+  };
 
   const handleConnect = async (type: WalletType) => {
     const success = await connectWallet(type);
@@ -152,11 +184,21 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
                 <span className="text-xs text-[#0052FF] font-medium">Base Smart Wallet</span>
               )}
             </div>
-            {!isCorrectChain && (
-              <Button size="sm" onClick={handleSwitchNetwork} variant="outline">
-                Switch to Base
+            <div className="flex items-center gap-2">
+              {!isCorrectChain && (
+                <Button size="sm" onClick={handleSwitchNetwork} variant="outline">
+                  Switch to Base
+                </Button>
+              )}
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                onClick={() => handleDisconnectClick('wallet')}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="w-4 h-4" />
               </Button>
-            )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -172,7 +214,17 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               <p className="font-body text-sm text-muted-foreground">Base App Connected</p>
               <p className="font-mono text-foreground">{formatAddress(baseAppAddress)}</p>
             </div>
-            <Check className="w-5 h-5 text-[#0052FF]" />
+            <div className="flex items-center gap-2">
+              <Check className="w-5 h-5 text-[#0052FF]" />
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                onClick={() => handleDisconnectClick('baseapp')}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -199,10 +251,41 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               </p>
               <p className="text-xs text-muted-foreground">FID: {farcasterUser.fid}</p>
             </div>
-            <Check className="w-5 h-5 text-[#8B5CF6]" />
+            <div className="flex items-center gap-2">
+              <Check className="w-5 h-5 text-[#8B5CF6]" />
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                onClick={() => handleDisconnectClick('farcaster')}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Disconnect Confirmation Dialog */}
+      <AlertDialog open={showDisconnectDialog} onOpenChange={setShowDisconnectDialog}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect {disconnectType === 'wallet' ? 'Wallet' : disconnectType === 'farcaster' ? 'Farcaster' : 'Base App'}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to disconnect? You'll need to reconnect to access your NFT collection and game progress.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConfirmDisconnect}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Error State */}
       {displayError && (
