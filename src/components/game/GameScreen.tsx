@@ -51,7 +51,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
   const { isPlaying: isMusicPlaying, toggle: toggleMusic } = useBackgroundMusic();
   const { addEntry, getTopScore } = useLeaderboard();
   const { hintsRemaining, hintedCardIds, useHint, resetHints } = useHints(level);
-  const { powerUps, activeEffect, usePowerUp, clearActiveEffect, resetPowerUps } = usePowerUps();
+  const { powerUps, activeEffect, activeEffects, usePowerUp, clearActiveEffect, resetPowerUps, isInputBlocked } = usePowerUps();
   const { 
     trackCombo, 
     trackPerfectGame, 
@@ -86,41 +86,66 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     resetPowerUps();
   }, [startGame, resetHints, resetPowerUps, level]);
 
-  // Handle power-up effects
+  // Handle Freeze Time power-up effect (only affects timer)
   useEffect(() => {
-    if (activeEffect === 'freeze') {
+    if (activeEffects.freeze) {
       pauseGame();
       addTime(5);
       const timeoutId = setTimeout(() => {
         resumeGame();
-        clearActiveEffect();
+        clearActiveEffect('freeze');
       }, 5000);
       freezeTimeoutRef.current = timeoutId;
       
       return () => {
         clearTimeout(timeoutId);
-        // Ensure game is resumed if effect is interrupted
-        resumeGame();
+        freezeTimeoutRef.current = null;
       };
-    } else if (activeEffect === 'reveal') {
+    }
+  }, [activeEffects.freeze, pauseGame, resumeGame, addTime, clearActiveEffect]);
+  
+  // Cleanup: ensure game resumes if freeze effect is interrupted
+  useEffect(() => {
+    return () => {
+      if (freezeTimeoutRef.current) {
+        clearTimeout(freezeTimeoutRef.current);
+        resumeGame();
+      }
+    };
+  }, [resumeGame]);
+
+  // Handle Peek/Reveal power-up effect (visual only, doesn't block timer)
+  useEffect(() => {
+    if (activeEffects.reveal) {
       setRevealAll(true);
       const timeoutId = setTimeout(() => {
         setRevealAll(false);
-        clearActiveEffect();
+        clearActiveEffect('reveal');
       }, 2000);
       
-      return () => clearTimeout(timeoutId);
-    } else if (activeEffect === 'shuffle') {
+      return () => {
+        clearTimeout(timeoutId);
+        setRevealAll(false);
+      };
+    }
+  }, [activeEffects.reveal, clearActiveEffect]);
+
+  // Handle Shuffle power-up effect
+  useEffect(() => {
+    if (activeEffects.shuffle) {
       setIsShuffling(true);
       const timeoutId = setTimeout(() => {
         shuffleUnmatched();
         setIsShuffling(false);
-        clearActiveEffect();
+        clearActiveEffect('shuffle');
       }, 1500);
       
-      return () => clearTimeout(timeoutId);
+      return () => {
+        clearTimeout(timeoutId);
+        setIsShuffling(false);
+      };
     }
-  }, [activeEffect, pauseGame, resumeGame, addTime, shuffleUnmatched, clearActiveEffect]);
+  }, [activeEffects.shuffle, shuffleUnmatched, clearActiveEffect]);
 
   const handleUsePowerUp = useCallback((id: string) => {
     if (usePowerUp(id)) {
@@ -411,7 +436,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
       <ShuffleOverlay isShuffling={isShuffling || gameState.isShuffling} />
 
       {/* Freeze Effect Overlay */}
-      {activeEffect === 'freeze' && (
+      {activeEffects.freeze && (
         <div className="fixed inset-0 pointer-events-none z-40 border-4 border-cyan-400/50 animate-pulse">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-4xl font-bold text-cyan-400 animate-bounce">
             ❄️ TIME FROZEN ❄️
@@ -447,7 +472,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         onCardFlippedBack={handleCardFlippedBack}
         onMatch={handleMatch}
         onNoMatch={handleNoMatch}
-        disabled={!gameState.isPlaying || isPaused || revealAll}
+        disabled={!gameState.isPlaying || isPaused || isInputBlocked()}
         hintedCardIds={hintedCardIds}
         combo={gameState.combo}
         revealAll={revealAll}
