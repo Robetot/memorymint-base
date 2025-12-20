@@ -13,7 +13,6 @@ interface GameCardProps {
   isShaking?: boolean;
   fogOpacity?: number; // 0 = fully visible, 1 = fully hidden
   isDecaying?: boolean;
-  cardSize?: number; // explicit size in pixels
 }
 
 export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
@@ -27,7 +26,6 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
     isShaking = false,
     fogOpacity = 0,
     isDecaying = false,
-    cardSize = 64,
   }, ref) => {
     const [isAnimating, setIsAnimating] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
@@ -82,10 +80,10 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
         }
         aria-pressed={card.isFlipped || card.isMatched}
         className={cn(
-          'relative cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 focus:ring-offset-background',
-          'transition-all duration-300 ease-out',
+          'game-card relative cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 focus:ring-offset-background',
+          'transition-all duration-300 ease-out w-full h-full',
           isExpertGrid ? 'rounded-sm md:rounded' : 'rounded-lg md:rounded-xl',
-          !disabled && !card.isFlipped && !card.isMatched && !isFogged && 'hover:scale-105 hover:-translate-y-1 hover:z-10',
+          !disabled && !card.isFlipped && !card.isMatched && !isFogged && 'hover:scale-[1.03] hover:-translate-y-0.5 hover:z-10',
           disabled && 'cursor-not-allowed',
           card.isMatched && 'cursor-default',
           isHinted && !isExpertGrid && 'ring-4 ring-accent animate-pulse',
@@ -93,9 +91,10 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
           isDecaying && 'animate-pulse ring-2 ring-destructive/50'
         )}
         style={{
-          width: cardSize,
-          height: cardSize,
           perspective: 1000,
+          minWidth: isExpertGrid ? 32 : 44,
+          minHeight: isExpertGrid ? 32 : 44,
+          aspectRatio: '1 / 1',
           ...fogStyles,
           filter: isHovered && !card.isFlipped && !card.isMatched && !disabled && !isFogged
             ? 'drop-shadow(0 8px 16px hsl(var(--primary) / 0.3))' 
