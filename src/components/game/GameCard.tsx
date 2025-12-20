@@ -1,6 +1,6 @@
 import { useEffect, useState, forwardRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { CardData, SPRITE_COLS, SPRITE_ROWS, SPRITE_IMAGE } from '@/utils/deckValidator';
+import { CardData } from '@/hooks/useGameState';
 import cardBackImg from '@/assets/card-back.png';
 
 interface GameCardProps {
@@ -59,31 +59,6 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
         transform: fogOpacity > 0.5 ? `scale(${1 - fogOpacity * 0.1})` : 'none',
       };
     }, [fogOpacity, card.isFlipped, card.isMatched]);
-
-    // Calculate sprite background position - using correct formula for sprite sheets
-    const spriteStyles = useMemo(() => {
-      if (!card.spritePosition) {
-        return null;
-      }
-      
-      // For a sprite sheet with 10 cols × 13 rows:
-      // background-size should make each cell fill the container
-      // background-position uses the formula: (col * 100) / (totalCols - 1) %
-      // This ensures the edge cells are positioned correctly
-      const totalCols = SPRITE_COLS;
-      const totalRows = SPRITE_ROWS;
-      
-      // Calculate correct percentage position
-      // When col=0: xPos=0%, when col=9 (last): xPos=100%
-      const xPos = totalCols > 1 ? (card.spritePosition.col * 100) / (totalCols - 1) : 0;
-      const yPos = totalRows > 1 ? (card.spritePosition.row * 100) / (totalRows - 1) : 0;
-      
-      return {
-        backgroundImage: `url(${SPRITE_IMAGE})`,
-        backgroundPosition: `${xPos}% ${yPos}%`,
-        backgroundSize: `${totalCols * 100}% ${totalRows * 100}%`,
-      };
-    }, [card.spritePosition]);
 
     const isFogged = fogOpacity > 0.5 && !card.isFlipped && !card.isMatched;
 
@@ -168,7 +143,7 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
             )}
           </div>
 
-          {/* Card Front - Animal Image using Sprite Sheet */}
+          {/* Card Front - Animal Image */}
           <div
             className={cn(
               'card-face card-front overflow-hidden shadow-lg',
@@ -179,32 +154,15 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
               card.isMatched && !isExpertGrid && 'shadow-[0_0_20px_hsl(var(--success)/0.5)]'
             )}
           >
-            {spriteStyles ? (
-              // Use sprite sheet with CSS background-position
-              // Container with padding to ensure no edge clipping
-              <div className="w-full h-full bg-secondary/10 overflow-hidden flex items-center justify-center">
-                <div 
-                  className="w-[85%] h-[85%] flex-shrink-0"
-                  style={{
-                    ...spriteStyles,
-                    backgroundRepeat: 'no-repeat',
-                  }}
-                  role="img"
-                  aria-label={card.animalName}
-                />
-              </div>
-            ) : (
-              // Fallback to regular image
-              <img 
-                src={card.imageUrl} 
-                alt={card.animalName}
-                className="w-full h-full object-cover"
-                loading="lazy"
-                decoding="async"
-                width={128}
-                height={128}
-              />
-            )}
+            <img 
+              src={card.imageUrl} 
+              alt={card.animalName}
+              className="w-full h-full object-cover"
+              loading="lazy"
+              decoding="async"
+              width={128}
+              height={128}
+            />
             {/* Match celebration overlay */}
             {isAnimating && (
               <div className="absolute inset-0 bg-gradient-to-t from-success/30 via-transparent to-success/10 pointer-events-none animate-pulse" />

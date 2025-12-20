@@ -1,178 +1,117 @@
-// Animal card data - using sprite sheet from official source
-// Mammals, birds, reptiles, fish, amphibians only - NO INSECTS
-
-import animalSprite from '@/assets/animals/animal-sprite.jpg';
+// Animal card data with images
+// Extended collection to support 9×9 grids (40+ unique pairs needed)
+// ALL REAL ANIMAL PHOTOS - NO EMOJIS
+import calfImg from '@/assets/animals/calf.jpg';
+import puppyImg from '@/assets/animals/puppy.jpg';
+import ducklingImg from '@/assets/animals/duckling.jpg';
+import chickImg from '@/assets/animals/chick.jpg';
+import catImg from '@/assets/animals/cat.jpg';
+import lambImg from '@/assets/animals/lamb.jpg';
+import piggyImg from '@/assets/animals/piggy.jpg';
+import parrotImg from '@/assets/animals/parrot.jpg';
+import swanImg from '@/assets/animals/swan.jpg';
+import owlImg from '@/assets/animals/owl.jpg';
+import polarbearImg from '@/assets/animals/polarbear.jpg';
+import sealImg from '@/assets/animals/seal.jpg';
+import squirrelImg from '@/assets/animals/squirrel.jpg';
+import tigerImg from '@/assets/animals/tiger.jpg';
+import leopardImg from '@/assets/animals/leopard.jpg';
+import deerImg from '@/assets/animals/deer.jpg';
+import foxImg from '@/assets/animals/fox.jpg';
+import pandaImg from '@/assets/animals/panda.jpg';
+import dolphinImg from '@/assets/animals/dolphin.jpg';
+import koalaImg from '@/assets/animals/koala.jpg';
+import penguinImg from '@/assets/animals/penguin.jpg';
+// New real animal images
+import lionImg from '@/assets/animals/lion.jpg';
+import elephantImg from '@/assets/animals/elephant.jpg';
+import giraffeImg from '@/assets/animals/giraffe.jpg';
+import zebraImg from '@/assets/animals/zebra.jpg';
+import monkeyImg from '@/assets/animals/monkey.jpg';
+import gorillaImg from '@/assets/animals/gorilla.jpg';
+import hippoImg from '@/assets/animals/hippo.jpg';
+import rhinoImg from '@/assets/animals/rhino.jpg';
+import bearImg from '@/assets/animals/bear.jpg';
+import wolfImg from '@/assets/animals/wolf.jpg';
+import rabbitImg from '@/assets/animals/rabbit.jpg';
+import hamsterImg from '@/assets/animals/hamster.jpg';
+import frogImg from '@/assets/animals/frog.jpg';
+import turtleImg from '@/assets/animals/turtle.jpg';
+import whaleImg from '@/assets/animals/whale.jpg';
+import butterflyImg from '@/assets/animals/butterfly.jpg';
+// More real animal images
+import octopusImg from '@/assets/animals/octopus.jpg';
+import sharkImg from '@/assets/animals/shark.jpg';
+import fishImg from '@/assets/animals/fish.jpg';
+import beeImg from '@/assets/animals/bee.jpg';
+import ladybugImg from '@/assets/animals/ladybug.jpg';
+import snailImg from '@/assets/animals/snail.jpg';
+import crabImg from '@/assets/animals/crab.jpg';
+import peacockImg from '@/assets/animals/peacock.jpg';
+import flamingoImg from '@/assets/animals/flamingo.jpg';
+import duckImg from '@/assets/animals/duck.jpg';
+import hedgehogImg from '@/assets/animals/hedgehog.jpg';
+import kangarooImg from '@/assets/animals/kangaroo.jpg';
+import horseImg from '@/assets/animals/horse.jpg';
 
 export interface AnimalData {
   id: string;
   name: string;
   image: string;
-  spritePosition: { row: number; col: number };
 }
 
-// Sprite sheet configuration - 10 columns × 13 rows = 130 cells
-export const SPRITE_COLS = 10;
-export const SPRITE_ROWS = 13;
-export const SPRITE_IMAGE = animalSprite;
-
-// All 130 unique animals from the sprite sheet (10×13 grid)
-// NO INSECTS - mammals, birds, reptiles, fish, amphibians only
+// 50 animals with real image files (enough for 9x9 grid = 40 pairs needed)
 export const ANIMALS: AnimalData[] = [
-  // Row 0
-  { id: 'lion', name: 'Lion', image: animalSprite, spritePosition: { row: 0, col: 0 } },
-  { id: 'giraffe', name: 'Giraffe', image: animalSprite, spritePosition: { row: 0, col: 1 } },
-  { id: 'brown_bear', name: 'Brown Bear', image: animalSprite, spritePosition: { row: 0, col: 2 } },
-  { id: 'zebra', name: 'Zebra', image: animalSprite, spritePosition: { row: 0, col: 3 } },
-  { id: 'tiger', name: 'Tiger', image: animalSprite, spritePosition: { row: 0, col: 4 } },
-  { id: 'bengal_tiger', name: 'Bengal Tiger', image: animalSprite, spritePosition: { row: 0, col: 5 } },
-  { id: 'cougar', name: 'Cougar', image: animalSprite, spritePosition: { row: 0, col: 6 } },
-  { id: 'wolverine', name: 'Wolverine', image: animalSprite, spritePosition: { row: 0, col: 7 } },
-  { id: 'honey_badger', name: 'Honey Badger', image: animalSprite, spritePosition: { row: 0, col: 8 } },
-  { id: 'black_bear', name: 'Black Bear', image: animalSprite, spritePosition: { row: 0, col: 9 } },
-
-  // Row 1
-  { id: 'giraffe_calf', name: 'Giraffe Calf', image: animalSprite, spritePosition: { row: 1, col: 0 } },
-  { id: 'elephant', name: 'Elephant', image: animalSprite, spritePosition: { row: 1, col: 1 } },
-  { id: 'mountain_zebra', name: 'Mountain Zebra', image: animalSprite, spritePosition: { row: 1, col: 2 } },
-  { id: 'red_fox', name: 'Red Fox', image: animalSprite, spritePosition: { row: 1, col: 3 } },
-  { id: 'kangaroo', name: 'Kangaroo', image: animalSprite, spritePosition: { row: 1, col: 4 } },
-  { id: 'koala', name: 'Koala', image: animalSprite, spritePosition: { row: 1, col: 5 } },
-  { id: 'deer', name: 'Deer', image: animalSprite, spritePosition: { row: 1, col: 6 } },
-  { id: 'mountain_lion', name: 'Mountain Lion', image: animalSprite, spritePosition: { row: 1, col: 7 } },
-  { id: 'lynx', name: 'Lynx', image: animalSprite, spritePosition: { row: 1, col: 8 } },
-  { id: 'bobcat', name: 'Bobcat', image: animalSprite, spritePosition: { row: 1, col: 9 } },
-
-  // Row 2
-  { id: 'gray_wolf', name: 'Gray Wolf', image: animalSprite, spritePosition: { row: 2, col: 0 } },
-  { id: 'coyote', name: 'Coyote', image: animalSprite, spritePosition: { row: 2, col: 1 } },
-  { id: 'dingo', name: 'Dingo', image: animalSprite, spritePosition: { row: 2, col: 2 } },
-  { id: 'jackal', name: 'Jackal', image: animalSprite, spritePosition: { row: 2, col: 3 } },
-  { id: 'wild_dog', name: 'Wild Dog', image: animalSprite, spritePosition: { row: 2, col: 4 } },
-  { id: 'arctic_wolf', name: 'Arctic Wolf', image: animalSprite, spritePosition: { row: 2, col: 5 } },
-  { id: 'hyena', name: 'Hyena', image: animalSprite, spritePosition: { row: 2, col: 6 } },
-  { id: 'maned_wolf', name: 'Maned Wolf', image: animalSprite, spritePosition: { row: 2, col: 7 } },
-  { id: 'dhole', name: 'Dhole', image: animalSprite, spritePosition: { row: 2, col: 8 } },
-  { id: 'bush_dog', name: 'Bush Dog', image: animalSprite, spritePosition: { row: 2, col: 9 } },
-
-  // Row 3
-  { id: 'flamingo', name: 'Flamingo', image: animalSprite, spritePosition: { row: 3, col: 0 } },
-  { id: 'fennec_fox', name: 'Fennec Fox', image: animalSprite, spritePosition: { row: 3, col: 1 } },
-  { id: 'german_shepherd', name: 'German Shepherd', image: animalSprite, spritePosition: { row: 3, col: 2 } },
-  { id: 'grizzly_bear', name: 'Grizzly Bear', image: animalSprite, spritePosition: { row: 3, col: 3 } },
-  { id: 'kodiak_bear', name: 'Kodiak Bear', image: animalSprite, spritePosition: { row: 3, col: 4 } },
-  { id: 'border_collie', name: 'Border Collie', image: animalSprite, spritePosition: { row: 3, col: 5 } },
-  { id: 'belgian_shepherd', name: 'Belgian Shepherd', image: animalSprite, spritePosition: { row: 3, col: 6 } },
-  { id: 'crow', name: 'Crow', image: animalSprite, spritePosition: { row: 3, col: 7 } },
-  { id: 'raven', name: 'Raven', image: animalSprite, spritePosition: { row: 3, col: 8 } },
-  { id: 'magpie', name: 'Magpie', image: animalSprite, spritePosition: { row: 3, col: 9 } },
-
-  // Row 4
-  { id: 'leopard', name: 'Leopard', image: animalSprite, spritePosition: { row: 4, col: 0 } },
-  { id: 'blue_lizard', name: 'Blue Lizard', image: animalSprite, spritePosition: { row: 4, col: 1 } },
-  { id: 'snake', name: 'Snake', image: animalSprite, spritePosition: { row: 4, col: 2 } },
-  { id: 'kit_fox', name: 'Kit Fox', image: animalSprite, spritePosition: { row: 4, col: 3 } },
-  { id: 'swift_fox', name: 'Swift Fox', image: animalSprite, spritePosition: { row: 4, col: 4 } },
-  { id: 'puppy', name: 'Puppy', image: animalSprite, spritePosition: { row: 4, col: 5 } },
-  { id: 'platypus', name: 'Platypus', image: animalSprite, spritePosition: { row: 4, col: 6 } },
-  { id: 'crocodile', name: 'Crocodile', image: animalSprite, spritePosition: { row: 4, col: 7 } },
-  { id: 'caiman', name: 'Caiman', image: animalSprite, spritePosition: { row: 4, col: 8 } },
-  { id: 'gharial', name: 'Gharial', image: animalSprite, spritePosition: { row: 4, col: 9 } },
-
-  // Row 5
-  { id: 'alligator', name: 'Alligator', image: animalSprite, spritePosition: { row: 5, col: 0 } },
-  { id: 'panda', name: 'Panda', image: animalSprite, spritePosition: { row: 5, col: 1 } },
-  { id: 'python', name: 'Python', image: animalSprite, spritePosition: { row: 5, col: 2 } },
-  { id: 'meerkat', name: 'Meerkat', image: animalSprite, spritePosition: { row: 5, col: 3 } },
-  { id: 'monitor_lizard', name: 'Monitor Lizard', image: animalSprite, spritePosition: { row: 5, col: 4 } },
-  { id: 'iguana', name: 'Iguana', image: animalSprite, spritePosition: { row: 5, col: 5 } },
-  { id: 'baby_koala', name: 'Baby Koala', image: animalSprite, spritePosition: { row: 5, col: 6 } },
-  { id: 'wombat', name: 'Wombat', image: animalSprite, spritePosition: { row: 5, col: 7 } },
-  { id: 'tasmanian_devil', name: 'Tasmanian Devil', image: animalSprite, spritePosition: { row: 5, col: 8 } },
-  { id: 'numbat', name: 'Numbat', image: animalSprite, spritePosition: { row: 5, col: 9 } },
-
-  // Row 6
-  { id: 'red_squirrel', name: 'Red Squirrel', image: animalSprite, spritePosition: { row: 6, col: 0 } },
-  { id: 'gray_squirrel', name: 'Gray Squirrel', image: animalSprite, spritePosition: { row: 6, col: 1 } },
-  { id: 'cat', name: 'Cat', image: animalSprite, spritePosition: { row: 6, col: 2 } },
-  { id: 'viper', name: 'Viper', image: animalSprite, spritePosition: { row: 6, col: 3 } },
-  { id: 'saltwater_croc', name: 'Saltwater Croc', image: animalSprite, spritePosition: { row: 6, col: 4 } },
-  { id: 'wallaby', name: 'Wallaby', image: animalSprite, spritePosition: { row: 6, col: 5 } },
-  { id: 'seal', name: 'Seal', image: animalSprite, spritePosition: { row: 6, col: 6 } },
-  { id: 'giant_panda', name: 'Giant Panda', image: animalSprite, spritePosition: { row: 6, col: 7 } },
-  { id: 'red_panda', name: 'Red Panda', image: animalSprite, spritePosition: { row: 6, col: 8 } },
-  { id: 'sloth', name: 'Sloth', image: animalSprite, spritePosition: { row: 6, col: 9 } },
-
-  // Row 7
-  { id: 'chameleon', name: 'Chameleon', image: animalSprite, spritePosition: { row: 7, col: 0 } },
-  { id: 'king_penguin', name: 'King Penguin', image: animalSprite, spritePosition: { row: 7, col: 1 } },
-  { id: 'sea_turtle', name: 'Sea Turtle', image: animalSprite, spritePosition: { row: 7, col: 2 } },
-  { id: 'tortoise', name: 'Tortoise', image: animalSprite, spritePosition: { row: 7, col: 3 } },
-  { id: 'eagle', name: 'Eagle', image: animalSprite, spritePosition: { row: 7, col: 4 } },
-  { id: 'hawk', name: 'Hawk', image: animalSprite, spritePosition: { row: 7, col: 5 } },
-  { id: 'armadillo', name: 'Armadillo', image: animalSprite, spritePosition: { row: 7, col: 6 } },
-  { id: 'pink_flamingo', name: 'Pink Flamingo', image: animalSprite, spritePosition: { row: 7, col: 7 } },
-  { id: 'stork', name: 'Stork', image: animalSprite, spritePosition: { row: 7, col: 8 } },
-  { id: 'heron', name: 'Heron', image: animalSprite, spritePosition: { row: 7, col: 9 } },
-
-  // Row 8
-  { id: 'timber_wolf', name: 'Timber Wolf', image: animalSprite, spritePosition: { row: 8, col: 0 } },
-  { id: 'australian_dingo', name: 'Australian Dingo', image: animalSprite, spritePosition: { row: 8, col: 1 } },
-  { id: 'shark', name: 'Shark', image: animalSprite, spritePosition: { row: 8, col: 2 } },
-  { id: 'dolphin', name: 'Dolphin', image: animalSprite, spritePosition: { row: 8, col: 3 } },
-  { id: 'eel', name: 'Eel', image: animalSprite, spritePosition: { row: 8, col: 4 } },
-  { id: 'emperor_penguin', name: 'Emperor Penguin', image: animalSprite, spritePosition: { row: 8, col: 5 } },
-  { id: 'penguin', name: 'Penguin', image: animalSprite, spritePosition: { row: 8, col: 6 } },
-  { id: 'husky', name: 'Husky', image: animalSprite, spritePosition: { row: 8, col: 7 } },
-  { id: 'malamute', name: 'Malamute', image: animalSprite, spritePosition: { row: 8, col: 8 } },
-  { id: 'samoyed', name: 'Samoyed', image: animalSprite, spritePosition: { row: 8, col: 9 } },
-
-  // Row 9
-  { id: 'sun_bear', name: 'Sun Bear', image: animalSprite, spritePosition: { row: 9, col: 0 } },
-  { id: 'flying_squirrel', name: 'Flying Squirrel', image: animalSprite, spritePosition: { row: 9, col: 1 } },
-  { id: 'otter', name: 'Otter', image: animalSprite, spritePosition: { row: 9, col: 2 } },
-  { id: 'tropical_fish', name: 'Tropical Fish', image: animalSprite, spritePosition: { row: 9, col: 3 } },
-  { id: 'bottlenose_dolphin', name: 'Bottlenose Dolphin', image: animalSprite, spritePosition: { row: 9, col: 4 } },
-  { id: 'box_turtle', name: 'Box Turtle', image: animalSprite, spritePosition: { row: 9, col: 5 } },
-  { id: 'red_kangaroo', name: 'Red Kangaroo', image: animalSprite, spritePosition: { row: 9, col: 6 } },
-  { id: 'red_wolf', name: 'Red Wolf', image: animalSprite, spritePosition: { row: 9, col: 7 } },
-  { id: 'ethiopian_wolf', name: 'Ethiopian Wolf', image: animalSprite, spritePosition: { row: 9, col: 8 } },
-  { id: 'iberian_lynx', name: 'Iberian Lynx', image: animalSprite, spritePosition: { row: 9, col: 9 } },
-
-  // Row 10
-  { id: 'great_white_shark', name: 'Great White Shark', image: animalSprite, spritePosition: { row: 10, col: 0 } },
-  { id: 'hammerhead_shark', name: 'Hammerhead Shark', image: animalSprite, spritePosition: { row: 10, col: 1 } },
-  { id: 'spotted_turtle', name: 'Spotted Turtle', image: animalSprite, spritePosition: { row: 10, col: 2 } },
-  { id: 'painted_turtle', name: 'Painted Turtle', image: animalSprite, spritePosition: { row: 10, col: 3 } },
-  { id: 'snapping_turtle', name: 'Snapping Turtle', image: animalSprite, spritePosition: { row: 10, col: 4 } },
-  { id: 'bass', name: 'Bass', image: animalSprite, spritePosition: { row: 10, col: 5 } },
-  { id: 'toucan', name: 'Toucan', image: animalSprite, spritePosition: { row: 10, col: 6 } },
-  { id: 'macaw', name: 'Macaw', image: animalSprite, spritePosition: { row: 10, col: 7 } },
-  { id: 'parrot', name: 'Parrot', image: animalSprite, spritePosition: { row: 10, col: 8 } },
-  { id: 'cockatoo', name: 'Cockatoo', image: animalSprite, spritePosition: { row: 10, col: 9 } },
-
-  // Row 11
-  { id: 'lionfish', name: 'Lionfish', image: animalSprite, spritePosition: { row: 11, col: 0 } },
-  { id: 'arctic_fox', name: 'Arctic Fox', image: animalSprite, spritePosition: { row: 11, col: 1 } },
-  { id: 'corsac_fox', name: 'Corsac Fox', image: animalSprite, spritePosition: { row: 11, col: 2 } },
-  { id: 'silver_fox', name: 'Silver Fox', image: animalSprite, spritePosition: { row: 11, col: 3 } },
-  { id: 'river_dolphin', name: 'River Dolphin', image: animalSprite, spritePosition: { row: 11, col: 4 } },
-  { id: 'falcon', name: 'Falcon', image: animalSprite, spritePosition: { row: 11, col: 5 } },
-  { id: 'quail', name: 'Quail', image: animalSprite, spritePosition: { row: 11, col: 6 } },
-  { id: 'peacock', name: 'Peacock', image: animalSprite, spritePosition: { row: 11, col: 7 } },
-  { id: 'pheasant', name: 'Pheasant', image: animalSprite, spritePosition: { row: 11, col: 8 } },
-  { id: 'turkey', name: 'Turkey', image: animalSprite, spritePosition: { row: 11, col: 9 } },
-
-  // Row 12
-  { id: 'owl', name: 'Owl', image: animalSprite, spritePosition: { row: 12, col: 0 } },
-  { id: 'perch', name: 'Perch', image: animalSprite, spritePosition: { row: 12, col: 1 } },
-  { id: 'lioness', name: 'Lioness', image: animalSprite, spritePosition: { row: 12, col: 2 } },
-  { id: 'adelie_penguin', name: 'Adelie Penguin', image: animalSprite, spritePosition: { row: 12, col: 3 } },
-  { id: 'hornbill', name: 'Hornbill', image: animalSprite, spritePosition: { row: 12, col: 4 } },
-  { id: 'indian_peacock', name: 'Indian Peacock', image: animalSprite, spritePosition: { row: 12, col: 5 } },
-  { id: 'green_peacock', name: 'Green Peacock', image: animalSprite, spritePosition: { row: 12, col: 6 } },
-  { id: 'snowy_owl', name: 'Snowy Owl', image: animalSprite, spritePosition: { row: 12, col: 7 } },
-  { id: 'barn_owl', name: 'Barn Owl', image: animalSprite, spritePosition: { row: 12, col: 8 } },
-  { id: 'great_horned_owl', name: 'Great Horned Owl', image: animalSprite, spritePosition: { row: 12, col: 9 } },
+  { id: 'cat', name: 'Cat', image: catImg },
+  { id: 'calf', name: 'Calf', image: calfImg },
+  { id: 'lamb', name: 'Lamb', image: lambImg },
+  { id: 'polarbear', name: 'Polar Bear', image: polarbearImg },
+  { id: 'seal', name: 'Seal', image: sealImg },
+  { id: 'duckling', name: 'Duckling', image: ducklingImg },
+  { id: 'chick', name: 'Chick', image: chickImg },
+  { id: 'swan', name: 'Swan', image: swanImg },
+  { id: 'puppy', name: 'Puppy', image: puppyImg },
+  { id: 'owl', name: 'Owl', image: owlImg },
+  { id: 'parrot', name: 'Parrot', image: parrotImg },
+  { id: 'penguin', name: 'Penguin', image: penguinImg },
+  { id: 'piggy', name: 'Piggy', image: piggyImg },
+  { id: 'squirrel', name: 'Squirrel', image: squirrelImg },
+  { id: 'tiger', name: 'Tiger', image: tigerImg },
+  { id: 'leopard', name: 'Leopard', image: leopardImg },
+  { id: 'deer', name: 'Deer', image: deerImg },
+  { id: 'fox', name: 'Fox', image: foxImg },
+  { id: 'panda', name: 'Panda', image: pandaImg },
+  { id: 'dolphin', name: 'Dolphin', image: dolphinImg },
+  { id: 'koala', name: 'Koala', image: koalaImg },
+  { id: 'lion', name: 'Lion', image: lionImg },
+  { id: 'elephant', name: 'Elephant', image: elephantImg },
+  { id: 'giraffe', name: 'Giraffe', image: giraffeImg },
+  { id: 'zebra', name: 'Zebra', image: zebraImg },
+  { id: 'monkey', name: 'Monkey', image: monkeyImg },
+  { id: 'gorilla', name: 'Gorilla', image: gorillaImg },
+  { id: 'hippo', name: 'Hippo', image: hippoImg },
+  { id: 'rhino', name: 'Rhino', image: rhinoImg },
+  { id: 'bear', name: 'Bear', image: bearImg },
+  { id: 'wolf', name: 'Wolf', image: wolfImg },
+  { id: 'rabbit', name: 'Rabbit', image: rabbitImg },
+  { id: 'hamster', name: 'Hamster', image: hamsterImg },
+  { id: 'frog', name: 'Frog', image: frogImg },
+  { id: 'turtle', name: 'Turtle', image: turtleImg },
+  { id: 'whale', name: 'Whale', image: whaleImg },
+  { id: 'butterfly', name: 'Butterfly', image: butterflyImg },
+  { id: 'octopus', name: 'Octopus', image: octopusImg },
+  { id: 'shark', name: 'Shark', image: sharkImg },
+  { id: 'fish', name: 'Fish', image: fishImg },
+  { id: 'bee', name: 'Bee', image: beeImg },
+  { id: 'ladybug', name: 'Ladybug', image: ladybugImg },
+  { id: 'snail', name: 'Snail', image: snailImg },
+  { id: 'crab', name: 'Crab', image: crabImg },
+  { id: 'peacock', name: 'Peacock', image: peacockImg },
+  { id: 'flamingo', name: 'Flamingo', image: flamingoImg },
+  { id: 'duck', name: 'Duck', image: duckImg },
+  { id: 'hedgehog', name: 'Hedgehog', image: hedgehogImg },
+  { id: 'kangaroo', name: 'Kangaroo', image: kangarooImg },
+  { id: 'horse', name: 'Horse', image: horseImg },
 ];
 
 // Helper to check if image is emoji type (legacy support - should always be false now)
@@ -196,16 +135,6 @@ export function hasEnoughAnimals(gridSize: number, rows?: number): boolean {
   const actualRows = rows || gridSize;
   const pairsNeeded = (cols * actualRows) / 2;
   return ANIMALS.length >= pairsNeeded;
-}
-
-// Calculate sprite position as percentage for CSS background-position
-export function getSpritePosition(animal: AnimalData): { x: string; y: string } {
-  const xPercent = (animal.spritePosition.col / (SPRITE_COLS - 1)) * 100;
-  const yPercent = (animal.spritePosition.row / (SPRITE_ROWS - 1)) * 100;
-  return {
-    x: `${xPercent}%`,
-    y: `${yPercent}%`,
-  };
 }
 
 export type Difficulty = '2x2' | '4x4' | '6x6';
