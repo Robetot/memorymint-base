@@ -36,6 +36,7 @@ export interface GameState {
   isPaused: boolean;
   mechanics: MechanicState;
   previewMode: boolean;
+  isShuffling: boolean;
 }
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -116,6 +117,7 @@ export function useGameState(level: number = 1) {
       score: 0,
       isPaused: false,
       previewMode: hasMechanic('flash_preview'),
+      isShuffling: false,
       mechanics: {
         ...getInitialMechanicState(config),
         decoyCards: decoyIndices,
@@ -160,11 +162,14 @@ export function useGameState(level: number = 1) {
 
   // Mid-game shuffle mechanic
   useEffect(() => {
-    if (gameState.isPlaying && !gameState.isGameOver && gameState.mechanics.shuffleCount > 0 && !gameState.mechanics.shuffleTriggered) {
+    if (gameState.isPlaying && !gameState.isGameOver && !gameState.isShuffling && gameState.mechanics.shuffleCount > 0 && !gameState.mechanics.shuffleTriggered) {
       const shuffleThreshold = hasMechanic('double_shuffle') ? 0.5 : 0.4;
       const progressRatio = gameState.matchedPairs / totalPairs;
       
       if (progressRatio >= shuffleThreshold) {
+        // Start shuffle animation
+        setGameState(prev => ({ ...prev, isShuffling: true }));
+        
         shuffleTimerRef.current = setTimeout(() => {
           setGameState(prev => {
             const unmatchedCards = prev.cards.filter(c => !c.isMatched);
@@ -184,6 +189,7 @@ export function useGameState(level: number = 1) {
               ...prev,
               cards: allCards,
               flippedCards: [],
+              isShuffling: false,
               mechanics: {
                 ...prev.mechanics,
                 shuffleTriggered: true,
@@ -191,7 +197,7 @@ export function useGameState(level: number = 1) {
               },
             };
           });
-        }, 500);
+        }, 1500); // Animation duration
       }
     }
     
@@ -303,6 +309,7 @@ export function useGameState(level: number = 1) {
       score: 0,
       isPaused: false,
       previewMode: hasMechanicLocal('flash_preview'),
+      isShuffling: false,
       mechanics: {
         ...getInitialMechanicState(config),
         decoyCards: decoyIndices,
