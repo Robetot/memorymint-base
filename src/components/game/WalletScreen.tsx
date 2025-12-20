@@ -24,6 +24,55 @@ interface WalletScreenProps {
   onConnected: () => void;
 }
 
+// IPFS gateways for image fallback
+const IPFS_GATEWAYS = [
+  "https://gateway.pinata.cloud/ipfs/",
+  "https://cloudflare-ipfs.com/ipfs/",
+  "https://ipfs.io/ipfs/",
+  "https://nftstorage.link/ipfs/",
+];
+
+// NFT Image component with fallback handling
+function NFTImage({ src, alt }: { src: string; alt: string }) {
+  const [imgSrc, setImgSrc] = useState(src);
+  const [gatewayIndex, setGatewayIndex] = useState(0);
+  const [hasError, setHasError] = useState(false);
+  
+  const handleError = () => {
+    // If it's an IPFS URL, try different gateways
+    if (src.includes('/ipfs/') || src.startsWith('ipfs://')) {
+      const cid = src.replace(/^ipfs:\/\//, '').replace(/^https?:\/\/[^/]+\/ipfs\//, '');
+      if (gatewayIndex < IPFS_GATEWAYS.length - 1) {
+        setGatewayIndex(prev => prev + 1);
+        setImgSrc(`${IPFS_GATEWAYS[gatewayIndex + 1]}${cid}`);
+      } else {
+        setHasError(true);
+      }
+    } else {
+      setHasError(true);
+    }
+  };
+  
+  if (hasError) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+        <ImageIcon className="w-8 h-8 text-muted-foreground/50" />
+        <span className="text-xs text-amber-500">Image unavailable</span>
+      </div>
+    );
+  }
+  
+  return (
+    <img 
+      src={imgSrc}
+      alt={alt}
+      className="w-full h-full object-cover"
+      onError={handleError}
+      loading="lazy"
+    />
+  );
+}
+
 // Base App icon component
 function BaseAppIcon({ className }: { className?: string }) {
   return (
@@ -365,48 +414,70 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
             </Card>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {nfts.map((nft) => (
-                <Card key={nft.tokenId} className="overflow-hidden hover:border-primary/50 transition-all group">
-                  <div className="aspect-square relative bg-muted">
-                    {nft.metadata?.image ? (
-                      <img 
-                        src={nft.metadata.image}
-                        alt={nft.metadata.name || `NFT #${nft.tokenId}`}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <ImageIcon className="w-8 h-8 text-muted-foreground/50" />
-                      </div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
-                  <CardContent className="p-3">
-                    <p className="font-display font-medium text-sm text-foreground truncate">
-                      {nft.metadata?.name || `MemoryMint #${nft.tokenId}`}
-                    </p>
-                    <div className="flex items-center justify-between mt-1">
-                      {nft.tokenId.startsWith('pending-') ? (
-                        <span className="text-xs text-muted-foreground italic">Token ID pending</span>
+              {nfts.map((nft) => {
+                const isLoadingNFT = nft.tokenId.startsWith('loading-') || nft.isLoading;
+                const hasError = nft.tokenId.startsWith('error-') || nft.hasError;
+                const isPending = nft.tokenId.startsWith('pending-');
+                const showPlaceholder = isLoadingNFT || hasError || isPending;
+                
+                return (
+                  <Card key={nft.tokenId} className={cn(
+                    "overflow-hidden transition-all group",
+                    isLoadingNFT && "animate-pulse",
+                    hasError && "border-amber-500/30",
+                    !showPlaceholder && "hover:border-primary/50"
+                  )}>
+                    <div className="aspect-square relative bg-muted">
+                      {isLoadingNFT ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                          <span className="text-xs text-muted-foreground">Loading...</span>
+                        </div>
+                      ) : nft.metadata?.image ? (
+                        <NFTImage 
+                          src={nft.metadata.image}
+                          alt={nft.metadata.name || `NFT #${nft.tokenId}`}
+                        />
                       ) : (
-                        <span className="text-xs text-muted-foreground">#{nft.tokenId}</span>
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                          <ImageIcon className="w-8 h-8 text-muted-foreground/50" />
+                          {hasError && <span className="text-xs text-amber-500">Tap Refresh</span>}
+                        </div>
                       )}
-                      {nft.metadata?.attributes?.find(a => a.trait_type === 'Rarity') && (
-                        <span className={cn(
-                          'text-xs px-1.5 py-0.5 rounded font-medium',
-                          nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Mythic' && 'bg-gradient-to-r from-purple-500 to-pink-500 text-white',
-                          nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Legendary' && 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white',
-                          nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Epic' && 'bg-purple-500/20 text-purple-400',
-                          nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Rare' && 'bg-blue-500/20 text-blue-400',
-                          nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Common' && 'bg-muted text-muted-foreground'
-                        )}>
-                          {nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value}
-                        </span>
+                      {!showPlaceholder && (
+                        <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                       )}
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    <CardContent className="p-3">
+                      <p className="font-display font-medium text-sm text-foreground truncate">
+                        {showPlaceholder ? nft.metadata?.name : (nft.metadata?.name || `MemoryMint #${nft.tokenId}`)}
+                      </p>
+                      <div className="flex items-center justify-between mt-1">
+                        {showPlaceholder ? (
+                          <span className="text-xs text-muted-foreground italic flex items-center gap-1">
+                            {isLoadingNFT && <Loader2 className="w-3 h-3 animate-spin" />}
+                            {isLoadingNFT ? 'Syncing...' : hasError ? 'Refresh needed' : 'Pending...'}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">#{nft.tokenId}</span>
+                        )}
+                        {!showPlaceholder && nft.metadata?.attributes?.find(a => a.trait_type === 'Rarity') && (
+                          <span className={cn(
+                            'text-xs px-1.5 py-0.5 rounded font-medium',
+                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Mythic' && 'bg-gradient-to-r from-purple-500 to-pink-500 text-white',
+                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Legendary' && 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white',
+                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Epic' && 'bg-purple-500/20 text-purple-400',
+                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Rare' && 'bg-blue-500/20 text-blue-400',
+                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Common' && 'bg-muted text-muted-foreground'
+                          )}>
+                            {nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value}
+                          </span>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
 
