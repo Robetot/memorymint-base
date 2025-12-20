@@ -4,6 +4,9 @@ import { encodeFunctionData, parseAbi, decodeErrorResult } from 'viem';
 // MemoryMint contract address on Base Mainnet
 const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
 
+// Coinbase Paymaster URL for Base Mainnet (sponsored transactions)
+const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/paymaster';
+
 // Minimal ABI needed for minting (works with MemoryMintUltra)
 const CONTRACT_ABI = parseAbi([
   'function mintNFT(string tokenURI) returns (uint256)',
@@ -35,6 +38,7 @@ export interface MintState {
   tokenIds: string[] | null; // For batch mints
   error: string | null;
   success: boolean;
+  isSponsored: boolean; // Whether gas was sponsored
 }
 
 function encodeMintNFTCallData(tokenURI: string): `0x${string}` {
@@ -96,6 +100,23 @@ function decodeMintError(error: unknown): string {
   return 'Minting failed';
 }
 
+// Detect if wallet supports sponsored transactions (EIP-5792)
+function supportsWalletSendCalls(): boolean {
+  const ethereum = window.ethereum as any;
+  if (!ethereum) return false;
+  
+  // Coinbase Smart Wallet / Base App supports wallet_sendCalls
+  return !!(ethereum.isSmartWallet || ethereum.isPasskeyWallet || ethereum.isCoinbaseWallet);
+}
+
+// Get paymaster service URL based on environment
+function getPaymasterServiceUrl(): string | null {
+  // In production, use Coinbase Paymaster
+  // Note: This requires the contract to be allowlisted on Coinbase Paymaster
+  // For now, we'll attempt sponsorship and fallback to regular tx if it fails
+  return COINBASE_PAYMASTER_URL;
+}
+
 export function useNFTMint() {
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
@@ -104,6 +125,7 @@ export function useNFTMint() {
     tokenIds: null,
     error: null,
     success: false,
+    isSponsored: false,
   });
 
   const verifyBaseNetwork = useCallback(async (): Promise<boolean> => {
@@ -167,7 +189,6 @@ export function useNFTMint() {
     []
   );
 
-
   const waitForOneConfirmation = useCallback(async (minedBlockHex?: string) => {
     if (!window.ethereum || !minedBlockHex) return;
 
@@ -198,6 +219,107 @@ export function useNFTMint() {
     );
   }, []);
 
+  // Send sponsored transaction using EIP-5792 wallet_sendCalls
+  const sendSponsoredTransaction = useCallback(async (
+    walletAddress: string,
+    data: `0x${string}`
+  ): Promise<{ txHash: string; isSponsored: boolean }> => {
+    const ethereum = window.ethereum as any;
+    
+    // Try sponsored transaction with wallet_sendCalls (EIP-5792)
+    if (supportsWalletSendCalls()) {
+      try {
+        console.log('[Mint] Attempting sponsored transaction via wallet_sendCalls...');
+        
+        const calls = [{
+          to: NFT_CONTRACT_ADDRESS,
+          data,
+          value: '0x0',
+        }];
+
+        // Try with paymaster capabilities
+        const capabilities: Record<string, any> = {
+          '0x2105': { // Base Mainnet
+            paymasterService: {
+              url: getPaymasterServiceUrl(),
+            },
+          },
+        };
+
+        try {
+          // First try with paymaster sponsorship
+          const callId = await ethereum.request({
+            method: 'wallet_sendCalls',
+            params: [{
+              version: '1.0',
+              chainId: '0x2105',
+              from: walletAddress,
+              calls,
+              capabilities,
+            }],
+          });
+
+          console.log('[Mint] wallet_sendCalls submitted:', callId);
+
+          // Wait for the call to be processed and get the transaction hash
+          let status: any;
+          let attempts = 0;
+          const maxAttempts = 60;
+
+          while (attempts < maxAttempts) {
+            try {
+              status = await ethereum.request({
+                method: 'wallet_getCallsStatus',
+                params: [callId],
+              });
+
+              if (status?.status === 'CONFIRMED' && status?.receipts?.[0]?.transactionHash) {
+                console.log('[Mint] Sponsored transaction confirmed!');
+                return { 
+                  txHash: status.receipts[0].transactionHash, 
+                  isSponsored: true 
+                };
+              }
+
+              if (status?.status === 'FAILED') {
+                throw new Error(status?.reason || 'Sponsored transaction failed');
+              }
+            } catch (statusErr) {
+              // wallet_getCallsStatus might not be supported, fallback to polling receipt
+              console.log('[Mint] wallet_getCallsStatus not available, using callId as txHash');
+            }
+
+            await new Promise(r => setTimeout(r, 2000));
+            attempts++;
+          }
+
+          // If we got a callId but couldn't get status, treat callId as txHash
+          if (callId && typeof callId === 'string' && callId.startsWith('0x')) {
+            return { txHash: callId, isSponsored: true };
+          }
+        } catch (sponsorErr: any) {
+          console.log('[Mint] Sponsored tx failed, falling back to regular tx:', sponsorErr?.message);
+          // Fall through to regular transaction
+        }
+      } catch (err) {
+        console.log('[Mint] wallet_sendCalls not supported, using eth_sendTransaction');
+      }
+    }
+
+    // Fallback to regular eth_sendTransaction
+    console.log('[Mint] Sending regular transaction via eth_sendTransaction...');
+    const txHash = await ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from: walletAddress,
+        to: NFT_CONTRACT_ADDRESS,
+        data,
+      }],
+    }) as string;
+
+    return { txHash, isSponsored: false };
+  }, []);
+
   // Single NFT mint (game integration - uses safeMint with tokenURI)
   const mintNFT = useCallback(async (
     tokenURI: string,
@@ -226,29 +348,18 @@ export function useNFTMint() {
       tokenIds: null,
       error: null,
       success: false,
+      isSponsored: false,
     });
 
     try {
-      console.log('Minting NFT via MemoryMint...');
-
-      // Mint using mintNFT(string)
+      console.log('[Mint] Minting NFT via MemoryMint...');
       const data = encodeMintNFTCallData(tokenURI);
 
-      // IMPORTANT: do NOT set a padded gasLimit; it inflates the wallet UI fee display.
-      // Let the wallet estimate gas + fees accurately on Base.
-      const txParams = {
-        from: walletAddress,
-        to: NFT_CONTRACT_ADDRESS,
-        data,
-      };
+      // Try sponsored transaction first, fallback to regular
+      const { txHash, isSponsored } = await sendSponsoredTransaction(walletAddress, data);
 
-      const txHash = (await window.ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [txParams],
-      })) as string;
-
-      console.log('Transaction submitted:', txHash);
-      setMintState(prev => ({ ...prev, txHash }));
+      console.log('[Mint] Transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
+      setMintState(prev => ({ ...prev, txHash, isSponsored }));
 
       const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
       await waitForOneConfirmation(blockNumber);
@@ -260,6 +371,7 @@ export function useNFTMint() {
         tokenIds: tokenIds.length > 0 ? tokenIds : null,
         error: null,
         success,
+        isSponsored,
       });
 
       if (success) {
@@ -268,7 +380,7 @@ export function useNFTMint() {
 
       return success;
     } catch (error: unknown) {
-      console.error('Minting error:', error);
+      console.error('[Mint] Minting error:', error);
 
       setMintState(prev => ({
         ...prev,
@@ -277,8 +389,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [notifyMinted, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
-
+  }, [notifyMinted, sendSponsoredTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   // Batch mint for power users
   const batchMintNFT = useCallback(async (
@@ -313,27 +424,18 @@ export function useNFTMint() {
       tokenIds: null,
       error: null,
       success: false,
+      isSponsored: false,
     });
 
     try {
-      console.log(`Batch minting ${quantity} NFTs...`);
-
+      console.log(`[Mint] Batch minting ${quantity} NFTs...`);
       const data = encodeBatchMintCallData(quantity);
 
-      // Let wallet estimate gas + fees (no padded gasLimit)
-      const txParams = {
-        from: walletAddress,
-        to: NFT_CONTRACT_ADDRESS,
-        data,
-      };
+      // Try sponsored transaction first, fallback to regular
+      const { txHash, isSponsored } = await sendSponsoredTransaction(walletAddress, data);
 
-      const txHash = (await window.ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [txParams],
-      })) as string;
-
-      console.log('Batch transaction submitted:', txHash);
-      setMintState(prev => ({ ...prev, txHash }));
+      console.log('[Mint] Batch transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
+      setMintState(prev => ({ ...prev, txHash, isSponsored }));
 
       const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
       await waitForOneConfirmation(blockNumber);
@@ -345,6 +447,7 @@ export function useNFTMint() {
         tokenIds: tokenIds.length > 0 ? tokenIds : null,
         error: null,
         success,
+        isSponsored,
       });
 
       if (success) {
@@ -353,7 +456,7 @@ export function useNFTMint() {
 
       return success;
     } catch (error: unknown) {
-      console.error('Batch minting error:', error);
+      console.error('[Mint] Batch minting error:', error);
 
       setMintState(prev => ({
         ...prev,
@@ -362,7 +465,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [notifyMinted, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+  }, [notifyMinted, sendSponsoredTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   // Quick mint (no tokenURI - uses contract's baseURI + tokenId)
   const quickMint = useCallback(async (walletAddress: string): Promise<boolean> => {
@@ -389,27 +492,18 @@ export function useNFTMint() {
       tokenIds: null,
       error: null,
       success: false,
+      isSponsored: false,
     });
 
     try {
-      console.log("Quick minting via mintNFT('')...");
-
+      console.log("[Mint] Quick minting via mintNFT('')...");
       const data = encodeMintNFTCallData('');
 
-      // Let wallet estimate gas + fees (no padded gasLimit)
-      const txParams = {
-        from: walletAddress,
-        to: NFT_CONTRACT_ADDRESS,
-        data,
-      };
+      // Try sponsored transaction first, fallback to regular
+      const { txHash, isSponsored } = await sendSponsoredTransaction(walletAddress, data);
 
-      const txHash = (await window.ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [txParams],
-      })) as string;
-
-      console.log('Quick mint submitted:', txHash);
-      setMintState(prev => ({ ...prev, txHash }));
+      console.log('[Mint] Quick mint submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
+      setMintState(prev => ({ ...prev, txHash, isSponsored }));
 
       const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
       await waitForOneConfirmation(blockNumber);
@@ -421,6 +515,7 @@ export function useNFTMint() {
         tokenIds: tokenIds.length > 0 ? tokenIds : null,
         error: null,
         success,
+        isSponsored,
       });
 
       if (success) {
@@ -429,7 +524,7 @@ export function useNFTMint() {
 
       return success;
     } catch (error: unknown) {
-      console.error('Quick mint error:', error);
+      console.error('[Mint] Quick mint error:', error);
 
       setMintState(prev => ({
         ...prev,
@@ -438,7 +533,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [notifyMinted, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+  }, [notifyMinted, sendSponsoredTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   const resetMintState = useCallback(() => {
     setMintState({
@@ -448,6 +543,7 @@ export function useNFTMint() {
       tokenIds: null,
       error: null,
       success: false,
+      isSponsored: false,
     });
   }, []);
 
@@ -458,5 +554,6 @@ export function useNFTMint() {
     quickMint,
     resetMintState,
     contractAddress: NFT_CONTRACT_ADDRESS,
+    supportsSponsorship: supportsWalletSendCalls(),
   };
 }

@@ -13,7 +13,11 @@
     "splashBackgroundColor": "#1a1a2e",
     "subtitle": "Free skill-based memory game",
     "description": "MemoryMint is a free-to-play memory card game on Base. Match pairs, prove your skill, and mint NFTs based on your performance. No pay-to-win, just pure skill.",
-    "screenshotUrls": [],
+    "screenshotUrls": [
+      "/screenshots/gameplay-1.png",
+      "/screenshots/victory-2.png",
+      "/screenshots/collection-3.png"
+    ],
     "primaryCategory": "games",
     "tags": ["memory", "game", "nft", "base", "skill", "baseapp"],
     "heroImageUrl": "/og-image.png",
