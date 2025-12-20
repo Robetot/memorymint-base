@@ -91,30 +91,35 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     if (activeEffect === 'freeze') {
       pauseGame();
       addTime(5);
-      freezeTimeoutRef.current = setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         resumeGame();
         clearActiveEffect();
       }, 5000);
+      freezeTimeoutRef.current = timeoutId;
+      
+      return () => {
+        clearTimeout(timeoutId);
+        // Ensure game is resumed if effect is interrupted
+        resumeGame();
+      };
     } else if (activeEffect === 'reveal') {
       setRevealAll(true);
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         setRevealAll(false);
         clearActiveEffect();
       }, 2000);
+      
+      return () => clearTimeout(timeoutId);
     } else if (activeEffect === 'shuffle') {
       setIsShuffling(true);
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         shuffleUnmatched();
         setIsShuffling(false);
         clearActiveEffect();
       }, 1500);
+      
+      return () => clearTimeout(timeoutId);
     }
-
-    return () => {
-      if (freezeTimeoutRef.current) {
-        clearTimeout(freezeTimeoutRef.current);
-      }
-    };
   }, [activeEffect, pauseGame, resumeGame, addTime, shuffleUnmatched, clearActiveEffect]);
 
   const handleUsePowerUp = useCallback((id: string) => {
