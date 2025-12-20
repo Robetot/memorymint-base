@@ -125,13 +125,12 @@ export function Leaderboard({ onBack }: LeaderboardProps) {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="font-display font-semibold text-foreground truncate">
-                    {entry.farcasterUsername ? `@${entry.farcasterUsername}` : entry.playerName}
+                    {entry.farcasterUsername 
+                      ? `@${entry.farcasterUsername}` 
+                      : entry.playerName}
                   </p>
                   <p className="text-xs text-muted-foreground font-body">
                     {formatDate(entry.date)}
-                    {entry.farcasterFid && (
-                      <span className="ml-2 text-[#8B5CF6]">FID: {entry.farcasterFid}</span>
-                    )}
                   </p>
                 </div>
 

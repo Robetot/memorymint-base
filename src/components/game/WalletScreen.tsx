@@ -179,7 +179,9 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               <p className="font-body text-sm text-muted-foreground">
                 {isSmartWallet ? 'Smart Wallet Connected' : 'Wallet Connected'}
               </p>
-              <p className="font-mono text-foreground">{formatAddress(address)}</p>
+              <p className="font-medium text-foreground">
+                {farcasterUser?.displayName || farcasterUser?.username || 'Connected User'}
+              </p>
               {isSmartWallet && (
                 <span className="text-xs text-[#0052FF] font-medium">Base Smart Wallet</span>
               )}
@@ -212,7 +214,9 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
             </div>
             <div className="flex-1">
               <p className="font-body text-sm text-muted-foreground">Base App Connected</p>
-              <p className="font-mono text-foreground">{formatAddress(baseAppAddress)}</p>
+              <p className="font-medium text-foreground">
+                {farcasterUser?.displayName || farcasterUser?.username || 'Connected User'}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <Check className="w-5 h-5 text-[#0052FF]" />
