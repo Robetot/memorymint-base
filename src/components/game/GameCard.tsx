@@ -60,7 +60,7 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
       };
     }, [fogOpacity, card.isFlipped, card.isMatched]);
 
-    // Calculate sprite background position
+    // Calculate sprite background position with padding for safe viewing
     const spriteStyles = useMemo(() => {
       if (!card.spritePosition) {
         // Fallback to old image URL if no sprite position
@@ -68,12 +68,14 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
       }
       
       // Calculate percentage position within sprite sheet
+      // Using exact grid positions for 10 cols × 13 rows
       const xPercent = (card.spritePosition.col / (SPRITE_COLS - 1)) * 100;
       const yPercent = (card.spritePosition.row / (SPRITE_ROWS - 1)) * 100;
       
       return {
         backgroundImage: `url(${SPRITE_IMAGE})`,
         backgroundPosition: `${xPercent}% ${yPercent}%`,
+        // Slightly reduce size to add padding around each animal cell
         backgroundSize: `${SPRITE_COLS * 100}% ${SPRITE_ROWS * 100}%`,
       };
     }, [card.spritePosition]);
@@ -174,15 +176,20 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
           >
             {spriteStyles ? (
               // Use sprite sheet with CSS background-position
+              // Added padding container to prevent edge clipping on animals
               <div 
-                className="w-full h-full bg-muted"
-                style={{
-                  ...spriteStyles,
-                  backgroundRepeat: 'no-repeat',
-                }}
-                role="img"
-                aria-label={card.animalName}
-              />
+                className="w-full h-full bg-secondary/20 flex items-center justify-center p-1"
+              >
+                <div 
+                  className="w-full h-full"
+                  style={{
+                    ...spriteStyles,
+                    backgroundRepeat: 'no-repeat',
+                  }}
+                  role="img"
+                  aria-label={card.animalName}
+                />
+              </div>
             ) : (
               // Fallback to regular image
               <img 
