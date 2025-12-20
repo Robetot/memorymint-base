@@ -161,88 +161,155 @@ export function MechanicIndicators({ activeMechanics, mechanicState, totalPairs 
   );
 }
 
-// Shuffle animation overlay - enhanced visual effect
+// Shuffle animation overlay - enhanced with flying cards and screen shake
 export function ShuffleOverlay({ isShuffling }: { isShuffling: boolean }) {
   return (
     <AnimatePresence>
       {isShuffling && (
         <motion.div
           initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+          animate={{ 
+            opacity: 1,
+            // Screen shake effect
+            x: [0, -5, 5, -5, 5, -3, 3, 0],
+            y: [0, 3, -3, 3, -3, 2, -2, 0],
+          }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+          transition={{ 
+            opacity: { duration: 0.3 },
+            x: { duration: 0.5, repeat: 2, ease: "easeInOut" },
+            y: { duration: 0.5, repeat: 2, ease: "easeInOut" },
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-md"
         >
-          <div className="relative flex flex-col items-center gap-4">
-            {/* Outer glow ring */}
-            <motion.div
-              animate={{
-                scale: [1, 1.5, 1],
-                opacity: [0.5, 0, 0.5],
-              }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-                ease: "easeOut"
-              }}
-              className="absolute w-32 h-32 rounded-full bg-primary/30 blur-xl"
-            />
+          {/* Flying cards background effect */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {[...Array(20)].map((_, i) => (
+              <motion.div
+                key={i}
+                initial={{
+                  x: `${Math.random() * 100}%`,
+                  y: '110%',
+                  rotate: Math.random() * 360,
+                  scale: 0.5 + Math.random() * 0.5,
+                }}
+                animate={{
+                  x: `${Math.random() * 100}%`,
+                  y: '-10%',
+                  rotate: Math.random() * 720 - 360,
+                }}
+                transition={{
+                  duration: 1 + Math.random() * 0.5,
+                  repeat: Infinity,
+                  delay: i * 0.08,
+                  ease: "easeOut",
+                }}
+                className="absolute w-12 h-16 rounded-lg shadow-2xl"
+                style={{
+                  background: `linear-gradient(135deg, hsl(var(--primary) / 0.8), hsl(var(--secondary) / 0.6))`,
+                  boxShadow: '0 10px 30px hsl(var(--primary) / 0.3)',
+                }}
+              />
+            ))}
+          </div>
+
+          <div className="relative flex flex-col items-center gap-6 z-10">
+            {/* Pulsing glow rings */}
+            {[1, 2, 3].map((ring) => (
+              <motion.div
+                key={ring}
+                animate={{
+                  scale: [1, 2, 1],
+                  opacity: [0.4, 0, 0.4],
+                }}
+                transition={{
+                  duration: 1.5,
+                  repeat: Infinity,
+                  delay: ring * 0.3,
+                  ease: "easeOut",
+                }}
+                className="absolute rounded-full bg-primary/20"
+                style={{
+                  width: `${80 + ring * 40}px`,
+                  height: `${80 + ring * 40}px`,
+                }}
+              />
+            ))}
             
-            {/* Main shuffle icon with rotation */}
+            {/* Main shuffle icon with dramatic rotation */}
             <motion.div
               animate={{
                 rotate: [0, 360],
-                scale: [1, 1.2, 1],
+                scale: [1, 1.3, 1],
               }}
               transition={{
-                rotate: { duration: 1, repeat: Infinity, ease: "linear" },
-                scale: { duration: 0.5, repeat: Infinity, ease: "easeInOut" }
+                rotate: { duration: 0.8, repeat: Infinity, ease: "linear" },
+                scale: { duration: 0.4, repeat: Infinity, ease: "easeInOut" },
               }}
-              className="relative z-10 p-6 rounded-full bg-gradient-to-br from-primary to-primary/60 shadow-2xl"
+              className="relative z-10 p-8 rounded-full bg-gradient-to-br from-primary via-primary/80 to-secondary shadow-2xl"
+              style={{
+                boxShadow: '0 0 60px hsl(var(--primary) / 0.6), 0 0 100px hsl(var(--primary) / 0.3)',
+              }}
             >
-              <span className="text-5xl">🔀</span>
+              <span className="text-6xl drop-shadow-lg">🔀</span>
             </motion.div>
             
-            <motion.p
-              animate={{
-                opacity: [0.5, 1, 0.5],
-              }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-                ease: "easeInOut"
-              }}
-              className="text-2xl font-bold text-foreground mt-4"
-            >
-              Shuffling Cards...
-            </motion.p>
+            {/* Text with wave effect */}
+            <motion.div className="flex gap-1 mt-4">
+              {"SHUFFLING".split('').map((char, i) => (
+                <motion.span
+                  key={i}
+                  animate={{
+                    y: [0, -10, 0],
+                    scale: [1, 1.2, 1],
+                  }}
+                  transition={{
+                    duration: 0.5,
+                    repeat: Infinity,
+                    delay: i * 0.05,
+                    ease: "easeInOut",
+                  }}
+                  className="text-3xl font-bold text-foreground drop-shadow-lg"
+                >
+                  {char}
+                </motion.span>
+              ))}
+            </motion.div>
             
-            {/* Floating card particles */}
-            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            {/* Orbiting card particles */}
+            <div className="absolute inset-0 pointer-events-none">
               {[...Array(8)].map((_, i) => (
                 <motion.div
                   key={i}
-                  initial={{
-                    x: '50%',
-                    y: '50%',
-                    opacity: 0,
-                    scale: 0,
-                  }}
                   animate={{
-                    x: `${50 + Math.cos(i * (Math.PI / 4)) * 40}%`,
-                    y: `${50 + Math.sin(i * (Math.PI / 4)) * 40}%`,
-                    opacity: [0, 1, 0],
-                    scale: [0, 1, 0],
-                    rotate: [0, 180, 360],
+                    rotate: 360,
                   }}
                   transition={{
-                    duration: 1.5,
+                    duration: 2,
                     repeat: Infinity,
-                    delay: i * 0.1,
-                    ease: "easeInOut"
+                    ease: "linear",
                   }}
-                  className="absolute w-8 h-10 -ml-4 -mt-5 rounded-md bg-gradient-to-br from-accent to-accent/50 shadow-lg"
-                />
+                  className="absolute left-1/2 top-1/2"
+                  style={{
+                    transformOrigin: '0 0',
+                  }}
+                >
+                  <motion.div
+                    animate={{
+                      scale: [0.8, 1.2, 0.8],
+                      opacity: [0.6, 1, 0.6],
+                    }}
+                    transition={{
+                      duration: 1,
+                      repeat: Infinity,
+                      delay: i * 0.1,
+                    }}
+                    className="w-6 h-8 rounded-md bg-gradient-to-br from-accent to-accent/50 shadow-lg"
+                    style={{
+                      transform: `translateX(${80 + i * 10}px) translateY(-4px)`,
+                    }}
+                  />
+                </motion.div>
               ))}
             </div>
           </div>

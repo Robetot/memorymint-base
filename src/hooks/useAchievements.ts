@@ -87,11 +87,26 @@ export const useAchievements = () => {
   }, [checkAndUnlock]);
 
   const trackPerfectGame = useCallback(() => {
-    const current = achievements.find(a => a.id === 'first_perfect')?.progress || 0;
-    checkAndUnlock('first_perfect', current + 1);
-    checkAndUnlock('perfect_streak', current + 1);
-    checkAndUnlock('perfectionist', current + 1);
-  }, [achievements, checkAndUnlock]);
+    setAchievements(prev => {
+      const current = prev.find(a => a.id === 'first_perfect')?.progress || 0;
+      const newValue = current + 1;
+      
+      const updated = prev.map(a => {
+        if (['first_perfect', 'perfect_streak', 'perfectionist'].includes(a.id)) {
+          const newProgress = Math.max(a.progress, newValue);
+          if (!a.unlocked && newProgress >= a.requirement) {
+            const unlocked = { ...a, unlocked: true, unlockedAt: new Date(), progress: newProgress };
+            setTimeout(() => setNewUnlock(unlocked), 100);
+            return unlocked;
+          }
+          return { ...a, progress: newProgress };
+        }
+        return a;
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
 
   const trackSpeed = useCallback((seconds: number) => {
     if (seconds <= 30) checkAndUnlock('speed_demon', 30 - seconds);
@@ -99,27 +114,92 @@ export const useAchievements = () => {
   }, [checkAndUnlock]);
 
   const trackLevelComplete = useCallback(() => {
-    const current = achievements.find(a => a.id === 'first_win')?.progress || 0;
-    checkAndUnlock('first_win', current + 1);
-    checkAndUnlock('dedicated', current + 1);
-    checkAndUnlock('veteran', current + 1);
-    checkAndUnlock('master', current + 1);
-  }, [achievements, checkAndUnlock]);
+    setAchievements(prev => {
+      const current = prev.find(a => a.id === 'first_win')?.progress || 0;
+      const newValue = current + 1;
+      
+      const updated = prev.map(a => {
+        if (['first_win', 'dedicated', 'veteran', 'master'].includes(a.id)) {
+          const newProgress = Math.max(a.progress, newValue);
+          if (!a.unlocked && newProgress >= a.requirement) {
+            const unlocked = { ...a, unlocked: true, unlockedAt: new Date(), progress: newProgress };
+            setTimeout(() => setNewUnlock(unlocked), 100);
+            return unlocked;
+          }
+          return { ...a, progress: newProgress };
+        }
+        return a;
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
 
   const trackDailyChallenge = useCallback(() => {
-    const current = achievements.find(a => a.id === 'daily_warrior')?.progress || 0;
-    checkAndUnlock('daily_warrior', current + 1);
-  }, [achievements, checkAndUnlock]);
+    setAchievements(prev => {
+      const current = prev.find(a => a.id === 'daily_warrior')?.progress || 0;
+      const newValue = current + 1;
+      
+      const updated = prev.map(a => {
+        if (a.id === 'daily_warrior') {
+          const newProgress = Math.max(a.progress, newValue);
+          if (!a.unlocked && newProgress >= a.requirement) {
+            const unlocked = { ...a, unlocked: true, unlockedAt: new Date(), progress: newProgress };
+            setTimeout(() => setNewUnlock(unlocked), 100);
+            return unlocked;
+          }
+          return { ...a, progress: newProgress };
+        }
+        return a;
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
 
   const trackNFTMint = useCallback(() => {
-    const current = achievements.find(a => a.id === 'nft_collector')?.progress || 0;
-    checkAndUnlock('nft_collector', current + 1);
-  }, [achievements, checkAndUnlock]);
+    setAchievements(prev => {
+      const current = prev.find(a => a.id === 'nft_collector')?.progress || 0;
+      const newValue = current + 1;
+      
+      const updated = prev.map(a => {
+        if (a.id === 'nft_collector') {
+          const newProgress = Math.max(a.progress, newValue);
+          if (!a.unlocked && newProgress >= a.requirement) {
+            const unlocked = { ...a, unlocked: true, unlockedAt: new Date(), progress: newProgress };
+            setTimeout(() => setNewUnlock(unlocked), 100);
+            return unlocked;
+          }
+          return { ...a, progress: newProgress };
+        }
+        return a;
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
 
   const trackPowerUp = useCallback(() => {
-    const current = achievements.find(a => a.id === 'power_user')?.progress || 0;
-    checkAndUnlock('power_user', current + 1);
-  }, [achievements, checkAndUnlock]);
+    setAchievements(prev => {
+      const current = prev.find(a => a.id === 'power_user')?.progress || 0;
+      const newValue = current + 1;
+      
+      const updated = prev.map(a => {
+        if (a.id === 'power_user') {
+          const newProgress = Math.max(a.progress, newValue);
+          if (!a.unlocked && newProgress >= a.requirement) {
+            const unlocked = { ...a, unlocked: true, unlockedAt: new Date(), progress: newProgress };
+            setTimeout(() => setNewUnlock(unlocked), 100);
+            return unlocked;
+          }
+          return { ...a, progress: newProgress };
+        }
+        return a;
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
 
   const dismissNewUnlock = useCallback(() => setNewUnlock(null), []);
 
