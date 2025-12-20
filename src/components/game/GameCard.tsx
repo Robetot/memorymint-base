@@ -1,6 +1,6 @@
 import { useEffect, useState, forwardRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { CardData } from '@/hooks/useGameState';
+import { CardData, SPRITE_COLS, SPRITE_ROWS, SPRITE_IMAGE } from '@/utils/deckValidator';
 import cardBackImg from '@/assets/card-back.png';
 
 interface GameCardProps {
@@ -59,6 +59,24 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
         transform: fogOpacity > 0.5 ? `scale(${1 - fogOpacity * 0.1})` : 'none',
       };
     }, [fogOpacity, card.isFlipped, card.isMatched]);
+
+    // Calculate sprite background position
+    const spriteStyles = useMemo(() => {
+      if (!card.spritePosition) {
+        // Fallback to old image URL if no sprite position
+        return null;
+      }
+      
+      // Calculate percentage position within sprite sheet
+      const xPercent = (card.spritePosition.col / (SPRITE_COLS - 1)) * 100;
+      const yPercent = (card.spritePosition.row / (SPRITE_ROWS - 1)) * 100;
+      
+      return {
+        backgroundImage: `url(${SPRITE_IMAGE})`,
+        backgroundPosition: `${xPercent}% ${yPercent}%`,
+        backgroundSize: `${SPRITE_COLS * 100}% ${SPRITE_ROWS * 100}%`,
+      };
+    }, [card.spritePosition]);
 
     const isFogged = fogOpacity > 0.5 && !card.isFlipped && !card.isMatched;
 
@@ -143,7 +161,7 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
             )}
           </div>
 
-          {/* Card Front - Animal Image */}
+          {/* Card Front - Animal Image using Sprite Sheet */}
           <div
             className={cn(
               'card-face card-front overflow-hidden shadow-lg',
@@ -154,15 +172,29 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
               card.isMatched && !isExpertGrid && 'shadow-[0_0_20px_hsl(var(--success)/0.5)]'
             )}
           >
-            <img 
-              src={card.imageUrl} 
-              alt={card.animalName}
-              className="w-full h-full object-cover"
-              loading="lazy"
-              decoding="async"
-              width={128}
-              height={128}
-            />
+            {spriteStyles ? (
+              // Use sprite sheet with CSS background-position
+              <div 
+                className="w-full h-full bg-muted"
+                style={{
+                  ...spriteStyles,
+                  backgroundRepeat: 'no-repeat',
+                }}
+                role="img"
+                aria-label={card.animalName}
+              />
+            ) : (
+              // Fallback to regular image
+              <img 
+                src={card.imageUrl} 
+                alt={card.animalName}
+                className="w-full h-full object-cover"
+                loading="lazy"
+                decoding="async"
+                width={128}
+                height={128}
+              />
+            )}
             {/* Match celebration overlay */}
             {isAnimating && (
               <div className="absolute inset-0 bg-gradient-to-t from-success/30 via-transparent to-success/10 pointer-events-none animate-pulse" />
