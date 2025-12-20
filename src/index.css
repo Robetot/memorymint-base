@@ -123,9 +123,20 @@
 }
 
 @layer utilities {
+  /* Game card container - fills grid cell */
+  .game-card {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 1 / 1;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
   .card-flip {
     transform-style: preserve-3d;
-    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    -webkit-transform-style: preserve-3d;
+    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     width: 100%;
     height: 100%;
     position: relative;
@@ -133,7 +144,7 @@
   
   .card-flip.flipped {
     transform: rotateY(180deg);
-    animation: card-reveal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: card-reveal 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   
   @keyframes card-reveal {
@@ -141,7 +152,7 @@
       transform: rotateY(0deg) scale(1);
     }
     40% {
-      transform: rotateY(90deg) scale(1.08);
+      transform: rotateY(90deg) scale(1.05);
     }
     100% {
       transform: rotateY(180deg) scale(1);
@@ -167,7 +178,12 @@
   }
   
   .card-flip.flipped .card-front {
-    animation: reveal-glow 0.4s ease-out 0.3s forwards;
+    animation: reveal-glow 0.4s ease-out 0.2s forwards;
+  }
+  
+  /* Grid board container */
+  .grid-board {
+    touch-action: manipulation;
   }
   
   @keyframes reveal-glow {

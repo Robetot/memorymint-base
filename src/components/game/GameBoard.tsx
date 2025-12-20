@@ -213,32 +213,20 @@ export function GameBoard({
 
   // Determine grid size category for responsive sizing
   const maxDimension = Math.max(gridColumns, gridRows);
-  const gridSizeCategory = maxDimension <= 2 ? 'tiny' : maxDimension <= 4 ? 'small' : maxDimension <= 6 ? 'medium' : maxDimension <= 8 ? 'large' : 'xlarge';
 
-  // Calculate optimal card size based on grid dimensions - returns pixel values for consistency
-  const getCardSizePx = () => {
-    if (maxDimension <= 2) return { mobile: 96, desktop: 112 };
-    if (maxDimension <= 3) return { mobile: 80, desktop: 96 };
-    if (maxDimension <= 4) return { mobile: 64, desktop: 80 };
-    if (maxDimension <= 5) return { mobile: 56, desktop: 64 };
-    if (maxDimension <= 6) return { mobile: 48, desktop: 56 };
-    if (maxDimension <= 7) return { mobile: 40, desktop: 48 };
-    if (maxDimension <= 8) return { mobile: 36, desktop: 44 };
-    return { mobile: 32, desktop: 40 };
+  // Gap sizes based on grid complexity
+  const getGapSize = () => {
+    if (maxDimension <= 4) return { mobile: 8, desktop: 12 };
+    if (maxDimension <= 6) return { mobile: 6, desktop: 8 };
+    return { mobile: 4, desktop: 6 };
   };
 
-  const cardSizes = getCardSizePx();
+  const gaps = getGapSize();
 
   return (
     <div 
       ref={boardRef}
-      className={cn(
-        'w-full mx-auto p-2 md:p-4 relative',
-        gridSizeCategory === 'xlarge' ? 'max-w-[100vw] md:max-w-5xl' :
-        gridSizeCategory === 'large' ? 'max-w-[98vw] md:max-w-4xl' : 
-        gridSizeCategory === 'medium' ? 'max-w-[95vw] md:max-w-2xl' : 
-        'max-w-lg'
-      )}
+      className="w-full h-full flex items-center justify-center p-1 sm:p-2 md:p-4 relative"
     >
       {/* Error overlay if grid is broken */}
       {cards.length !== expectedCards && cards.length > 0 && (
@@ -277,12 +265,15 @@ export function GameBoard({
       <ComboParticles combo={combo} />
 
       <div
-        className={cn(
-          "grid mx-auto justify-center items-center",
-          maxDimension <= 4 ? "gap-2 md:gap-3" : maxDimension <= 6 ? "gap-1.5 md:gap-2" : "gap-1"
-        )}
+        className="grid-board"
         style={{
-          gridTemplateColumns: `repeat(${gridColumns}, ${cardSizes.mobile}px)`,
+          display: 'grid',
+          gridTemplateColumns: `repeat(${gridColumns}, 1fr)`,
+          gridTemplateRows: `repeat(${gridRows}, 1fr)`,
+          gap: `${gaps.mobile}px`,
+          width: '100%',
+          maxWidth: 'min(95vw, 95vh, 600px)',
+          aspectRatio: `${gridColumns} / ${gridRows}`,
         }}
       >
         {cards.map((card) => {
@@ -317,7 +308,6 @@ export function GameBoard({
               isShaking={shakingCardIds.has(card.id)}
               fogOpacity={fogOpacity}
               isDecaying={decayingCards.has(card.id)}
-              cardSize={cardSizes.mobile}
             />
           );
         })}
