@@ -1,5 +1,6 @@
 // Animal card data with images
 // Extended collection to support 9×9 grids (40+ unique pairs needed)
+// ALL REAL ANIMAL PHOTOS - NO EMOJIS
 import calfImg from '@/assets/animals/calf.jpg';
 import puppyImg from '@/assets/animals/puppy.jpg';
 import ducklingImg from '@/assets/animals/duckling.jpg';
@@ -38,6 +39,20 @@ import frogImg from '@/assets/animals/frog.jpg';
 import turtleImg from '@/assets/animals/turtle.jpg';
 import whaleImg from '@/assets/animals/whale.jpg';
 import butterflyImg from '@/assets/animals/butterfly.jpg';
+// More real animal images
+import octopusImg from '@/assets/animals/octopus.jpg';
+import sharkImg from '@/assets/animals/shark.jpg';
+import fishImg from '@/assets/animals/fish.jpg';
+import beeImg from '@/assets/animals/bee.jpg';
+import ladybugImg from '@/assets/animals/ladybug.jpg';
+import snailImg from '@/assets/animals/snail.jpg';
+import crabImg from '@/assets/animals/crab.jpg';
+import peacockImg from '@/assets/animals/peacock.jpg';
+import flamingoImg from '@/assets/animals/flamingo.jpg';
+import duckImg from '@/assets/animals/duck.jpg';
+import hedgehogImg from '@/assets/animals/hedgehog.jpg';
+import kangarooImg from '@/assets/animals/kangaroo.jpg';
+import horseImg from '@/assets/animals/horse.jpg';
 
 export interface AnimalData {
   id: string;
@@ -45,8 +60,8 @@ export interface AnimalData {
   image: string;
 }
 
-// 37 animals with real image files (enough for 9x9 grid = 40 pairs needed)
-const ANIMALS_FROM_FILES: AnimalData[] = [
+// 50 animals with real image files (enough for 9x9 grid = 40 pairs needed)
+export const ANIMALS: AnimalData[] = [
   { id: 'cat', name: 'Cat', image: catImg },
   { id: 'calf', name: 'Calf', image: calfImg },
   { id: 'lamb', name: 'Lamb', image: lambImg },
@@ -68,7 +83,6 @@ const ANIMALS_FROM_FILES: AnimalData[] = [
   { id: 'panda', name: 'Panda', image: pandaImg },
   { id: 'dolphin', name: 'Dolphin', image: dolphinImg },
   { id: 'koala', name: 'Koala', image: koalaImg },
-  // New real images
   { id: 'lion', name: 'Lion', image: lionImg },
   { id: 'elephant', name: 'Elephant', image: elephantImg },
   { id: 'giraffe', name: 'Giraffe', image: giraffeImg },
@@ -85,34 +99,27 @@ const ANIMALS_FROM_FILES: AnimalData[] = [
   { id: 'turtle', name: 'Turtle', image: turtleImg },
   { id: 'whale', name: 'Whale', image: whaleImg },
   { id: 'butterfly', name: 'Butterfly', image: butterflyImg },
+  { id: 'octopus', name: 'Octopus', image: octopusImg },
+  { id: 'shark', name: 'Shark', image: sharkImg },
+  { id: 'fish', name: 'Fish', image: fishImg },
+  { id: 'bee', name: 'Bee', image: beeImg },
+  { id: 'ladybug', name: 'Ladybug', image: ladybugImg },
+  { id: 'snail', name: 'Snail', image: snailImg },
+  { id: 'crab', name: 'Crab', image: crabImg },
+  { id: 'peacock', name: 'Peacock', image: peacockImg },
+  { id: 'flamingo', name: 'Flamingo', image: flamingoImg },
+  { id: 'duck', name: 'Duck', image: duckImg },
+  { id: 'hedgehog', name: 'Hedgehog', image: hedgehogImg },
+  { id: 'kangaroo', name: 'Kangaroo', image: kangarooImg },
+  { id: 'horse', name: 'Horse', image: horseImg },
 ];
 
-// Additional animals using emoji placeholders (for extra large grids if needed)
-const EMOJI_ANIMALS: AnimalData[] = [
-  { id: 'octopus', name: 'Octopus', image: 'emoji:🐙' },
-  { id: 'shark', name: 'Shark', image: 'emoji:🦈' },
-  { id: 'fish', name: 'Fish', image: 'emoji:🐠' },
-  { id: 'bee', name: 'Bee', image: 'emoji:🐝' },
-  { id: 'ladybug', name: 'Ladybug', image: 'emoji:🐞' },
-  { id: 'snail', name: 'Snail', image: 'emoji:🐌' },
-  { id: 'crab', name: 'Crab', image: 'emoji:🦀' },
-  { id: 'peacock', name: 'Peacock', image: 'emoji:🦚' },
-  { id: 'flamingo', name: 'Flamingo', image: 'emoji:🦩' },
-  { id: 'duck', name: 'Duck', image: 'emoji:🦆' },
-  { id: 'bat', name: 'Bat', image: 'emoji:🦇' },
-  { id: 'hedgehog', name: 'Hedgehog', image: 'emoji:🦔' },
-  { id: 'kangaroo', name: 'Kangaroo', image: 'emoji:🦘' },
-];
-
-// Combined animals: 37 real images + 13 emoji fallbacks = 50 total
-export const ANIMALS: AnimalData[] = [...ANIMALS_FROM_FILES, ...EMOJI_ANIMALS];
-
-// Helper to check if image is emoji type
+// Helper to check if image is emoji type (legacy support - should always be false now)
 export function isEmojiAnimal(image: string): boolean {
   return image.startsWith('emoji:');
 }
 
-// Get emoji from emoji animal image
+// Get emoji from emoji animal image (legacy support)
 export function getEmoji(image: string): string {
   return image.replace('emoji:', '');
 }
