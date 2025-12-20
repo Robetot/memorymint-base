@@ -1,6 +1,7 @@
 import { useState, useEffect, lazy, Suspense, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WelcomeScreen } from '@/components/game/WelcomeScreen';
+import { BottomNav } from '@/components/game/BottomNav';
 import { useSettings } from '@/hooks/useSettings';
 import { useAchievements } from '@/hooks/useAchievements';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
@@ -250,6 +251,10 @@ const Index = () => {
     }
   };
 
+  const handleNavigation = useCallback((view: GameView) => {
+    setCurrentView(view);
+  }, []);
+
   return (
     <Suspense fallback={<LoadingFallback />}>
       {showTutorial && <Tutorial onComplete={handleTutorialComplete} />}
@@ -280,11 +285,14 @@ const Index = () => {
           animate="animate"
           exit="exit"
           transition={{ duration: 0.3, ease: 'easeOut' }}
-          className="min-h-screen"
+          className="min-h-screen pb-20"
         >
           {renderCurrentView()}
         </motion.div>
       </AnimatePresence>
+
+      {/* Bottom Navigation */}
+      <BottomNav currentView={currentView} onNavigate={handleNavigation} />
     </Suspense>
   );
 };

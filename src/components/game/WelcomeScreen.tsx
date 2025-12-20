@@ -53,14 +53,7 @@ export function WelcomeScreen({
         <div className="absolute bottom-32 left-1/4 w-24 h-24 bg-accent/20 rounded-full blur-xl animate-float" style={{ animationDelay: '2s' }} />
       </div>
 
-      {/* Settings button */}
-      {onViewSettings && (
-        <div className="absolute top-4 right-4 z-10">
-          <Button variant="ghost" size="icon" onClick={onViewSettings} className="rounded-full" aria-label="Open settings">
-            <Settings className="w-5 h-5" />
-          </Button>
-        </div>
-      )}
+      {/* Note: Settings moved to bottom nav */}
 
       {/* Logo */}
       <div className="relative z-10 text-center mb-6">
