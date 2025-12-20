@@ -1,9 +1,10 @@
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
-import { ArrowLeft, Volume2, Music, Vibrate, Eye, Moon, RotateCcw, HelpCircle, Check } from 'lucide-react';
+import { ArrowLeft, Volume2, Music, Vibrate, Eye, Moon, RotateCcw, HelpCircle, Check, Trash2 } from 'lucide-react';
 import { GameSettings, MusicTheme } from '@/hooks/useSettings';
 import { MUSIC_THEMES } from '@/hooks/useBackgroundMusic';
+import { toast } from 'sonner';
 
 interface SettingsScreenProps {
   settings: GameSettings;
@@ -11,6 +12,7 @@ interface SettingsScreenProps {
   onReset: () => void;
   onBack: () => void;
   onReplayTutorial?: () => void;
+  onResetProgress?: () => void;
 }
 
 export function SettingsScreen({
@@ -19,7 +21,14 @@ export function SettingsScreen({
   onReset,
   onBack,
   onReplayTutorial,
+  onResetProgress,
 }: SettingsScreenProps) {
+  const handleResetProgress = () => {
+    if (onResetProgress) {
+      onResetProgress();
+      toast.success('Progress reset! Starting from Level 1');
+    }
+  };
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background py-6 px-4">
       <div className="max-w-md mx-auto">
@@ -183,6 +192,29 @@ export function SettingsScreen({
               >
                 <HelpCircle className="w-4 h-4 mr-2" />
                 Replay Tutorial
+              </Button>
+            )}
+          </div>
+
+          {/* Progress Section */}
+          <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+            <h2 className="font-display font-semibold text-foreground flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-destructive" />
+              Progress
+            </h2>
+
+            <p className="text-sm text-muted-foreground">
+              Reset your level progress to start from Level 1. This cannot be undone.
+            </p>
+
+            {onResetProgress && (
+              <Button
+                onClick={handleResetProgress}
+                variant="outline"
+                className="w-full font-display text-destructive border-destructive/50 hover:bg-destructive/10"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Reset Progress
               </Button>
             )}
           </div>
