@@ -60,23 +60,28 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
       };
     }, [fogOpacity, card.isFlipped, card.isMatched]);
 
-    // Calculate sprite background position with padding for safe viewing
+    // Calculate sprite background position - using correct formula for sprite sheets
     const spriteStyles = useMemo(() => {
       if (!card.spritePosition) {
-        // Fallback to old image URL if no sprite position
         return null;
       }
       
-      // Calculate percentage position within sprite sheet
-      // Using exact grid positions for 10 cols × 13 rows
-      const xPercent = (card.spritePosition.col / (SPRITE_COLS - 1)) * 100;
-      const yPercent = (card.spritePosition.row / (SPRITE_ROWS - 1)) * 100;
+      // For a sprite sheet with 10 cols × 13 rows:
+      // background-size should make each cell fill the container
+      // background-position uses the formula: (col * 100) / (totalCols - 1) %
+      // This ensures the edge cells are positioned correctly
+      const totalCols = SPRITE_COLS;
+      const totalRows = SPRITE_ROWS;
+      
+      // Calculate correct percentage position
+      // When col=0: xPos=0%, when col=9 (last): xPos=100%
+      const xPos = totalCols > 1 ? (card.spritePosition.col * 100) / (totalCols - 1) : 0;
+      const yPos = totalRows > 1 ? (card.spritePosition.row * 100) / (totalRows - 1) : 0;
       
       return {
         backgroundImage: `url(${SPRITE_IMAGE})`,
-        backgroundPosition: `${xPercent}% ${yPercent}%`,
-        // Slightly reduce size to add padding around each animal cell
-        backgroundSize: `${SPRITE_COLS * 100}% ${SPRITE_ROWS * 100}%`,
+        backgroundPosition: `${xPos}% ${yPos}%`,
+        backgroundSize: `${totalCols * 100}% ${totalRows * 100}%`,
       };
     }, [card.spritePosition]);
 
@@ -176,12 +181,10 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
           >
             {spriteStyles ? (
               // Use sprite sheet with CSS background-position
-              // Added padding container to prevent edge clipping on animals
-              <div 
-                className="w-full h-full bg-secondary/20 flex items-center justify-center p-1"
-              >
+              // Container with padding to ensure no edge clipping
+              <div className="w-full h-full bg-secondary/10 overflow-hidden flex items-center justify-center">
                 <div 
-                  className="w-full h-full"
+                  className="w-[85%] h-[85%] flex-shrink-0"
                   style={{
                     ...spriteStyles,
                     backgroundRepeat: 'no-repeat',
