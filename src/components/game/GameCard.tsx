@@ -13,6 +13,7 @@ interface GameCardProps {
   isShaking?: boolean;
   fogOpacity?: number; // 0 = fully visible, 1 = fully hidden
   isDecaying?: boolean;
+  cardSize?: number; // explicit size in pixels
 }
 
 export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
@@ -26,6 +27,7 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
     isShaking = false,
     fogOpacity = 0,
     isDecaying = false,
+    cardSize = 64,
   }, ref) => {
     const [isAnimating, setIsAnimating] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
@@ -80,7 +82,7 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
         }
         aria-pressed={card.isFlipped || card.isMatched}
         className={cn(
-          'relative w-full aspect-square perspective-1000 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 focus:ring-offset-background',
+          'relative cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 focus:ring-offset-background',
           'transition-all duration-300 ease-out',
           isExpertGrid ? 'rounded-sm md:rounded' : 'rounded-lg md:rounded-xl',
           !disabled && !card.isFlipped && !card.isMatched && !isFogged && 'hover:scale-105 hover:-translate-y-1 hover:z-10',
@@ -91,6 +93,9 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
           isDecaying && 'animate-pulse ring-2 ring-destructive/50'
         )}
         style={{
+          width: cardSize,
+          height: cardSize,
+          perspective: 1000,
           ...fogStyles,
           filter: isHovered && !card.isFlipped && !card.isMatched && !disabled && !isFogged
             ? 'drop-shadow(0 8px 16px hsl(var(--primary) / 0.3))' 
@@ -99,7 +104,7 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
       >
         <div
           className={cn(
-            'card-flip w-full h-full',
+            'card-flip',
             (card.isFlipped || card.isMatched) && 'flipped',
             isShaking && 'animate-shake'
           )}
@@ -107,7 +112,7 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
           {/* Card Back */}
           <div
             className={cn(
-              'card-face card-back absolute inset-0 overflow-hidden shadow-lg transition-all duration-300',
+              'card-face card-back overflow-hidden shadow-lg transition-all duration-300',
               isExpertGrid ? 'rounded-sm md:rounded' : 'rounded-lg md:rounded-xl',
               isHinted && 'ring-4 ring-accent',
               isHovered && !disabled && !isFogged && 'shadow-xl',
@@ -142,7 +147,7 @@ export const GameCard = forwardRef<HTMLButtonElement, GameCardProps>(
           {/* Card Front - Animal Image */}
           <div
             className={cn(
-              'card-face card-front absolute inset-0 overflow-hidden shadow-lg',
+              'card-face card-front overflow-hidden shadow-lg',
               isExpertGrid ? 'rounded-sm md:rounded border border-secondary/50' : 'rounded-lg md:rounded-xl border-2 md:border-4',
               !isExpertGrid && (card.isMatched ? 'border-success' : 'border-secondary/50'),
               isExpertGrid && card.isMatched && 'border-success',
