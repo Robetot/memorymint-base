@@ -437,14 +437,12 @@ export function getTierProgress(currentLevel: number): { completed: number; tota
 const PROGRESS_KEY = 'memorymint_unlocked_level';
 
 export function getUnlockedLevel(): number {
-  // TODO: Remove this override after testing - unlocks all levels
-  return 20;
-  // try {
-  //   const saved = localStorage.getItem(PROGRESS_KEY);
-  //   return saved ? parseInt(saved, 10) : 1;
-  // } catch {
-  //   return 1;
-  // }
+  try {
+    const saved = localStorage.getItem(PROGRESS_KEY);
+    return saved ? parseInt(saved, 10) : 1;
+  } catch {
+    return 1;
+  }
 }
 
 export function saveUnlockedLevel(level: number): void {
