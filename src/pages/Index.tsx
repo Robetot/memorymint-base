@@ -227,6 +227,11 @@ const Index = () => {
             onReset={resetSettings}
             onBack={handleBackToMenu}
             onReplayTutorial={handleReplayTutorial}
+            onResetProgress={() => {
+              import('@/data/levels').then(({ resetProgress }) => {
+                resetProgress();
+              });
+            }}
           />
         );
       case 'stats':
