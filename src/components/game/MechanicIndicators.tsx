@@ -186,7 +186,7 @@ export function ShuffleOverlay({ isShuffling }: { isShuffling: boolean }) {
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             {[...Array(20)].map((_, i) => (
               <motion.div
-                key={i}
+                key={`flying-card-${i}`}
                 initial={{
                   x: `${Math.random() * 100}%`,
                   y: '110%',
@@ -217,7 +217,7 @@ export function ShuffleOverlay({ isShuffling }: { isShuffling: boolean }) {
             {/* Pulsing glow rings */}
             {[1, 2, 3].map((ring) => (
               <motion.div
-                key={ring}
+                key={`glow-ring-${ring}`}
                 animate={{
                   scale: [1, 2, 1],
                   opacity: [0.4, 0, 0.4],
@@ -258,7 +258,7 @@ export function ShuffleOverlay({ isShuffling }: { isShuffling: boolean }) {
             <motion.div className="flex gap-1 mt-4">
               {"SHUFFLING".split('').map((char, i) => (
                 <motion.span
-                  key={i}
+                  key={`shuffle-char-${i}-${char}`}
                   animate={{
                     y: [0, -10, 0],
                     scale: [1, 1.2, 1],
@@ -280,7 +280,7 @@ export function ShuffleOverlay({ isShuffling }: { isShuffling: boolean }) {
             <div className="absolute inset-0 pointer-events-none">
               {[...Array(8)].map((_, i) => (
                 <motion.div
-                  key={i}
+                  key={`orbit-container-${i}`}
                   animate={{
                     rotate: 360,
                   }}
@@ -295,6 +295,7 @@ export function ShuffleOverlay({ isShuffling }: { isShuffling: boolean }) {
                   }}
                 >
                   <motion.div
+                    key={`orbit-particle-${i}`}
                     animate={{
                       scale: [0.8, 1.2, 0.8],
                       opacity: [0.6, 1, 0.6],
