@@ -362,8 +362,30 @@ export function useNFTCollection(address: string | null) {
       const owner = ownerAddress.toLowerCase();
       const toTopic = addressToTopic(owner);
 
-      // Only query incoming transfers to this wallet (small result set) then validate via ownerOf.
-      const incoming = await getTransferLogsWithFallback([TRANSFER_TOPIC, null, toTopic]);
+      // Try to discover tokenIds via Transfer logs.
+      // Some RPCs/webviews are picky about `null` topic wildcards, so we fall back
+      // to a mint-only query (from=0x0) with no null wildcards.
+      let incoming: RpcLog[] = [];
+      let firstErr: string | null = null;
+
+      try {
+        // Incoming transfers to this wallet then validate via ownerOf.
+        incoming = await getTransferLogsWithFallback([TRANSFER_TOPIC, null, toTopic]);
+      } catch (err) {
+        firstErr = err instanceof Error ? err.message : String(err);
+      }
+
+      if (incoming.length === 0) {
+        try {
+          const zeroTopic = addressToTopic(ZERO_ADDRESS);
+          incoming = await getTransferLogsWithFallback([TRANSFER_TOPIC, zeroTopic, toTopic]);
+        } catch (err) {
+          const secondErr = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `Transfer log queries failed: ${[firstErr, secondErr].filter(Boolean).join(" | ")}`
+          );
+        }
+      }
 
       const candidateIds = new Set<string>();
       for (const log of incoming) {
@@ -514,35 +536,43 @@ export function useNFTCollection(address: string | null) {
           if (!discoveryStartedAtRef.current) discoveryStartedAtRef.current = Date.now();
           const elapsedMs = Date.now() - discoveryStartedAtRef.current;
 
-          // Show "loading" placeholders but with actual balance count
+          const shouldRetry = retryCountRef.current < 3 && elapsedMs < 30000;
+
+          // Show placeholders but stop "Syncing" forever — after retries, show an actionable error.
           const placeholders: NFTItem[] = Array.from({ length: balance }).map((_, i) => ({
-            tokenId: `loading-${i + 1}`,
+            tokenId: shouldRetry ? `loading-${i + 1}` : `error-${i + 1}`,
             tokenURI: "",
-            isLoading: true,
-            metadata: {
-              name: `Loading NFT ${i + 1} of ${balance}...`,
-              description: "Fetching token data from blockchain...",
-            },
+            isLoading: shouldRetry,
+            hasError: !shouldRetry,
+            metadata: shouldRetry
+              ? {
+                  name: `Loading NFT ${i + 1} of ${balance}...`,
+                  description: "Fetching token data from blockchain...",
+                }
+              : {
+                  name: `MemoryMint NFT ${i + 1}`,
+                  description: "Couldn't discover token IDs. Tap Refresh to retry.",
+                },
           }));
 
           setState({
             nfts: placeholders,
             isLoading: false,
-            error: null,
+            error: shouldRetry ? null : "Unable to discover token IDs. Tap Refresh.",
             chainError: null,
             balance,
             debug,
           });
 
           // Auto-retry after a short delay (up to 3 times)
-          if (retryCountRef.current < 3 && elapsedMs < 30000) {
+          if (shouldRetry) {
             retryCountRef.current++;
             setTimeout(() => {
               fetchingRef.current = false;
               fetchCollection(true);
             }, 3000);
           }
-          
+
           fetchingRef.current = false;
           return;
         }
