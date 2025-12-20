@@ -55,6 +55,7 @@ import eagleImg from '@/assets/animals/eagle.jpg';
 import otterImg from '@/assets/animals/otter.jpg';
 import raccoonImg from '@/assets/animals/raccoon.jpg';
 import alpacaImg from '@/assets/animals/alpaca.jpg';
+import meerkatImg from '@/assets/animals/meerkat.jpg';
 
 export interface AnimalData {
   id: string;
@@ -99,6 +100,7 @@ export const ANIMALS: AnimalData[] = [
   { id: 'hamster', name: 'Hamster', image: hamsterImg },
   { id: 'frog', name: 'Frog', image: frogImg },
   { id: 'turtle', name: 'Turtle', image: turtleImg },
+  { id: 'whale', name: 'Whale', image: whaleImg },
   { id: 'octopus', name: 'Octopus', image: octopusImg },
   { id: 'shark', name: 'Shark', image: sharkImg },
   { id: 'fish', name: 'Fish', image: fishImg },
@@ -114,6 +116,7 @@ export const ANIMALS: AnimalData[] = [
   { id: 'horse', name: 'Horse', image: horseImg },
   { id: 'raccoon', name: 'Raccoon', image: raccoonImg },
   { id: 'alpaca', name: 'Alpaca', image: alpacaImg },
+  { id: 'meerkat', name: 'Meerkat', image: meerkatImg },
 ];
 
 // Helper to check if image is emoji type (legacy support - should always be false now)
