@@ -1,21 +1,10 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Sound effects are disabled - using silent stubs to avoid audio errors
-// Animal sounds and UI sounds are intentionally empty to prevent console errors
-const ANIMAL_SOUNDS: Record<string, string> = {};
-const UI_SOUNDS: Record<string, string> = {};
-
-// WebAudio-based Sound Manager for low latency
-class SoundManager {
+// Web Audio based synthesized sounds - no external files needed
+class SynthSoundManager {
   private context: AudioContext | null = null;
-  private bufferMap: Map<string, AudioBuffer> = new Map();
-  private audioElems: Map<string, HTMLAudioElement> = new Map();
-  private activeSources: Map<string, { type: 'webaudio'; src: AudioBufferSourceNode; gain: GainNode } | { type: 'html'; audio: HTMLAudioElement }> = new Map();
-  private useWebAudio = false;
   private _isMuted = false;
   private _volume = 0.5;
-  private flipTimestamps: Map<string, number> = new Map();
-  private maxConcurrent = 6;
   private initialized = false;
 
   async init() {
@@ -24,80 +13,10 @@ class SoundManager {
     try {
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.context = new AudioContextClass();
-      this.useWebAudio = true;
+      this.initialized = true;
     } catch (e) {
-      console.warn('WebAudio unavailable, using HTMLAudio fallback', e);
-      this.useWebAudio = false;
+      console.warn('WebAudio unavailable', e);
     }
-    
-    await this.preloadAll();
-    this.initialized = true;
-  }
-
-  private async preloadAll() {
-    const allSounds = { ...ANIMAL_SOUNDS, ...UI_SOUNDS };
-    const entries = Object.entries(allSounds);
-    
-    // Preload in batches
-    const batchSize = 10;
-    for (let i = 0; i < entries.length; i += batchSize) {
-      const batch = entries.slice(i, i + batchSize);
-      await Promise.all(batch.map(([key, url]) => this.preloadOne(key, url)));
-    }
-    console.log('All sounds preloaded');
-  }
-
-  private async preloadOne(key: string, url: string): Promise<void> {
-    // For base64 data URIs, decode directly
-    if (url.startsWith('data:')) {
-      if (this.useWebAudio && this.context) {
-        try {
-          const base64 = url.split(',')[1];
-          const binaryString = atob(base64);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          const audioBuffer = await this.context.decodeAudioData(bytes.buffer.slice(0));
-          this.bufferMap.set(key, audioBuffer);
-          return;
-        } catch (e) {
-          // Fallback to HTML Audio for base64
-        }
-      }
-      
-      // HTML Audio fallback for base64
-      const audio = new Audio(url);
-      audio.preload = 'auto';
-      this.audioElems.set(key, audio);
-      return;
-    }
-
-    // For external URLs
-    if (this.useWebAudio && this.context) {
-      try {
-        const resp = await fetch(url);
-        const arrayBuffer = await resp.arrayBuffer();
-        const audioBuffer = await this.context.decodeAudioData(arrayBuffer.slice(0));
-        this.bufferMap.set(key, audioBuffer);
-        return;
-      } catch (e) {
-        console.warn(`WebAudio preload failed for ${key}`, e);
-      }
-    }
-    
-    // HTMLAudio fallback
-    const audio = new Audio(url);
-    audio.preload = 'auto';
-    this.audioElems.set(key, audio);
-    
-    return new Promise((resolve) => {
-      audio.addEventListener('canplaythrough', () => resolve(), { once: true });
-      audio.addEventListener('error', () => {
-        console.error('Audio load error', key, url);
-        resolve();
-      }, { once: true });
-    });
   }
 
   async resumeContext() {
@@ -106,134 +25,185 @@ class SoundManager {
     }
   }
 
-  private enforceMaxConcurrent() {
-    if (this.activeSources.size >= this.maxConcurrent) {
-      const [oldestKey] = this.activeSources.keys();
-      if (oldestKey) {
-        this.stopForCard(oldestKey);
-      }
-    }
+  private playTone(
+    frequency: number,
+    duration: number,
+    type: OscillatorType = 'sine',
+    delay: number = 0,
+    volume: number = 0.3
+  ) {
+    if (!this.context || this._isMuted) return;
+
+    const oscillator = this.context.createOscillator();
+    const gainNode = this.context.createGain();
+    const now = this.context.currentTime;
+
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, now + delay);
+    
+    const adjustedVolume = volume * this._volume;
+    gainNode.gain.setValueAtTime(0, now + delay);
+    gainNode.gain.linearRampToValueAtTime(adjustedVolume, now + delay + 0.01);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + delay + duration);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(this.context.destination);
+
+    oscillator.start(now + delay);
+    oscillator.stop(now + delay + duration + 0.01);
   }
 
-  playForCard(cardId: string, key: string, options: { volume?: number; loop?: boolean } = {}): string | null {
-    if (this._isMuted) return null;
-    if (!this.bufferMap.has(key) && !this.audioElems.has(key)) return null;
+  private playNoise(duration: number, delay: number = 0, volume: number = 0.1) {
+    if (!this.context || this._isMuted) return;
 
-    const volume = (options.volume ?? 1.0) * this._volume;
-    const loop = options.loop ?? false;
+    const bufferSize = Math.floor(this.context.sampleRate * duration);
+    const buffer = this.context.createBuffer(1, bufferSize, this.context.sampleRate);
+    const data = buffer.getChannelData(0);
 
-    // Debounce rapid flips (150ms)
-    const now = Date.now();
-    const lastFlip = this.flipTimestamps.get(cardId);
-    if (lastFlip && now - lastFlip < 150) return null;
-    this.flipTimestamps.set(cardId, now);
-
-    // Stop any existing sound for this card
-    this.stopForCard(cardId);
-    
-    // Enforce max concurrent sounds
-    this.enforceMaxConcurrent();
-
-    if (this.useWebAudio && this.context && this.bufferMap.has(key)) {
-      const buffer = this.bufferMap.get(key)!;
-      const src = this.context.createBufferSource();
-      src.buffer = buffer;
-      const gain = this.context.createGain();
-      gain.gain.value = volume;
-      src.loop = loop;
-      src.connect(gain).connect(this.context.destination);
-      src.start(0);
-      
-      src.onended = () => {
-        this.activeSources.delete(cardId);
-      };
-      
-      this.activeSources.set(cardId, { type: 'webaudio', src, gain });
-      return cardId;
-    } else if (this.audioElems.has(key)) {
-      const audio = this.audioElems.get(key)!.cloneNode() as HTMLAudioElement;
-      audio.loop = loop;
-      audio.volume = volume;
-      audio.play().catch((e) => {
-        console.warn('Audio play rejected', e);
-      });
-      
-      audio.onended = () => {
-        this.activeSources.delete(cardId);
-      };
-      
-      this.activeSources.set(cardId, { type: 'html', audio });
-      return cardId;
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1);
     }
+
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+
+    const gainNode = this.context.createGain();
+    const now = this.context.currentTime;
+    const adjustedVolume = volume * this._volume;
     
-    return null;
+    gainNode.gain.setValueAtTime(adjustedVolume, now + delay);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + delay + duration);
+
+    source.connect(gainNode);
+    gainNode.connect(this.context.destination);
+
+    source.start(now + delay);
   }
 
-  play(key: string, options: { volume?: number } = {}): void {
+  // Animal sounds - synthesized versions
+  playAnimalSound(animalId: string) {
     if (this._isMuted) return;
-    
-    const volume = (options.volume ?? 1.0) * this._volume;
 
-    if (this.useWebAudio && this.context && this.bufferMap.has(key)) {
-      const buffer = this.bufferMap.get(key)!;
-      const src = this.context.createBufferSource();
-      src.buffer = buffer;
-      const gain = this.context.createGain();
-      gain.gain.value = volume;
-      src.connect(gain).connect(this.context.destination);
-      src.start(0);
-      return;
-    }
-    
-    if (this.audioElems.has(key)) {
-      const audio = this.audioElems.get(key)!.cloneNode() as HTMLAudioElement;
-      audio.volume = volume;
-      audio.play().catch(() => {});
+    // Create unique sounds based on animal type
+    const animalSounds: Record<string, () => void> = {
+      cat: () => {
+        this.playTone(800, 0.2, 'sine', 0, 0.4);
+        this.playTone(600, 0.3, 'sine', 0.15, 0.35);
+      },
+      dog: () => {
+        this.playTone(400, 0.1, 'sawtooth', 0, 0.3);
+        this.playTone(500, 0.15, 'sawtooth', 0.1, 0.35);
+      },
+      bird: () => {
+        this.playTone(1200, 0.08, 'sine', 0, 0.3);
+        this.playTone(1400, 0.08, 'sine', 0.1, 0.3);
+        this.playTone(1100, 0.1, 'sine', 0.2, 0.25);
+      },
+      lion: () => {
+        this.playTone(150, 0.3, 'sawtooth', 0, 0.4);
+        this.playTone(120, 0.4, 'sawtooth', 0.2, 0.35);
+      },
+      elephant: () => {
+        this.playTone(200, 0.15, 'triangle', 0, 0.4);
+        this.playTone(350, 0.25, 'triangle', 0.1, 0.45);
+        this.playTone(180, 0.2, 'triangle', 0.3, 0.35);
+      },
+      monkey: () => {
+        this.playTone(600, 0.08, 'square', 0, 0.25);
+        this.playTone(800, 0.08, 'square', 0.1, 0.25);
+        this.playTone(700, 0.1, 'square', 0.2, 0.2);
+      },
+      frog: () => {
+        this.playTone(250, 0.1, 'square', 0, 0.3);
+        this.playTone(200, 0.15, 'square', 0.12, 0.25);
+      },
+      owl: () => {
+        this.playTone(400, 0.3, 'sine', 0, 0.35);
+        this.playTone(350, 0.4, 'sine', 0.35, 0.3);
+      },
+      duck: () => {
+        this.playTone(500, 0.08, 'sawtooth', 0, 0.3);
+        this.playTone(450, 0.1, 'sawtooth', 0.1, 0.28);
+      },
+      wolf: () => {
+        this.playTone(300, 0.2, 'sine', 0, 0.35);
+        this.playTone(400, 0.4, 'sine', 0.15, 0.4);
+        this.playTone(350, 0.3, 'sine', 0.5, 0.3);
+      },
+    };
+
+    // Find matching sound or use default
+    const soundKey = Object.keys(animalSounds).find(key => 
+      animalId.toLowerCase().includes(key)
+    );
+
+    if (soundKey) {
+      animalSounds[soundKey]();
+    } else {
+      // Default animal sound - generic chirp
+      this.playTone(600, 0.1, 'sine', 0, 0.3);
+      this.playTone(700, 0.1, 'sine', 0.1, 0.25);
     }
   }
 
-  stopForCard(cardId: string) {
-    const entry = this.activeSources.get(cardId);
-    if (!entry) return;
-    
-    if (entry.type === 'webaudio') {
-      try {
-        entry.src.stop(0);
-      } catch (e) {}
-    } else if (entry.type === 'html') {
-      try {
-        entry.audio.pause();
-        entry.audio.currentTime = 0;
-      } catch (e) {}
-    }
-    
-    this.activeSources.delete(cardId);
+  playFlip() {
+    this.playTone(800, 0.06, 'sine', 0, 0.2);
+    this.playTone(600, 0.05, 'sine', 0.02, 0.15);
   }
 
-  stopAll() {
-    for (const id of Array.from(this.activeSources.keys())) {
-      this.stopForCard(id);
-    }
+  playMatch() {
+    // Happy ascending chime
+    this.playTone(523, 0.12, 'sine', 0, 0.35);      // C5
+    this.playTone(659, 0.12, 'sine', 0.08, 0.35);   // E5
+    this.playTone(784, 0.15, 'sine', 0.16, 0.4);    // G5
+    this.playTone(1047, 0.25, 'sine', 0.24, 0.3);   // C6
+  }
+
+  playMismatch() {
+    // Soft descending tone
+    this.playTone(350, 0.1, 'triangle', 0, 0.2);
+    this.playTone(280, 0.15, 'triangle', 0.08, 0.18);
+  }
+
+  playWin() {
+    // Victory fanfare
+    this.playTone(523, 0.12, 'sine', 0, 0.35);       // C5
+    this.playTone(659, 0.12, 'sine', 0.1, 0.35);     // E5
+    this.playTone(784, 0.12, 'sine', 0.2, 0.35);     // G5
+    this.playTone(1047, 0.2, 'sine', 0.3, 0.4);      // C6
+    this.playTone(1319, 0.15, 'sine', 0.45, 0.35);   // E6
+    this.playTone(1568, 0.25, 'sine', 0.55, 0.4);    // G6
+    this.playTone(2093, 0.4, 'sine', 0.75, 0.45);    // C7
+  }
+
+  playLose() {
+    // Sad descending tones
+    this.playTone(400, 0.2, 'sine', 0, 0.3);
+    this.playTone(350, 0.25, 'sine', 0.2, 0.28);
+    this.playTone(300, 0.3, 'sine', 0.45, 0.25);
+    this.playTone(250, 0.4, 'sine', 0.75, 0.22);
+  }
+
+  playClick() {
+    this.playTone(1200, 0.025, 'sine', 0, 0.2);
+    this.playNoise(0.015, 0, 0.03);
+  }
+
+  playCombo() {
+    // Sparkle sound for combos
+    this.playTone(880, 0.08, 'sine', 0, 0.3);
+    this.playTone(1109, 0.08, 'sine', 0.04, 0.3);
+    this.playTone(1318, 0.08, 'sine', 0.08, 0.3);
+    this.playTone(1760, 0.12, 'sine', 0.12, 0.35);
+    this.playTone(2217, 0.15, 'sine', 0.16, 0.25);
   }
 
   setMuted(muted: boolean) {
     this._isMuted = muted;
-    if (muted) {
-      this.stopAll();
-    }
   }
 
   setVolume(vol: number) {
     this._volume = Math.max(0, Math.min(1, vol));
-    
-    // Update volume on active sources
-    this.activeSources.forEach((entry) => {
-      if (entry.type === 'webaudio') {
-        entry.gain.gain.value = this._volume;
-      } else if (entry.type === 'html') {
-        entry.audio.volume = this._volume;
-      }
-    });
   }
 
   get isMuted() {
@@ -246,20 +216,19 @@ class SoundManager {
 }
 
 // Singleton instance
-let soundManagerInstance: SoundManager | null = null;
+let soundManagerInstance: SynthSoundManager | null = null;
 
-function getSoundManager(): SoundManager {
+function getSoundManager(): SynthSoundManager {
   if (!soundManagerInstance) {
-    soundManagerInstance = new SoundManager();
+    soundManagerInstance = new SynthSoundManager();
   }
   return soundManagerInstance;
 }
 
 export function useSoundEffects() {
-  const managerRef = useRef<SoundManager>(getSoundManager());
+  const managerRef = useRef<SynthSoundManager>(getSoundManager());
   const initializedRef = useRef(false);
 
-  // Initialize on mount and resume on user interaction
   useEffect(() => {
     const manager = managerRef.current;
     
@@ -269,7 +238,6 @@ export function useSoundEffects() {
       });
     }
 
-    // Resume audio context on first user interaction (mobile requirement)
     const resumeOnInteraction = () => {
       manager.resumeContext();
     };
@@ -283,43 +251,40 @@ export function useSoundEffects() {
     };
   }, []);
 
-  const playAnimalSound = useCallback((animalId: string, cardId?: string) => {
-    const manager = managerRef.current;
-    const id = cardId || animalId;
-    manager.playForCard(id, animalId);
+  const playAnimalSound = useCallback((animalId: string, _cardId?: string) => {
+    managerRef.current.playAnimalSound(animalId);
   }, []);
 
-  const stopAnimalSound = useCallback((cardId: string) => {
-    managerRef.current.stopForCard(cardId);
+  const stopAnimalSound = useCallback((_cardId: string) => {
+    // Synthesized sounds auto-stop, no action needed
   }, []);
 
   const playFlipSound = useCallback(() => {
-    managerRef.current.play('flip');
+    managerRef.current.playFlip();
   }, []);
 
   const playMatchSound = useCallback(() => {
-    managerRef.current.play('match');
+    managerRef.current.playMatch();
   }, []);
 
   const playMismatchSound = useCallback(() => {
-    // Subtle, lower volume mismatch sound
-    managerRef.current.play('mismatch', { volume: 0.4 });
+    managerRef.current.playMismatch();
   }, []);
 
   const playWinSound = useCallback(() => {
-    managerRef.current.play('win');
+    managerRef.current.playWin();
   }, []);
 
   const playLoseSound = useCallback(() => {
-    managerRef.current.play('lose');
+    managerRef.current.playLose();
   }, []);
 
   const playClickSound = useCallback(() => {
-    managerRef.current.play('click');
+    managerRef.current.playClick();
   }, []);
 
   const playComboSound = useCallback(() => {
-    managerRef.current.play('combo');
+    managerRef.current.playCombo();
   }, []);
 
   const setMuted = useCallback((muted: boolean) => {
@@ -331,7 +296,7 @@ export function useSoundEffects() {
   }, []);
 
   const stopAll = useCallback(() => {
-    managerRef.current.stopAll();
+    // Synthesized sounds auto-stop
   }, []);
 
   return {
