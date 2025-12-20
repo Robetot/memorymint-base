@@ -161,7 +161,7 @@ export function MechanicIndicators({ activeMechanics, mechanicState, totalPairs 
   );
 }
 
-// Shuffle animation overlay
+// Shuffle animation overlay - enhanced visual effect
 export function ShuffleOverlay({ isShuffling }: { isShuffling: boolean }) {
   return (
     <AnimatePresence>
@@ -170,24 +170,82 @@ export function ShuffleOverlay({ isShuffling }: { isShuffling: boolean }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center"
+          transition={{ duration: 0.3 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
         >
-          <motion.div
-            initial={{ scale: 0.5, rotate: 0 }}
-            animate={{ scale: 1, rotate: 360 }}
-            transition={{ duration: 0.5, ease: "easeOut" }}
-            className="text-6xl"
-          >
-            🔀
-          </motion.div>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="absolute mt-32 text-xl font-bold text-primary"
-          >
-            Shuffling Cards...
-          </motion.p>
+          <div className="relative flex flex-col items-center gap-4">
+            {/* Outer glow ring */}
+            <motion.div
+              animate={{
+                scale: [1, 1.5, 1],
+                opacity: [0.5, 0, 0.5],
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: "easeOut"
+              }}
+              className="absolute w-32 h-32 rounded-full bg-primary/30 blur-xl"
+            />
+            
+            {/* Main shuffle icon with rotation */}
+            <motion.div
+              animate={{
+                rotate: [0, 360],
+                scale: [1, 1.2, 1],
+              }}
+              transition={{
+                rotate: { duration: 1, repeat: Infinity, ease: "linear" },
+                scale: { duration: 0.5, repeat: Infinity, ease: "easeInOut" }
+              }}
+              className="relative z-10 p-6 rounded-full bg-gradient-to-br from-primary to-primary/60 shadow-2xl"
+            >
+              <span className="text-5xl">🔀</span>
+            </motion.div>
+            
+            <motion.p
+              animate={{
+                opacity: [0.5, 1, 0.5],
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+              className="text-2xl font-bold text-foreground mt-4"
+            >
+              Shuffling Cards...
+            </motion.p>
+            
+            {/* Floating card particles */}
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+              {[...Array(8)].map((_, i) => (
+                <motion.div
+                  key={i}
+                  initial={{
+                    x: '50%',
+                    y: '50%',
+                    opacity: 0,
+                    scale: 0,
+                  }}
+                  animate={{
+                    x: `${50 + Math.cos(i * (Math.PI / 4)) * 40}%`,
+                    y: `${50 + Math.sin(i * (Math.PI / 4)) * 40}%`,
+                    opacity: [0, 1, 0],
+                    scale: [0, 1, 0],
+                    rotate: [0, 180, 360],
+                  }}
+                  transition={{
+                    duration: 1.5,
+                    repeat: Infinity,
+                    delay: i * 0.1,
+                    ease: "easeInOut"
+                  }}
+                  className="absolute w-8 h-10 -ml-4 -mt-5 rounded-md bg-gradient-to-br from-accent to-accent/50 shadow-lg"
+                />
+              ))}
+            </div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

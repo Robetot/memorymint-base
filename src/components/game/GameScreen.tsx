@@ -10,7 +10,7 @@ import { ComboDisplay } from './ComboDisplay';
 import { PerfectIndicator } from './PerfectIndicator';
 import { TimerWarning } from './TimerWarning';
 import { PowerUpsBar } from './PowerUpsBar';
-import { MechanicIndicators, FogOverlay } from './MechanicIndicators';
+import { MechanicIndicators, FogOverlay, ShuffleOverlay } from './MechanicIndicators';
 import { useGameState } from '@/hooks/useGameState';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 
@@ -69,6 +69,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
   const [perfectGame, setPerfectGame] = useState(true);
   const [revealAll, setRevealAll] = useState(false);
   const freezeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isShuffling, setIsShuffling] = useState(false);
 
   // Track perfect game (no wrong matches)
   useEffect(() => {
@@ -101,8 +102,12 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         clearActiveEffect();
       }, 2000);
     } else if (activeEffect === 'shuffle') {
-      shuffleUnmatched();
-      clearActiveEffect();
+      setIsShuffling(true);
+      setTimeout(() => {
+        shuffleUnmatched();
+        setIsShuffling(false);
+        clearActiveEffect();
+      }, 1500);
     }
 
     return () => {
@@ -396,6 +401,9 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
 
       {/* Fog Overlay */}
       <FogOverlay enabled={gameState.mechanics.fogEnabled && gameState.isPlaying} />
+
+      {/* Shuffle Animation Overlay */}
+      <ShuffleOverlay isShuffling={isShuffling || gameState.isShuffling} />
 
       {/* Freeze Effect Overlay */}
       {activeEffect === 'freeze' && (
