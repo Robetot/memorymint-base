@@ -215,17 +215,19 @@ export function GameBoard({
   const maxDimension = Math.max(gridColumns, gridRows);
   const gridSizeCategory = maxDimension <= 2 ? 'tiny' : maxDimension <= 4 ? 'small' : maxDimension <= 6 ? 'medium' : maxDimension <= 8 ? 'large' : 'xlarge';
 
-  // Calculate optimal card size based on grid dimensions
-  const getCardSize = () => {
-    if (maxDimension <= 2) return 'w-24 h-24 md:w-28 md:h-28';
-    if (maxDimension <= 3) return 'w-20 h-20 md:w-24 md:h-24';
-    if (maxDimension <= 4) return 'w-16 h-16 md:w-20 md:h-20';
-    if (maxDimension <= 5) return 'w-14 h-14 md:w-16 md:h-16';
-    if (maxDimension <= 6) return 'w-12 h-12 md:w-14 md:h-14';
-    if (maxDimension <= 7) return 'w-10 h-10 md:w-12 md:h-12';
-    if (maxDimension <= 8) return 'w-9 h-9 md:w-11 md:h-11';
-    return 'w-8 h-8 md:w-10 md:h-10';
+  // Calculate optimal card size based on grid dimensions - returns pixel values for consistency
+  const getCardSizePx = () => {
+    if (maxDimension <= 2) return { mobile: 96, desktop: 112 };
+    if (maxDimension <= 3) return { mobile: 80, desktop: 96 };
+    if (maxDimension <= 4) return { mobile: 64, desktop: 80 };
+    if (maxDimension <= 5) return { mobile: 56, desktop: 64 };
+    if (maxDimension <= 6) return { mobile: 48, desktop: 56 };
+    if (maxDimension <= 7) return { mobile: 40, desktop: 48 };
+    if (maxDimension <= 8) return { mobile: 36, desktop: 44 };
+    return { mobile: 32, desktop: 40 };
   };
+
+  const cardSizes = getCardSizePx();
 
   return (
     <div 
@@ -280,7 +282,7 @@ export function GameBoard({
           maxDimension <= 4 ? "gap-2 md:gap-3" : maxDimension <= 6 ? "gap-1.5 md:gap-2" : "gap-1"
         )}
         style={{
-          gridTemplateColumns: `repeat(${gridColumns}, minmax(0, auto))`,
+          gridTemplateColumns: `repeat(${gridColumns}, ${cardSizes.mobile}px)`,
         }}
       >
         {cards.map((card) => {
@@ -315,6 +317,7 @@ export function GameBoard({
               isShaking={shakingCardIds.has(card.id)}
               fogOpacity={fogOpacity}
               isDecaying={decayingCards.has(card.id)}
+              cardSize={cardSizes.mobile}
             />
           );
         })}
