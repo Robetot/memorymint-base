@@ -210,41 +210,56 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
     setError(null);
   }, []);
 
+  const openWarpcastCompose = useCallback((text: string, embeds?: string[]) => {
+    const embedParams = embeds?.map((e) => `embeds[]=${encodeURIComponent(e)}`).join('&') || '';
+    const url = `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}${embedParams ? `&${embedParams}` : ''}`;
+
+    // Try a new tab first; if blocked, navigate in the same tab (works on iOS Safari).
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!win) {
+      window.location.assign(url);
+    }
+  }, []);
+
+  const promiseWithTimeout = useCallback(<T,>(promise: Promise<T>, ms: number) => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        const t = setTimeout(() => {
+          clearTimeout(t);
+          reject(new Error('Farcaster compose timeout'));
+        }, ms);
+      }),
+    ]);
+  }, []);
+
   // Compose a cast
   const composeCast = useCallback(async (text: string, embeds?: string[]) => {
     try {
       const farcasterSdk = await loadFarcasterSDK();
-      
+
       if (!farcasterSdk?.actions?.composeCast) {
-        // Fallback to Warpcast URL
-        const embedParams = embeds?.map(e => `embeds[]=${encodeURIComponent(e)}`).join('&') || '';
-        window.open(
-          `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}${embedParams ? `&${embedParams}` : ''}`,
-          '_blank'
-        );
+        openWarpcastCompose(text, embeds);
         return;
       }
-      
+
       // SDK expects max 2 embeds as a tuple
-      const embedsTuple: [] | [string] | [string, string] = 
-        !embeds?.length ? [] :
-        embeds.length === 1 ? [embeds[0]] :
-        [embeds[0], embeds[1]];
-      
-      await farcasterSdk.actions.composeCast({
-        text,
-        embeds: embedsTuple,
-      });
+      const embedsTuple: [] | [string] | [string, string] =
+        !embeds?.length ? [] : embeds.length === 1 ? [embeds[0]] : [embeds[0], embeds[1]];
+
+      // Some environments can hang forever; enforce a timeout then fallback.
+      await promiseWithTimeout(
+        farcasterSdk.actions.composeCast({
+          text,
+          embeds: embedsTuple,
+        }),
+        6000
+      );
     } catch (err) {
       console.error('Failed to compose cast:', err);
-      // Fallback to Warpcast URL
-      const embedParams = embeds?.map(e => `embeds[]=${encodeURIComponent(e)}`).join('&') || '';
-      window.open(
-        `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}${embedParams ? `&${embedParams}` : ''}`,
-        '_blank'
-      );
+      openWarpcastCompose(text, embeds);
     }
-  }, []);
+  }, [openWarpcastCompose, promiseWithTimeout]);
 
   // Share to Farcaster (alias for composeCast)
   const shareToFarcaster = useCallback(async (text: string, embedUrl?: string) => {
