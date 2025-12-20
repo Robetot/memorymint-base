@@ -1,4 +1,4 @@
-import { ANIMALS, AnimalData, isEmojiAnimal, getEmoji } from '@/data/animals';
+import { ANIMALS, AnimalData, SPRITE_COLS, SPRITE_ROWS, SPRITE_IMAGE } from '@/data/animals';
 
 export interface CardData {
   id: number;
@@ -7,6 +7,8 @@ export interface CardData {
   imageUrl: string;
   isFlipped: boolean;
   isMatched: boolean;
+  // Sprite position data for CSS background-position
+  spritePosition?: { row: number; col: number };
 }
 
 export interface ValidationResult {
@@ -96,6 +98,7 @@ export function createValidatedDeck(gridSize: number): ValidationResult {
       imageUrl: animal.image,
       isFlipped: false,
       isMatched: false,
+      spritePosition: animal.spritePosition,
     });
     cards.push({
       id: cardId++,
@@ -104,6 +107,7 @@ export function createValidatedDeck(gridSize: number): ValidationResult {
       imageUrl: animal.image,
       isFlipped: false,
       isMatched: false,
+      spritePosition: animal.spritePosition,
     });
   }
 
@@ -197,28 +201,28 @@ export function autoCorrectDeck(totalCards: number): CardData[] {
   const cards: CardData[] = [];
   
   selectedAnimals.forEach((animal, pairIndex) => {
-    // Handle emoji animals
-    const imageUrl = isEmojiAnimal(animal.image) 
-      ? `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23${['f0abfc','86efac','93c5fd','fcd34d','f87171','a5b4fc'][pairIndex % 6]}" width="100" height="100"/><text x="50" y="65" font-size="50" text-anchor="middle">${getEmoji(animal.image)}</text></svg>`)}`
-      : animal.image;
-    
     cards.push({
       id: pairIndex * 2,
       animalId: animal.id,
       animalName: animal.name,
-      imageUrl,
+      imageUrl: animal.image,
       isFlipped: false,
       isMatched: false,
+      spritePosition: animal.spritePosition,
     });
     cards.push({
       id: pairIndex * 2 + 1,
       animalId: animal.id,
       animalName: animal.name,
-      imageUrl,
+      imageUrl: animal.image,
       isFlipped: false,
       isMatched: false,
+      spritePosition: animal.spritePosition,
     });
   });
   
   return shuffleArray(cards).map((card, index) => ({ ...card, id: index }));
 }
+
+// Export sprite constants for use in components
+export { SPRITE_COLS, SPRITE_ROWS, SPRITE_IMAGE };
