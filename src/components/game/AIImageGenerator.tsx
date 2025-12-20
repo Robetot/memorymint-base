@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload } from 'lucide-react';
+import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload, Image } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/hooks/useWallet';
 import { useNFTMint } from '@/hooks/useNFTMint';
@@ -10,6 +10,7 @@ import { useIPFSUpload } from '@/hooks/useIPFSUpload';
 import { calculateRarity } from '@/utils/rarityCalculator';
 import { getLevel } from '@/data/levels';
 import { toast } from 'sonner';
+import { ANIMALS } from '@/data/animals';
 
 interface AIImageGeneratorProps {
   score: number;
@@ -31,6 +32,12 @@ const STYLE_OPTIONS = [
   { id: 'fantasy', name: 'Mythic Fantasy', prompt: 'fantasy art style, magical, ethereal, epic composition' },
 ];
 
+// Get random preset animals for fallback
+const getRandomPresetAnimals = (count: number = 12) => {
+  const shuffled = [...ANIMALS].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+};
+
 export function AIImageGenerator({ 
   score, 
   onBack, 
@@ -45,6 +52,9 @@ export function AIImageGenerator({
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [rollsRemaining, setRollsRemaining] = useState(3);
   const [mintStep, setMintStep] = useState<'idle' | 'uploading' | 'confirming' | 'waiting' | 'success'>('idle');
+  const [showPresetFallback, setShowPresetFallback] = useState(false);
+  const [presetAnimals] = useState(() => getRandomPresetAnimals(12));
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
   const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress } = useNFTMint();
@@ -75,10 +85,20 @@ export function AIImageGenerator({
     if (image) {
       setGeneratedImage(image);
       setRollsRemaining(prev => prev - 1);
+      setShowPresetFallback(false);
       toast.success('Image generated successfully!');
     } else if (generateError) {
+      // Show fallback option when AI fails
+      setShowPresetFallback(true);
       toast.error(generateError);
     }
+  };
+
+  const handleSelectPreset = (animalImage: string) => {
+    setSelectedPreset(animalImage);
+    setGeneratedImage(animalImage);
+    setShowPresetFallback(false);
+    toast.success('Preset image selected!');
   };
 
   const handleReroll = async () => {
@@ -312,6 +332,34 @@ export function AIImageGenerator({
 
             {generateError && (
               <p className="mt-3 text-sm text-destructive text-center">{generateError}</p>
+            )}
+
+            {/* Preset Fallback when AI fails */}
+            {showPresetFallback && (
+              <div className="mt-6 p-4 rounded-xl bg-muted/50 border border-border">
+                <div className="flex items-center gap-2 mb-3">
+                  <Image className="w-5 h-5 text-primary" />
+                  <p className="font-display font-medium text-foreground">Use Preset Artwork Instead</p>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  AI credits exhausted. Choose from our curated animal collection to mint your NFT.
+                </p>
+                <div className="grid grid-cols-4 gap-2">
+                  {presetAnimals.map((animal) => (
+                    <button
+                      key={animal.id}
+                      onClick={() => handleSelectPreset(animal.image)}
+                      className="aspect-square rounded-lg overflow-hidden border-2 border-border hover:border-primary transition-all hover:scale-105"
+                    >
+                      <img
+                        src={animal.image}
+                        alt={animal.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </>
         ) : (
