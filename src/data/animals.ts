@@ -38,13 +38,10 @@ import hamsterImg from '@/assets/animals/hamster.jpg';
 import frogImg from '@/assets/animals/frog.jpg';
 import turtleImg from '@/assets/animals/turtle.jpg';
 import whaleImg from '@/assets/animals/whale.jpg';
-import butterflyImg from '@/assets/animals/butterfly.jpg';
 // More real animal images
 import octopusImg from '@/assets/animals/octopus.jpg';
 import sharkImg from '@/assets/animals/shark.jpg';
 import fishImg from '@/assets/animals/fish.jpg';
-import beeImg from '@/assets/animals/bee.jpg';
-import ladybugImg from '@/assets/animals/ladybug.jpg';
 import snailImg from '@/assets/animals/snail.jpg';
 import crabImg from '@/assets/animals/crab.jpg';
 import peacockImg from '@/assets/animals/peacock.jpg';
@@ -53,6 +50,11 @@ import duckImg from '@/assets/animals/duck.jpg';
 import hedgehogImg from '@/assets/animals/hedgehog.jpg';
 import kangarooImg from '@/assets/animals/kangaroo.jpg';
 import horseImg from '@/assets/animals/horse.jpg';
+// Additional animals (replacing insects)
+import eagleImg from '@/assets/animals/eagle.jpg';
+import otterImg from '@/assets/animals/otter.jpg';
+import raccoonImg from '@/assets/animals/raccoon.jpg';
+import alpacaImg from '@/assets/animals/alpaca.jpg';
 
 export interface AnimalData {
   id: string;
@@ -97,13 +99,11 @@ export const ANIMALS: AnimalData[] = [
   { id: 'hamster', name: 'Hamster', image: hamsterImg },
   { id: 'frog', name: 'Frog', image: frogImg },
   { id: 'turtle', name: 'Turtle', image: turtleImg },
-  { id: 'whale', name: 'Whale', image: whaleImg },
-  { id: 'butterfly', name: 'Butterfly', image: butterflyImg },
   { id: 'octopus', name: 'Octopus', image: octopusImg },
   { id: 'shark', name: 'Shark', image: sharkImg },
   { id: 'fish', name: 'Fish', image: fishImg },
-  { id: 'bee', name: 'Bee', image: beeImg },
-  { id: 'ladybug', name: 'Ladybug', image: ladybugImg },
+  { id: 'eagle', name: 'Eagle', image: eagleImg },
+  { id: 'otter', name: 'Otter', image: otterImg },
   { id: 'snail', name: 'Snail', image: snailImg },
   { id: 'crab', name: 'Crab', image: crabImg },
   { id: 'peacock', name: 'Peacock', image: peacockImg },
@@ -112,6 +112,8 @@ export const ANIMALS: AnimalData[] = [
   { id: 'hedgehog', name: 'Hedgehog', image: hedgehogImg },
   { id: 'kangaroo', name: 'Kangaroo', image: kangarooImg },
   { id: 'horse', name: 'Horse', image: horseImg },
+  { id: 'raccoon', name: 'Raccoon', image: raccoonImg },
+  { id: 'alpaca', name: 'Alpaca', image: alpacaImg },
 ];
 
 // Helper to check if image is emoji type (legacy support - should always be false now)
