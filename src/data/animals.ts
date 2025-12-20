@@ -21,6 +21,23 @@ import pandaImg from '@/assets/animals/panda.jpg';
 import dolphinImg from '@/assets/animals/dolphin.jpg';
 import koalaImg from '@/assets/animals/koala.jpg';
 import penguinImg from '@/assets/animals/penguin.jpg';
+// New real animal images
+import lionImg from '@/assets/animals/lion.jpg';
+import elephantImg from '@/assets/animals/elephant.jpg';
+import giraffeImg from '@/assets/animals/giraffe.jpg';
+import zebraImg from '@/assets/animals/zebra.jpg';
+import monkeyImg from '@/assets/animals/monkey.jpg';
+import gorillaImg from '@/assets/animals/gorilla.jpg';
+import hippoImg from '@/assets/animals/hippo.jpg';
+import rhinoImg from '@/assets/animals/rhino.jpg';
+import bearImg from '@/assets/animals/bear.jpg';
+import wolfImg from '@/assets/animals/wolf.jpg';
+import rabbitImg from '@/assets/animals/rabbit.jpg';
+import hamsterImg from '@/assets/animals/hamster.jpg';
+import frogImg from '@/assets/animals/frog.jpg';
+import turtleImg from '@/assets/animals/turtle.jpg';
+import whaleImg from '@/assets/animals/whale.jpg';
+import butterflyImg from '@/assets/animals/butterfly.jpg';
 
 export interface AnimalData {
   id: string;
@@ -28,7 +45,7 @@ export interface AnimalData {
   image: string;
 }
 
-// 21 animals from actual image files
+// 37 animals with real image files (enough for 9x9 grid = 40 pairs needed)
 const ANIMALS_FROM_FILES: AnimalData[] = [
   { id: 'cat', name: 'Cat', image: catImg },
   { id: 'calf', name: 'Calf', image: calfImg },
@@ -51,60 +68,43 @@ const ANIMALS_FROM_FILES: AnimalData[] = [
   { id: 'panda', name: 'Panda', image: pandaImg },
   { id: 'dolphin', name: 'Dolphin', image: dolphinImg },
   { id: 'koala', name: 'Koala', image: koalaImg },
+  // New real images
+  { id: 'lion', name: 'Lion', image: lionImg },
+  { id: 'elephant', name: 'Elephant', image: elephantImg },
+  { id: 'giraffe', name: 'Giraffe', image: giraffeImg },
+  { id: 'zebra', name: 'Zebra', image: zebraImg },
+  { id: 'monkey', name: 'Monkey', image: monkeyImg },
+  { id: 'gorilla', name: 'Gorilla', image: gorillaImg },
+  { id: 'hippo', name: 'Hippo', image: hippoImg },
+  { id: 'rhino', name: 'Rhino', image: rhinoImg },
+  { id: 'bear', name: 'Bear', image: bearImg },
+  { id: 'wolf', name: 'Wolf', image: wolfImg },
+  { id: 'rabbit', name: 'Rabbit', image: rabbitImg },
+  { id: 'hamster', name: 'Hamster', image: hamsterImg },
+  { id: 'frog', name: 'Frog', image: frogImg },
+  { id: 'turtle', name: 'Turtle', image: turtleImg },
+  { id: 'whale', name: 'Whale', image: whaleImg },
+  { id: 'butterfly', name: 'Butterfly', image: butterflyImg },
 ];
 
-// Additional animals using emoji placeholders (for larger grids)
-// These use generated colored patterns with emoji overlay
+// Additional animals using emoji placeholders (for extra large grids if needed)
 const EMOJI_ANIMALS: AnimalData[] = [
-  { id: 'lion', name: 'Lion', image: 'emoji:🦁' },
-  { id: 'elephant', name: 'Elephant', image: 'emoji:🐘' },
-  { id: 'giraffe', name: 'Giraffe', image: 'emoji:🦒' },
-  { id: 'zebra', name: 'Zebra', image: 'emoji:🦓' },
-  { id: 'monkey', name: 'Monkey', image: 'emoji:🐒' },
-  { id: 'gorilla', name: 'Gorilla', image: 'emoji:🦍' },
-  { id: 'hippo', name: 'Hippo', image: 'emoji:🦛' },
-  { id: 'rhino', name: 'Rhino', image: 'emoji:🦏' },
-  { id: 'bear', name: 'Bear', image: 'emoji:🐻' },
-  { id: 'wolf', name: 'Wolf', image: 'emoji:🐺' },
-  { id: 'rabbit', name: 'Rabbit', image: 'emoji:🐰' },
-  { id: 'hamster', name: 'Hamster', image: 'emoji:🐹' },
-  { id: 'mouse', name: 'Mouse', image: 'emoji:🐭' },
-  { id: 'cow', name: 'Cow', image: 'emoji:🐮' },
-  { id: 'pig', name: 'Pig', image: 'emoji:🐷' },
-  { id: 'frog', name: 'Frog', image: 'emoji:🐸' },
-  { id: 'turtle', name: 'Turtle', image: 'emoji:🐢' },
-  { id: 'snake', name: 'Snake', image: 'emoji:🐍' },
-  { id: 'dragon', name: 'Dragon', image: 'emoji:🐉' },
-  { id: 'unicorn', name: 'Unicorn', image: 'emoji:🦄' },
-  { id: 'horse', name: 'Horse', image: 'emoji:🐴' },
   { id: 'octopus', name: 'Octopus', image: 'emoji:🐙' },
-  { id: 'whale', name: 'Whale', image: 'emoji:🐋' },
   { id: 'shark', name: 'Shark', image: 'emoji:🦈' },
   { id: 'fish', name: 'Fish', image: 'emoji:🐠' },
-  { id: 'butterfly', name: 'Butterfly', image: 'emoji:🦋' },
   { id: 'bee', name: 'Bee', image: 'emoji:🐝' },
   { id: 'ladybug', name: 'Ladybug', image: 'emoji:🐞' },
   { id: 'snail', name: 'Snail', image: 'emoji:🐌' },
   { id: 'crab', name: 'Crab', image: 'emoji:🦀' },
-  { id: 'lobster', name: 'Lobster', image: 'emoji:🦞' },
-  { id: 'shrimp', name: 'Shrimp', image: 'emoji:🦐' },
   { id: 'peacock', name: 'Peacock', image: 'emoji:🦚' },
   { id: 'flamingo', name: 'Flamingo', image: 'emoji:🦩' },
-  { id: 'eagle', name: 'Eagle', image: 'emoji:🦅' },
-  { id: 'dove', name: 'Dove', image: 'emoji:🕊️' },
   { id: 'duck', name: 'Duck', image: 'emoji:🦆' },
   { id: 'bat', name: 'Bat', image: 'emoji:🦇' },
   { id: 'hedgehog', name: 'Hedgehog', image: 'emoji:🦔' },
-  { id: 'sloth', name: 'Sloth', image: 'emoji:🦥' },
-  { id: 'otter', name: 'Otter', image: 'emoji:🦦' },
-  { id: 'badger', name: 'Badger', image: 'emoji:🦡' },
   { id: 'kangaroo', name: 'Kangaroo', image: 'emoji:🦘' },
-  { id: 'llama', name: 'Llama', image: 'emoji:🦙' },
-  { id: 'camel', name: 'Camel', image: 'emoji:🐫' },
 ];
 
-// Combined animals: prioritize real images, supplement with emojis
-// Total: 21 + 44 = 65 animals (supports up to 9×9 = 81 cards = 40 pairs)
+// Combined animals: 37 real images + 13 emoji fallbacks = 50 total
 export const ANIMALS: AnimalData[] = [...ANIMALS_FROM_FILES, ...EMOJI_ANIMALS];
 
 // Helper to check if image is emoji type

@@ -37,6 +37,9 @@ interface GameBoardProps {
   revealAll?: boolean;
   gridColumns: number;
   gridRows: number;
+  fogEnabled?: boolean;
+  lastFlippedCardId?: number | null;
+  decayingCards?: Set<number>;
 }
 
 export function GameBoard({
@@ -54,6 +57,9 @@ export function GameBoard({
   revealAll = false,
   gridColumns,
   gridRows,
+  fogEnabled = false,
+  lastFlippedCardId = null,
+  decayingCards = new Set(),
 }: GameBoardProps) {
   const [matchedCardIds, setMatchedCardIds] = useState<Set<number>>(new Set());
   const [showMatchAnimation, setShowMatchAnimation] = useState(false);
@@ -262,19 +268,41 @@ export function GameBoard({
           maxWidth: gridSizeCategory === 'large' ? '100%' : gridSizeCategory === 'medium' ? '600px' : '400px',
         }}
       >
-        {cards.map((card) => (
-          <GameCard
-            key={card.id}
-            ref={(el) => setCardRef(card.id, el)}
-            card={revealAll ? { ...card, isFlipped: true } : card}
-            onClick={() => onCardClick(card.id)}
-            disabled={disabled || flippedCards.length >= 2 || revealAll}
-            showMatchAnimation={showMatchAnimation && matchedCardIds.has(card.id)}
-            isHinted={hintedCardIds.includes(card.id)}
-            gridSize={maxDimension}
-            isShaking={shakingCardIds.has(card.id)}
-          />
-        ))}
+        {cards.map((card) => {
+          // Calculate fog opacity based on distance from last flipped card
+          let fogOpacity = 0;
+          if (fogEnabled && lastFlippedCardId !== null && !card.isFlipped && !card.isMatched) {
+            const lastCard = cards.find(c => c.id === lastFlippedCardId);
+            if (lastCard) {
+              const distance = Math.abs(card.id - lastCard.id);
+              const fogRadius = 3;
+              if (distance > fogRadius) {
+                fogOpacity = Math.min(1, (distance - fogRadius) / 4);
+              }
+            }
+          } else if (fogEnabled && lastFlippedCardId === null && !card.isFlipped && !card.isMatched) {
+            // Initial fog - cards further from center are more fogged
+            const centerIdx = Math.floor(cards.length / 2);
+            const distance = Math.abs(card.id - centerIdx);
+            fogOpacity = Math.min(0.6, distance / (cards.length / 3));
+          }
+
+          return (
+            <GameCard
+              key={card.id}
+              ref={(el) => setCardRef(card.id, el)}
+              card={revealAll ? { ...card, isFlipped: true } : card}
+              onClick={() => onCardClick(card.id)}
+              disabled={disabled || flippedCards.length >= 2 || revealAll}
+              showMatchAnimation={showMatchAnimation && matchedCardIds.has(card.id)}
+              isHinted={hintedCardIds.includes(card.id)}
+              gridSize={maxDimension}
+              isShaking={shakingCardIds.has(card.id)}
+              fogOpacity={fogOpacity}
+              isDecaying={decayingCards.has(card.id)}
+            />
+          );
+        })}
       </div>
     </div>
   );

@@ -448,6 +448,9 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         revealAll={revealAll}
         gridColumns={gridSize}
         gridRows={gridRows}
+        fogEnabled={gameState.mechanics.fogEnabled}
+        lastFlippedCardId={gameState.flippedCards.length > 0 ? gameState.flippedCards[gameState.flippedCards.length - 1] : null}
+        decayingCards={gameState.mechanics.decayingCards}
       />
 
       {/* Pause Menu */}
