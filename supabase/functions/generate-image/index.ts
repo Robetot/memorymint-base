@@ -150,22 +150,55 @@ serve(async (req) => {
       const errorText = await response.text()
       console.error('Lovable AI API error:', response.status, errorText)
       
+      // Parse error details if JSON
+      let errorMessage = 'Image generation failed. Please try again.'
+      let errorCode = 'generation_failed'
+      
+      try {
+        const errorData = JSON.parse(errorText)
+        if (errorData.message) {
+          errorMessage = errorData.message
+        }
+        if (errorData.type) {
+          errorCode = errorData.type
+        }
+      } catch {
+        // Not JSON, use default message
+      }
+      
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
+          JSON.stringify({ 
+            error: 'Too many requests. Please wait a moment and try again.',
+            code: 'rate_limited'
+          }),
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
       
       if (response.status === 402) {
+        console.error('Payment required - out of Lovable AI credits')
         return new Response(
-          JSON.stringify({ error: 'Service temporarily unavailable. Please try again later.' }),
-          { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ 
+            error: 'AI credits exhausted. The app owner needs to add credits to continue using AI image generation.',
+            code: 'payment_required'
+          }),
+          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      
+      if (response.status === 401 || response.status === 403) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'AI service authentication failed. Please contact support.',
+            code: 'auth_failed'
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
       
       return new Response(
-        JSON.stringify({ error: 'Image generation failed. Please try again.' }),
+        JSON.stringify({ error: errorMessage, code: errorCode }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
