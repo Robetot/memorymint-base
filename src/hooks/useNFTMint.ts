@@ -43,6 +43,9 @@ const CONTRACT_ERROR_ABI = parseAbi([
 // Price cache
 let priceCache: { price: number; timestamp: number } | null = null;
 
+// Estimated gas cost in ETH (conservative estimate for Base)
+const ESTIMATED_GAS_ETH = 0.0002;
+
 export interface MintState {
   isMinting: boolean;
   txHash: string | null;
@@ -52,6 +55,13 @@ export interface MintState {
   success: boolean;
   isSponsored: boolean;
   aiFeeEth: string | null;
+}
+
+export interface BalanceCheck {
+  hasEnough: boolean;
+  balance: string;
+  required: string;
+  shortfall: string | null;
 }
 
 function encodeMintNFTCallData(tokenURI: string): `0x${string}` {
@@ -737,6 +747,41 @@ export function useNFTMint() {
     }
   }, []);
 
+  // Check if user has enough balance for AI fee + gas
+  const checkBalance = useCallback(async (walletAddress: string, quantity: number = 1): Promise<BalanceCheck | null> => {
+    if (!window.ethereum || !walletAddress) return null;
+
+    try {
+      // Get user's ETH balance
+      const balanceHex = await window.ethereum.request({
+        method: 'eth_getBalance',
+        params: [walletAddress, 'latest'],
+      }) as string;
+      
+      const balanceWei = BigInt(balanceHex);
+      const balanceEth = Number(balanceWei) / 1e18;
+
+      // Calculate required amount (AI fee + estimated gas)
+      const ethPrice = await fetchEthPrice();
+      const aiFeeWei = calculateAiFeeWei(ethPrice, quantity);
+      const aiFeeEth = Number(aiFeeWei) / 1e18;
+      const requiredEth = aiFeeEth + ESTIMATED_GAS_ETH;
+
+      const hasEnough = balanceEth >= requiredEth;
+      const shortfall = hasEnough ? null : (requiredEth - balanceEth).toFixed(6);
+
+      return {
+        hasEnough,
+        balance: balanceEth.toFixed(6),
+        required: requiredEth.toFixed(6),
+        shortfall,
+      };
+    } catch (error) {
+      console.error('[Balance] Check failed:', error);
+      return null;
+    }
+  }, []);
+
   return {
     ...mintState,
     mintNFT,
@@ -744,9 +789,11 @@ export function useNFTMint() {
     quickMint,
     resetMintState,
     getAiFeeEstimate,
+    checkBalance,
     contractAddress: NFT_CONTRACT_ADDRESS,
     treasuryAddress: TREASURY_ADDRESS,
     aiFeeUsd: AI_FEE_USD,
+    estimatedGasEth: ESTIMATED_GAS_ETH,
     supportsSponsorship: supportsWalletSendCalls(),
   };
 }

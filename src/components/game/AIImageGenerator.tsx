@@ -58,18 +58,30 @@ export function AIImageGenerator({
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [showBatchMode, setShowBatchMode] = useState(false);
   const [feeEstimate, setFeeEstimate] = useState<{ feeUsd: number; feeEth: string } | null>(null);
+  const [balanceCheck, setBalanceCheck] = useState<{ hasEnough: boolean; balance: string; required: string; shortfall: string | null } | null>(null);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
-  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, aiFeeUsd, getAiFeeEstimate, aiFeeEth } = useNFTMint();
+  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, aiFeeUsd, getAiFeeEstimate, checkBalance, aiFeeEth, estimatedGasEth } = useNFTMint();
   const { isGenerating, generateImage, error: generateError } = useAIGenerate();
   const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
 
-  // Fetch fee estimate on mount
+  // Fetch fee estimate and check balance when connected
   useEffect(() => {
     getAiFeeEstimate(1).then(estimate => {
       if (estimate) setFeeEstimate(estimate);
     });
   }, [getAiFeeEstimate]);
+
+  // Check balance when wallet connects or address changes
+  useEffect(() => {
+    if (isConnected && address) {
+      checkBalance(address, 1).then(result => {
+        if (result) setBalanceCheck(result);
+      });
+    } else {
+      setBalanceCheck(null);
+    }
+  }, [isConnected, address, checkBalance]);
 
   // Calculate rarity based on game performance using level
   const levelConfig = getLevel(level);
@@ -515,7 +527,7 @@ export function AIImageGenerator({
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Gas fee (estimated)</span>
-                      <span className="text-foreground">~0.0001 ETH</span>
+                      <span className="text-foreground">~{estimatedGasEth} ETH</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">AI Generation Fee</span>
@@ -526,13 +538,43 @@ export function AIImageGenerator({
                     <div className="border-t border-border pt-1 mt-1 flex justify-between font-medium">
                       <span className="text-foreground">Total</span>
                       <span className="text-primary">
-                        {feeEstimate ? `~${(parseFloat(feeEstimate.feeEth) + 0.0001).toFixed(6)} ETH` : '...'}
+                        {feeEstimate ? `~${(parseFloat(feeEstimate.feeEth) + estimatedGasEth).toFixed(6)} ETH` : '...'}
                       </span>
                     </div>
+                    {balanceCheck && (
+                      <div className="flex justify-between text-xs pt-1">
+                        <span className="text-muted-foreground">Your balance</span>
+                        <span className={balanceCheck.hasEnough ? 'text-success' : 'text-destructive'}>
+                          {balanceCheck.balance} ETH
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
                     AI fee covers image generation costs and is sent to the treasury.
                   </p>
+                </div>
+              )}
+
+              {/* Low Balance Warning */}
+              {!success && isConnected && balanceCheck && !balanceCheck.hasEnough && (
+                <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-destructive text-sm">Insufficient Balance</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      You need at least <span className="font-mono text-foreground">{balanceCheck.required} ETH</span> to mint.
+                      You're short by <span className="font-mono text-destructive">{balanceCheck.shortfall} ETH</span>.
+                    </p>
+                    <a 
+                      href="https://bridge.base.org" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline mt-2 inline-block"
+                    >
+                      Bridge ETH to Base →
+                    </a>
+                  </div>
                 </div>
               )}
 
@@ -541,7 +583,7 @@ export function AIImageGenerator({
                   onClick={handleMint}
                   size="lg"
                   className="w-full text-lg font-display bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90"
-                  disabled={!isConnected || isMinting || isUploading}
+                  disabled={!isConnected || isMinting || isUploading || (balanceCheck && !balanceCheck.hasEnough)}
                 >
                   {isMinting || isUploading ? (
                     <>
