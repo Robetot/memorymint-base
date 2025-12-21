@@ -58,6 +58,7 @@ type DebugPanel = {
   discoveredTokenIds: string[];
   tokenURIs: Record<string, string>;
   errors: string[];
+  discoveryMethod?: 'events' | 'scan' | 'recent_mint' | 'none';
 };
 
 interface FetchState {
@@ -223,14 +224,20 @@ export function useNFTCollection(address: string | null) {
   const discoveryStartedAtRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
 
-  const ensureBaseNetwork = useCallback(async (): Promise<{ ok: boolean; chainId: string | null }> => {
+  const ensureBaseNetwork = useCallback(async (): Promise<{ ok: boolean; chainId: string | null; error?: string }> => {
+    // First verify we have a valid address
     if (!window.ethereum) {
-      // In Base App, we might not have window.ethereum but still be on Base
+      // In Base App context without window.ethereum, we trust the environment
+      console.log("[NFT] No window.ethereum, assuming Base App environment on Base Mainnet");
       return { ok: true, chainId: BASE_CHAIN_ID };
     }
 
     try {
       const chainId = (await window.ethereum.request({ method: "eth_chainId" })) as string;
+      const chainIdNum = parseInt(chainId, 16);
+      
+      console.log(`[NFT] Current chain ID: ${chainIdNum} (expected: 8453)`);
+      
       if (chainId?.toLowerCase() === BASE_CHAIN_ID.toLowerCase()) {
         return { ok: true, chainId };
       }
@@ -257,17 +264,18 @@ export function useNFTCollection(address: string | null) {
               const newChainId = (await window.ethereum.request({ method: "eth_chainId" })) as string;
               return { ok: newChainId?.toLowerCase() === BASE_CHAIN_ID.toLowerCase(), chainId: newChainId };
             } catch {
-              return { ok: false, chainId };
+              return { ok: false, chainId, error: `Connected to chain ${chainIdNum}. Please switch to Base Mainnet (8453).` };
             }
           }
 
-          return { ok: false, chainId };
+          return { ok: false, chainId, error: `Connected to chain ${chainIdNum}. Please switch to Base Mainnet (8453).` };
         }
       }
 
-      return { ok: false, chainId };
-    } catch {
+      return { ok: false, chainId, error: `Connected to chain ${chainIdNum}. Please switch to Base Mainnet (8453).` };
+    } catch (err) {
       // Assume we're on Base if we can't check (Base App scenario)
+      console.log("[NFT] Could not check chain, assuming Base App context");
       return { ok: true, chainId: BASE_CHAIN_ID };
     }
   }, []);
@@ -443,12 +451,29 @@ export function useNFTCollection(address: string | null) {
   const fetchCollection = useCallback(
     async (forceRefresh = false) => {
       if (!address) {
+        console.log("[NFT] No address provided, skipping fetch");
         setState({ nfts: [], isLoading: false, error: null, chainError: null, balance: null, debug: null });
+        return;
+      }
+
+      // Validate address format
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        console.error("[NFT] Invalid address format:", address);
+        setState({ 
+          nfts: [], 
+          isLoading: false, 
+          error: "Invalid wallet address format", 
+          chainError: null, 
+          balance: null, 
+          debug: null 
+        });
         return;
       }
 
       if (fetchingRef.current && !forceRefresh) return;
       fetchingRef.current = true;
+
+      console.log(`[NFT] Fetching collection for address: ${address}`);
 
       // Clear cached NFT state on force refresh
       setState(prev => ({
@@ -467,6 +492,7 @@ export function useNFTCollection(address: string | null) {
         discoveredTokenIds: [],
         tokenURIs: {},
         errors: [],
+        discoveryMethod: 'none',
       };
 
       try {
@@ -474,11 +500,13 @@ export function useNFTCollection(address: string | null) {
         debug.chainId = net.chainId;
 
         if (!net.ok) {
+          const chainError = net.error || "Wrong network. Please switch to Base Mainnet (Chain ID: 8453).";
+          console.error("[NFT] Network check failed:", chainError);
           setState({
             nfts: [],
             isLoading: false,
             error: null,
-            chainError: "Wrong network. Please switch to Base Mainnet.",
+            chainError,
             balance: null,
             debug,
           });
@@ -486,11 +514,33 @@ export function useNFTCollection(address: string | null) {
           return;
         }
 
+        console.log("[NFT] Network check passed, fetching balance...");
+
         // Direct on-chain validation (never show empty state if balance > 0)
-        const balance = await fetchBalance(address);
+        let balance: number;
+        try {
+          balance = await fetchBalance(address);
+          console.log(`[NFT] Balance for ${address}: ${balance}`);
+        } catch (balanceErr) {
+          const msg = balanceErr instanceof Error ? balanceErr.message : String(balanceErr);
+          console.error("[NFT] Failed to fetch balance:", msg);
+          debug.errors.push(`Balance fetch failed: ${msg}`);
+          setState({
+            nfts: [],
+            isLoading: false,
+            error: "Failed to check NFT balance. Please try again.",
+            chainError: null,
+            balance: null,
+            debug,
+          });
+          fetchingRef.current = false;
+          return;
+        }
+        
         debug.balance = balance;
 
         if (balance === 0) {
+          console.log("[NFT] No NFTs found for this address");
           setState({
             nfts: [],
             isLoading: false,
@@ -503,31 +553,51 @@ export function useNFTCollection(address: string | null) {
           return;
         }
 
+        console.log(`[NFT] Found ${balance} NFT(s), discovering token IDs...`);
+
         let tokenIds: string[] = [];
         
-        // First try event-based discovery
-        try {
-          tokenIds = await fetchOwnedTokenIdsByEvents(address);
-          debug.discoveredTokenIds = tokenIds;
-        } catch (e) {
-          debug.errors.push(e instanceof Error ? e.message : String(e));
-        }
-        
-        // Merge in tokenIds we got directly from the mint receipt (more reliable than log scanning right after mint).
+        // First check if we have recent mint token IDs (most reliable immediately after mint)
         const recent = Array.from(recentMintTokenIdsRef.current);
         if (recent.length > 0) {
-          tokenIds = Array.from(new Set([...tokenIds, ...recent]));
-          tokenIds.sort((a, b) => Number(BigInt(b) - BigInt(a)));
+          console.log("[NFT] Using recent mint token IDs:", recent);
+          tokenIds = [...recent];
+          debug.discoveryMethod = 'recent_mint';
         }
+        
+        // Then try event-based discovery
+        if (tokenIds.length < balance) {
+          try {
+            console.log("[NFT] Trying event-based discovery...");
+            const eventTokenIds = await fetchOwnedTokenIdsByEvents(address);
+            console.log("[NFT] Event discovery found:", eventTokenIds);
+            tokenIds = Array.from(new Set([...tokenIds, ...eventTokenIds]));
+            if (eventTokenIds.length > 0) {
+              debug.discoveryMethod = 'events';
+            }
+          } catch (e) {
+            const errMsg = e instanceof Error ? e.message : String(e);
+            console.warn("[NFT] Event discovery failed:", errMsg);
+            debug.errors.push(`Event discovery: ${errMsg}`);
+          }
+        }
+        
+        debug.discoveredTokenIds = tokenIds;
 
         // If we have balance but no token IDs from events, try scanning
         if (tokenIds.length === 0 && balance > 0) {
-          console.log("[NFT] Event discovery failed, trying token scan...");
+          console.log("[NFT] Event discovery failed, trying token scan fallback...");
           try {
             tokenIds = await scanRecentTokenIds(address, balance);
+            console.log("[NFT] Scan fallback found:", tokenIds);
             debug.discoveredTokenIds = tokenIds;
+            if (tokenIds.length > 0) {
+              debug.discoveryMethod = 'scan';
+            }
           } catch (e) {
-            debug.errors.push(`Scan fallback: ${e instanceof Error ? e.message : String(e)}`);
+            const errMsg = e instanceof Error ? e.message : String(e);
+            console.warn("[NFT] Scan fallback failed:", errMsg);
+            debug.errors.push(`Scan fallback: ${errMsg}`);
           }
         }
 
@@ -536,7 +606,9 @@ export function useNFTCollection(address: string | null) {
           if (!discoveryStartedAtRef.current) discoveryStartedAtRef.current = Date.now();
           const elapsedMs = Date.now() - discoveryStartedAtRef.current;
 
-          const shouldRetry = retryCountRef.current < 3 && elapsedMs < 30000;
+          const shouldRetry = retryCountRef.current < 5 && elapsedMs < 60000; // Increased retry attempts
+
+          console.log(`[NFT] No token IDs found yet. Retry ${retryCountRef.current + 1}/5, elapsed: ${elapsedMs}ms`);
 
           // Show placeholders but stop "Syncing" forever — after retries, show an actionable error.
           const placeholders: NFTItem[] = Array.from({ length: balance }).map((_, i) => ({
@@ -546,27 +618,33 @@ export function useNFTCollection(address: string | null) {
             hasError: !shouldRetry,
             metadata: shouldRetry
               ? {
-                  name: `Loading NFT ${i + 1} of ${balance}...`,
-                  description: "Fetching token data from blockchain...",
+                  name: `Syncing NFT ${i + 1} of ${balance}...`,
+                  description: "Blockchain indexing in progress. Please wait...",
                 }
               : {
                   name: `MemoryMint NFT ${i + 1}`,
-                  description: "Couldn't discover token IDs. Tap Refresh to retry.",
+                  description: "Token discovery timed out. Your NFT exists on-chain.",
                 },
           }));
+
+          const errorMsg = shouldRetry 
+            ? null 
+            : `Found ${balance} NFT(s) on-chain but couldn't retrieve token IDs. This may be a temporary RPC issue. Tap Refresh to retry.`;
 
           setState({
             nfts: placeholders,
             isLoading: false,
-            error: shouldRetry ? null : "Unable to discover token IDs. Tap Refresh.",
+            error: errorMsg,
             chainError: null,
             balance,
             debug,
           });
 
-          // Auto-retry after a short delay (up to 3 times)
+          // Auto-retry after a short delay (up to 5 times)
           if (shouldRetry) {
             retryCountRef.current++;
+            const delay = Math.min(2000 * (retryCountRef.current), 10000); // Exponential backoff
+            console.log(`[NFT] Scheduling retry in ${delay}ms...`);
             setTimeout(() => {
               fetchingRef.current = false;
               fetchCollection(true);
