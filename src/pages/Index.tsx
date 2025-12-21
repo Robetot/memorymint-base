@@ -19,12 +19,17 @@ const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m =>
 const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
 const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
 
-// Loading fallback component
-const LoadingFallback = () => (
-  <div className="min-h-screen flex items-center justify-center bg-background">
-    <div className="animate-pulse text-primary text-xl">Loading...</div>
-  </div>
-);
+// Lazy load components not needed on initial page load
+const GameScreen = lazy(() => import('@/components/game/GameScreen').then(m => ({ default: m.GameScreen })));
+const WalletScreen = lazy(() => import('@/components/game/WalletScreen').then(m => ({ default: m.WalletScreen })));
+const LevelSelector = lazy(() => import('@/components/game/LevelSelector').then(m => ({ default: m.LevelSelector })));
+const Leaderboard = lazy(() => import('@/components/game/Leaderboard').then(m => ({ default: m.Leaderboard })));
+const AIImageGenerator = lazy(() => import('@/components/game/AIImageGenerator').then(m => ({ default: m.AIImageGenerator })));
+const Tutorial = lazy(() => import('@/components/game/Tutorial').then(m => ({ default: m.Tutorial })));
+const SettingsScreen = lazy(() => import('@/components/game/SettingsScreen').then(m => ({ default: m.SettingsScreen })));
+const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m => ({ default: m.StatsScreen })));
+const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
+const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
 
 type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
 
@@ -184,67 +189,87 @@ const Index = () => {
         );
       case 'wallet':
         return (
-          <WalletScreen 
-            onBack={handleBackToMenu}
-            onConnected={handleWalletConnected}
-          />
+          <Suspense fallback={null}>
+            <WalletScreen 
+              onBack={handleBackToMenu}
+              onConnected={handleWalletConnected}
+            />
+          </Suspense>
         );
       case 'levels':
         return (
-          <LevelSelector
-            onSelectLevel={handleSelectLevel}
-            onBack={handleBackToMenu}
-          />
+          <Suspense fallback={null}>
+            <LevelSelector
+              onSelectLevel={handleSelectLevel}
+              onBack={handleBackToMenu}
+            />
+          </Suspense>
         );
       case 'game':
         return (
-          <GameScreen 
-            key={gameKey}
-            onBackToMenu={handleBackToMenu}
-            level={selectedLevel}
-            onCreateArt={handleCreateArt}
-            onNextLevel={handleNextLevel}
-          />
+          <Suspense fallback={null}>
+            <GameScreen 
+              key={gameKey}
+              onBackToMenu={handleBackToMenu}
+              level={selectedLevel}
+              onCreateArt={handleCreateArt}
+              onNextLevel={handleNextLevel}
+            />
+          </Suspense>
         );
       case 'leaderboard':
-        return <Leaderboard onBack={handleBackToMenu} />;
+        return (
+          <Suspense fallback={null}>
+            <Leaderboard onBack={handleBackToMenu} />
+          </Suspense>
+        );
       case 'ai-art':
         return (
-          <AIImageGenerator
-            score={lastScore}
-            onBack={handleBackToMenu}
-            onComplete={handleBackToMenu}
-            moves={lastGameStats?.moves}
-            time={lastGameStats?.time}
-            maxCombo={lastGameStats?.maxCombo}
-            level={selectedLevel}
-          />
+          <Suspense fallback={null}>
+            <AIImageGenerator
+              score={lastScore}
+              onBack={handleBackToMenu}
+              onComplete={handleBackToMenu}
+              moves={lastGameStats?.moves}
+              time={lastGameStats?.time}
+              maxCombo={lastGameStats?.maxCombo}
+              level={selectedLevel}
+            />
+          </Suspense>
         );
       case 'settings':
         return (
-          <SettingsScreen
-            settings={settings}
-            onUpdateSetting={updateSetting}
-            onReset={resetSettings}
-            onBack={handleBackToMenu}
-            onReplayTutorial={handleReplayTutorial}
-            onResetProgress={() => {
-              import('@/data/levels').then(({ resetProgress }) => {
-                resetProgress();
-              });
-            }}
-          />
+          <Suspense fallback={null}>
+            <SettingsScreen
+              settings={settings}
+              onUpdateSetting={updateSetting}
+              onReset={resetSettings}
+              onBack={handleBackToMenu}
+              onReplayTutorial={handleReplayTutorial}
+              onResetProgress={() => {
+                import('@/data/levels').then(({ resetProgress }) => {
+                  resetProgress();
+                });
+              }}
+            />
+          </Suspense>
         );
       case 'stats':
-        return <StatsScreen onBack={handleBackToMenu} />;
+        return (
+          <Suspense fallback={null}>
+            <StatsScreen onBack={handleBackToMenu} />
+          </Suspense>
+        );
       case 'achievements':
         return (
-          <AchievementsPanel
-            achievements={achievements}
-            unlockedCount={unlockedCount}
-            totalCount={totalCount}
-            onClose={handleBackToMenu}
-          />
+          <Suspense fallback={null}>
+            <AchievementsPanel
+              achievements={achievements}
+              unlockedCount={unlockedCount}
+              totalCount={totalCount}
+              onClose={handleBackToMenu}
+            />
+          </Suspense>
         );
       default:
         return null;
@@ -256,8 +281,12 @@ const Index = () => {
   }, []);
 
   return (
-    <Suspense fallback={<LoadingFallback />}>
-      {showTutorial && <Tutorial onComplete={handleTutorialComplete} />}
+    <>
+      {showTutorial && (
+        <Suspense fallback={null}>
+          <Tutorial onComplete={handleTutorialComplete} />
+        </Suspense>
+      )}
       
       {/* Achievement unlock popup */}
       <AnimatePresence>
@@ -268,10 +297,12 @@ const Index = () => {
             exit={{ opacity: 0, scale: 0.8, y: -50 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
           >
-            <AchievementUnlockPopup 
-              achievement={newUnlock} 
-              onDismiss={dismissNewUnlock} 
-            />
+            <Suspense fallback={null}>
+              <AchievementUnlockPopup 
+                achievement={newUnlock} 
+                onDismiss={dismissNewUnlock} 
+              />
+            </Suspense>
           </motion.div>
         )}
       </AnimatePresence>
@@ -293,7 +324,7 @@ const Index = () => {
 
       {/* Bottom Navigation */}
       <BottomNav currentView={currentView} onNavigate={handleNavigation} />
-    </Suspense>
+    </>
   );
 };
 
