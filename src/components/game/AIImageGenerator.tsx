@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload, Image, Layers } from 'lucide-react';
+import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload, Image, Layers, DollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/hooks/useWallet';
 import { useNFTMint } from '@/hooks/useNFTMint';
@@ -57,11 +57,19 @@ export function AIImageGenerator({
   const [presetAnimals] = useState(() => getRandomPresetAnimals(12));
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [showBatchMode, setShowBatchMode] = useState(false);
+  const [feeEstimate, setFeeEstimate] = useState<{ feeUsd: number; feeEth: string } | null>(null);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
-  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress } = useNFTMint();
+  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, aiFeeUsd, getAiFeeEstimate, aiFeeEth } = useNFTMint();
   const { isGenerating, generateImage, error: generateError } = useAIGenerate();
   const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
+
+  // Fetch fee estimate on mount
+  useEffect(() => {
+    getAiFeeEstimate(1).then(estimate => {
+      if (estimate) setFeeEstimate(estimate);
+    });
+  }, [getAiFeeEstimate]);
 
   // Calculate rarity based on game performance using level
   const levelConfig = getLevel(level);
@@ -497,6 +505,37 @@ export function AIImageGenerator({
                 </Button>
               </div>
 
+              {/* Fee Breakdown - Show before minting */}
+              {!success && isConnected && (
+                <div className="p-4 rounded-xl bg-muted/50 border border-border space-y-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <DollarSign className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-medium text-foreground">Mint Cost Breakdown</span>
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Gas fee (estimated)</span>
+                      <span className="text-foreground">~0.0001 ETH</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">AI Generation Fee</span>
+                      <span className="text-foreground">
+                        ${aiFeeUsd.toFixed(2)} {feeEstimate && `(~${feeEstimate.feeEth} ETH)`}
+                      </span>
+                    </div>
+                    <div className="border-t border-border pt-1 mt-1 flex justify-between font-medium">
+                      <span className="text-foreground">Total</span>
+                      <span className="text-primary">
+                        {feeEstimate ? `~${(parseFloat(feeEstimate.feeEth) + 0.0001).toFixed(6)} ETH` : '...'}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    AI fee covers image generation costs and is sent to the treasury.
+                  </p>
+                </div>
+              )}
+
               {!success ? (
                 <Button
                   onClick={handleMint}
@@ -507,12 +546,12 @@ export function AIImageGenerator({
                   {isMinting || isUploading ? (
                     <>
                       <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      {isUploading ? 'Uploading...' : 'Minting...'}
+                      {isUploading ? 'Uploading...' : aiFeeEth ? `Paying $${aiFeeUsd} AI Fee...` : 'Minting...'}
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-5 h-5 mr-2" />
-                      {isConnected ? 'Mint as NFT' : 'Connect Wallet to Mint'}
+                      {isConnected ? `Mint NFT ($${aiFeeUsd} + gas)` : 'Connect Wallet to Mint'}
                     </>
                   )}
                 </Button>
