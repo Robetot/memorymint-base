@@ -211,55 +211,10 @@ export function useNFTMint() {
     }
   }, []);
 
-  // Send AI fee to treasury
-  const sendAiFee = useCallback(async (
-    walletAddress: string,
-    aiFeeWei: bigint
-  ): Promise<string> => {
-    const ethereum = window.ethereum as any;
-    
-    const txHash = await ethereum.request({
-      method: 'eth_sendTransaction',
-      params: [{
-        from: walletAddress,
-        to: TREASURY_ADDRESS,
-        value: '0x' + aiFeeWei.toString(16),
-      }],
-    }) as string;
-
-    return txHash;
-  }, []);
-
-  // Wait for AI fee transaction to confirm
-  const waitForAiFeeReceipt = useCallback(async (txHash: string): Promise<boolean> => {
-    let receipt: any = null;
-    let attempts = 0;
-    const maxAttempts = 60;
-
-    while (!receipt && attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      try {
-        receipt = await window.ethereum!.request({
-          method: 'eth_getTransactionReceipt',
-          params: [txHash],
-        });
-      } catch {
-        // Continue polling
-      }
-      attempts++;
-    }
-
-    if (!receipt) {
-      throw new Error('AI fee transaction is still pending');
-    }
-
-    const status = receipt.status as string;
-    if (status !== '0x1') {
-      throw new Error('AI fee transfer failed');
-    }
-
-    return true;
+  // Calculate AI fee in wei (included in mint transaction value)
+  const getAiFeeWei = useCallback(async (quantity: number = 1): Promise<bigint> => {
+    const ethPrice = await fetchEthPrice();
+    return calculateAiFeeWei(ethPrice, quantity);
   }, []);
 
   const waitForReceipt = useCallback(
@@ -341,12 +296,14 @@ export function useNFTMint() {
     );
   }, []);
 
-  // Send sponsored transaction using EIP-5792 wallet_sendCalls
-  const sendSponsoredTransaction = useCallback(async (
+  // Send transaction with AI fee included in value (single transaction)
+  const sendMintTransaction = useCallback(async (
     walletAddress: string,
-    data: `0x${string}`
+    data: `0x${string}`,
+    valueWei: bigint
   ): Promise<{ txHash: string; isSponsored: boolean }> => {
     const ethereum = window.ethereum as any;
+    const valueHex = '0x' + valueWei.toString(16);
     
     // Try sponsored transaction with wallet_sendCalls (EIP-5792)
     if (supportsWalletSendCalls()) {
@@ -356,7 +313,7 @@ export function useNFTMint() {
         const calls = [{
           to: NFT_CONTRACT_ADDRESS,
           data,
-          value: '0x0',
+          value: valueHex,
         }];
 
         const capabilities: Record<string, any> = {
@@ -422,7 +379,7 @@ export function useNFTMint() {
       }
     }
 
-    // Fallback to regular eth_sendTransaction
+    // Fallback to regular eth_sendTransaction with value
     console.log('[Mint] Sending regular transaction via eth_sendTransaction...');
     const txHash = await ethereum.request({
       method: 'eth_sendTransaction',
@@ -430,13 +387,14 @@ export function useNFTMint() {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
         data,
+        value: valueHex,
       }],
     }) as string;
 
     return { txHash, isSponsored: false };
   }, []);
 
-  // Single NFT mint with AI fee
+  // Single NFT mint with AI fee included in transaction value
   const mintNFT = useCallback(async (
     tokenURI: string,
     walletAddress: string
@@ -477,29 +435,19 @@ export function useNFTMint() {
     });
 
     try {
-      // Step 1: Fetch ETH price and calculate AI fee
-      console.log('[Mint] Fetching ETH price...');
-      const ethPrice = await fetchEthPrice();
-      const aiFeeWei = calculateAiFeeWei(ethPrice);
+      // Calculate AI fee to include in transaction value
+      console.log('[Mint] Calculating AI fee...');
+      const aiFeeWei = await getAiFeeWei(1);
       const aiFeeEth = formatWeiToEth(aiFeeWei);
       
-      console.log(`[Mint] AI fee: $${AI_FEE_USD} = ${aiFeeEth} ETH`);
+      console.log(`[Mint] AI fee included in tx value: $${AI_FEE_USD} = ${aiFeeEth} ETH`);
       setMintState(prev => ({ ...prev, aiFeeEth }));
 
-      // Step 2: Send AI fee to treasury
-      console.log('[Mint] Sending AI fee to treasury...');
-      const feeTxHash = await sendAiFee(walletAddress, aiFeeWei);
-      console.log('[Mint] AI fee transaction:', feeTxHash);
-      
-      // Wait for AI fee confirmation
-      await waitForAiFeeReceipt(feeTxHash);
-      console.log('[Mint] AI fee confirmed!');
-
-      // Step 3: Mint NFT
+      // Mint NFT with AI fee included in transaction value (single transaction)
       console.log('[Mint] Minting NFT via MemoryMint...');
       const data = encodeMintNFTCallData(tokenURI);
 
-      const { txHash, isSponsored } = await sendSponsoredTransaction(walletAddress, data);
+      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, aiFeeWei);
 
       console.log('[Mint] Transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
       setMintState(prev => ({ ...prev, txHash, isSponsored }));
@@ -535,9 +483,9 @@ export function useNFTMint() {
       pendingMintRef.current = null;
       return false;
     }
-  }, [notifyMinted, sendAiFee, sendSponsoredTransaction, verifyBaseNetwork, waitForAiFeeReceipt, waitForOneConfirmation, waitForReceipt]);
+  }, [getAiFeeWei, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
-  // Batch mint with AI fee
+  // Batch mint with AI fee included in transaction value
   const batchMintNFT = useCallback(async (
     walletAddress: string,
     quantity: number
@@ -575,28 +523,19 @@ export function useNFTMint() {
     });
 
     try {
-      // Step 1: Fetch ETH price and calculate AI fee for batch
-      console.log('[Mint] Fetching ETH price...');
-      const ethPrice = await fetchEthPrice();
-      const aiFeeWei = calculateAiFeeWei(ethPrice, quantity);
+      // Calculate AI fee for batch to include in transaction value
+      console.log('[Mint] Calculating batch AI fee...');
+      const aiFeeWei = await getAiFeeWei(quantity);
       const aiFeeEth = formatWeiToEth(aiFeeWei);
       
-      console.log(`[Mint] Batch AI fee: $${AI_FEE_USD * quantity} = ${aiFeeEth} ETH for ${quantity} NFTs`);
+      console.log(`[Mint] Batch AI fee included in tx value: $${AI_FEE_USD * quantity} = ${aiFeeEth} ETH for ${quantity} NFTs`);
       setMintState(prev => ({ ...prev, aiFeeEth }));
 
-      // Step 2: Send AI fee to treasury
-      console.log('[Mint] Sending AI fee to treasury...');
-      const feeTxHash = await sendAiFee(walletAddress, aiFeeWei);
-      console.log('[Mint] AI fee transaction:', feeTxHash);
-      
-      await waitForAiFeeReceipt(feeTxHash);
-      console.log('[Mint] AI fee confirmed!');
-
-      // Step 3: Batch mint NFTs
+      // Batch mint NFTs with AI fee included in transaction value (single transaction)
       console.log(`[Mint] Batch minting ${quantity} NFTs...`);
       const data = encodeBatchMintCallData(quantity);
 
-      const { txHash, isSponsored } = await sendSponsoredTransaction(walletAddress, data);
+      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, aiFeeWei);
 
       console.log('[Mint] Batch transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
       setMintState(prev => ({ ...prev, txHash, isSponsored }));
@@ -630,9 +569,9 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [notifyMinted, sendAiFee, sendSponsoredTransaction, verifyBaseNetwork, waitForAiFeeReceipt, waitForOneConfirmation, waitForReceipt]);
+  }, [getAiFeeWei, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
-  // Quick mint with AI fee
+  // Quick mint with AI fee included in transaction value
   const quickMint = useCallback(async (walletAddress: string): Promise<boolean> => {
     if (!window.ethereum) {
       setMintState(prev => ({ ...prev, error: 'No wallet detected' }));
@@ -662,28 +601,19 @@ export function useNFTMint() {
     });
 
     try {
-      // Step 1: Fetch ETH price and calculate AI fee
-      console.log('[Mint] Fetching ETH price...');
-      const ethPrice = await fetchEthPrice();
-      const aiFeeWei = calculateAiFeeWei(ethPrice);
+      // Calculate AI fee to include in transaction value
+      console.log('[Mint] Calculating AI fee...');
+      const aiFeeWei = await getAiFeeWei(1);
       const aiFeeEth = formatWeiToEth(aiFeeWei);
       
-      console.log(`[Mint] AI fee: $${AI_FEE_USD} = ${aiFeeEth} ETH`);
+      console.log(`[Mint] AI fee included in tx value: $${AI_FEE_USD} = ${aiFeeEth} ETH`);
       setMintState(prev => ({ ...prev, aiFeeEth }));
 
-      // Step 2: Send AI fee to treasury
-      console.log('[Mint] Sending AI fee to treasury...');
-      const feeTxHash = await sendAiFee(walletAddress, aiFeeWei);
-      console.log('[Mint] AI fee transaction:', feeTxHash);
-      
-      await waitForAiFeeReceipt(feeTxHash);
-      console.log('[Mint] AI fee confirmed!');
-
-      // Step 3: Quick mint
+      // Quick mint with AI fee included in transaction value (single transaction)
       console.log("[Mint] Quick minting via mintNFT('')...");
       const data = encodeMintNFTCallData('');
 
-      const { txHash, isSponsored } = await sendSponsoredTransaction(walletAddress, data);
+      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, aiFeeWei);
 
       console.log('[Mint] Quick mint submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
       setMintState(prev => ({ ...prev, txHash, isSponsored }));
@@ -717,7 +647,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [notifyMinted, sendAiFee, sendSponsoredTransaction, verifyBaseNetwork, waitForAiFeeReceipt, waitForOneConfirmation, waitForReceipt]);
+  }, [getAiFeeWei, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   const resetMintState = useCallback(() => {
     setMintState({

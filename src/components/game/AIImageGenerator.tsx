@@ -57,20 +57,12 @@ export function AIImageGenerator({
   const [presetAnimals] = useState(() => getRandomPresetAnimals(12));
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [showBatchMode, setShowBatchMode] = useState(false);
-  const [feeEstimate, setFeeEstimate] = useState<{ feeUsd: number; feeEth: string } | null>(null);
   const [balanceCheck, setBalanceCheck] = useState<{ hasEnough: boolean; balance: string; required: string; shortfall: string | null } | null>(null);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
-  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, aiFeeUsd, getAiFeeEstimate, checkBalance, aiFeeEth, estimatedGasEth } = useNFTMint();
+  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getAiFeeEstimate, checkBalance, estimatedGasEth } = useNFTMint();
   const { isGenerating, generateImage, error: generateError } = useAIGenerate();
   const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
-
-  // Fetch fee estimate and check balance when connected
-  useEffect(() => {
-    getAiFeeEstimate(1).then(estimate => {
-      if (estimate) setFeeEstimate(estimate);
-    });
-  }, [getAiFeeEstimate]);
 
   // Check balance when wallet connects or address changes
   useEffect(() => {
@@ -176,7 +168,7 @@ export function AIImageGenerator({
 
     // Step 1: Upload to IPFS
     setMintStep('uploading');
-    toast.info('Step 1/3: Uploading to IPFS...');
+    toast.info('Uploading to IPFS...');
     
     const metadata = {
       name: `MemoryMint #${Date.now()}`,
@@ -197,17 +189,16 @@ export function AIImageGenerator({
       return;
     }
 
-    // Step 2: Confirm transaction in wallet
+    // Step 2: Confirm transaction in wallet (single transaction)
     setMintStep('confirming');
-    toast.success('Step 2/3: Please confirm in your wallet...');
+    toast.success('Please confirm in your wallet...');
 
     // Mint with the short token URI from IPFS upload
     const mintResult = await mintNFT(result.tokenURI, address!);
     
     if (mintResult) {
-      // Step 3: Wait for confirmation
       setMintStep('success');
-      toast.success('Step 3/3: NFT minted successfully!');
+      toast.success('NFT minted successfully!');
     } else {
       setMintStep('idle');
     }
@@ -222,9 +213,9 @@ export function AIImageGenerator({
 
   const getMintStepText = () => {
     switch (mintStep) {
-      case 'uploading': return { title: 'Uploading to IPFS...', subtitle: 'Storing your artwork permanently (Step 1/3)' };
-      case 'confirming': return { title: 'Confirm in Wallet', subtitle: 'Approve the transaction to mint (Step 2/3)' };
-      case 'waiting': return { title: 'Processing...', subtitle: 'Waiting for blockchain confirmation (Step 3/3)' };
+      case 'uploading': return { title: 'Uploading to IPFS...', subtitle: 'Storing your artwork permanently' };
+      case 'confirming': return { title: 'Confirm in Wallet', subtitle: 'Approve the transaction to mint (Step 1/1)' };
+      case 'waiting': return { title: 'Processing...', subtitle: 'Waiting for blockchain confirmation' };
       case 'success': return { title: 'Success!', subtitle: 'Your NFT has been minted' };
     default: return { title: '', subtitle: '' };
     }
@@ -522,23 +513,17 @@ export function AIImageGenerator({
                 <div className="p-4 rounded-xl bg-muted/50 border border-border space-y-2">
                   <div className="flex items-center gap-2 mb-2">
                     <DollarSign className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-medium text-foreground">Mint Cost Breakdown</span>
+                    <span className="text-sm font-medium text-foreground">Mint Cost</span>
                   </div>
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Gas fee (estimated)</span>
                       <span className="text-foreground">~{estimatedGasEth} ETH</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">AI Generation Fee</span>
-                      <span className="text-foreground">
-                        ${aiFeeUsd.toFixed(2)} {feeEstimate && `(~${feeEstimate.feeEth} ETH)`}
-                      </span>
-                    </div>
                     <div className="border-t border-border pt-1 mt-1 flex justify-between font-medium">
                       <span className="text-foreground">Total</span>
                       <span className="text-primary">
-                        {feeEstimate ? `~${(parseFloat(feeEstimate.feeEth) + estimatedGasEth).toFixed(6)} ETH` : '...'}
+                        ~{estimatedGasEth} ETH
                       </span>
                     </div>
                     {balanceCheck && (
@@ -550,9 +535,6 @@ export function AIImageGenerator({
                       </div>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    AI fee covers image generation costs and is sent to the treasury.
-                  </p>
                 </div>
               )}
 
@@ -588,12 +570,12 @@ export function AIImageGenerator({
                   {isMinting || isUploading ? (
                     <>
                       <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      {isUploading ? 'Uploading...' : aiFeeEth ? `Paying $${aiFeeUsd} AI Fee...` : 'Minting...'}
+                      {isUploading ? 'Uploading...' : 'Minting...'}
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-5 h-5 mr-2" />
-                      {isConnected ? `Mint NFT ($${aiFeeUsd} + gas)` : 'Connect Wallet to Mint'}
+                      {isConnected ? 'Mint NFT' : 'Connect Wallet to Mint'}
                     </>
                   )}
                 </Button>
