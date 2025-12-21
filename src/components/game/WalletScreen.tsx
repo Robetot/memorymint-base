@@ -417,10 +417,11 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               {nfts.map((nft) => {
-                const isLoadingNFT = nft.tokenId.startsWith('loading-') || nft.isLoading;
+                const isLoadingNFT = nft.tokenId.startsWith('loading-') || nft.tokenId.startsWith('syncing-') || nft.isLoading;
                 const hasError = nft.tokenId.startsWith('error-') || nft.hasError;
                 const isPending = nft.tokenId.startsWith('pending-');
                 const showPlaceholder = isLoadingNFT || hasError || isPending;
+                const displayTokenId = nft.tokenId.replace(/^(loading-|syncing-|error-|pending-)/, '');
                 
                 return (
                   <Card key={nft.tokenId} className={cn(
@@ -438,12 +439,13 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
                       ) : nft.metadata?.image ? (
                         <NFTImage 
                           src={nft.metadata.image}
-                          alt={nft.metadata.name || `NFT #${nft.tokenId}`}
+                          alt={nft.metadata.name || `NFT #${displayTokenId}`}
                         />
                       ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-2">
                           <ImageIcon className="w-8 h-8 text-muted-foreground/50" />
                           {hasError && <span className="text-xs text-amber-500">Tap Refresh</span>}
+                          {isPending && <span className="text-xs text-muted-foreground">Pending</span>}
                         </div>
                       )}
                       {!showPlaceholder && (
@@ -452,16 +454,16 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
                     </div>
                     <CardContent className="p-3">
                       <p className="font-display font-medium text-sm text-foreground truncate">
-                        {showPlaceholder ? nft.metadata?.name : (nft.metadata?.name || `MemoryMint #${nft.tokenId}`)}
+                        {nft.metadata?.name || `MemoryMint #${displayTokenId}`}
                       </p>
                       <div className="flex items-center justify-between mt-1">
                         {showPlaceholder ? (
                           <span className="text-xs text-muted-foreground italic flex items-center gap-1">
                             {isLoadingNFT && <Loader2 className="w-3 h-3 animate-spin" />}
-                            {isLoadingNFT ? 'Syncing...' : hasError ? 'Refresh needed' : 'Pending...'}
+                            {isLoadingNFT ? 'Loading...' : hasError ? 'Refresh needed' : 'Pending...'}
                           </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground">#{nft.tokenId}</span>
+                          <span className="text-xs text-muted-foreground">#{displayTokenId}</span>
                         )}
                         {!showPlaceholder && nft.metadata?.attributes?.find(a => a.trait_type === 'Rarity') && (
                           <span className={cn(
