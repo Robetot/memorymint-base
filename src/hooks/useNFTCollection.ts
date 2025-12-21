@@ -27,7 +27,7 @@ const RPC_ENDPOINTS = [
   "https://1rpc.io/base",
 ];
 
-// IPFS gateways with better reliability for Base App
+// IPFS gateways with better reliability
 const IPFS_GATEWAYS = [
   "https://gateway.pinata.cloud/ipfs/",
   "https://cloudflare-ipfs.com/ipfs/",
@@ -48,6 +48,7 @@ export interface NFTItem {
   };
   isLoading?: boolean;
   hasError?: boolean;
+  errorReason?: string;
 }
 
 type DebugPanel = {
@@ -70,13 +71,13 @@ interface FetchState {
   debug: DebugPanel | null;
 }
 
-async function fetchWithPublicRPC(method: string, params: unknown[]): Promise<unknown> {
+async function fetchWithPublicRPC(method: string, params: unknown[], timeout = 15000): Promise<unknown> {
   const errors: string[] = [];
 
   for (const rpc of RPC_ENDPOINTS) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
 
       const response = await fetch(rpc, {
         method: "POST",
@@ -85,7 +86,7 @@ async function fetchWithPublicRPC(method: string, params: unknown[]): Promise<un
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         errors.push(`${rpc}: HTTP ${response.status}`);
@@ -144,68 +145,88 @@ async function getTransferLogsSingle(filter: {
   return Array.isArray(logs) ? logs : [];
 }
 
-async function getTransferLogsWithFallback(topics: (string | null)[]): Promise<RpcLog[]> {
-  // First try a single wide query (works fine when results are small, which they are per-wallet).
-  try {
-    return await getTransferLogsSingle({ fromBlock: "0x0", toBlock: "latest", topics });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // If provider rejects wide ranges, fall back to chunking.
-    if (!/range|too large|limit|exceed|timeout|response size/i.test(msg)) {
-      throw err;
+// Chunk-based log fetching for better RPC compatibility
+async function getTransferLogsChunked(
+  topics: (string | null)[],
+  fromBlock: number,
+  toBlock: number,
+  chunkSize = 100000
+): Promise<RpcLog[]> {
+  const results: RpcLog[] = [];
+  
+  for (let start = fromBlock; start <= toBlock; start += chunkSize) {
+    const end = Math.min(start + chunkSize - 1, toBlock);
+    try {
+      const logs = await getTransferLogsSingle({
+        fromBlock: `0x${start.toString(16)}`,
+        toBlock: `0x${end.toString(16)}`,
+        topics,
+      });
+      results.push(...logs);
+    } catch (err) {
+      console.warn(`[NFT] Log chunk ${start}-${end} failed:`, err);
+      // Continue to next chunk instead of failing completely
     }
-
-    const latest = await getBlockNumber();
-    const step = 500_000; // keeps requests bounded
-    const out: RpcLog[] = [];
-
-    for (let from = 0; from <= latest; from += step) {
-      const to = Math.min(from + step - 1, latest);
-      const fromBlock = `0x${from.toString(16)}`;
-      const toBlock = `0x${to.toString(16)}`;
-
-      const chunk = await getTransferLogsSingle({ fromBlock, toBlock, topics });
-      out.push(...chunk);
-    }
-
-    return out;
   }
+  
+  return results;
 }
 
 // Helper to resolve IPFS URLs with multiple gateway fallbacks
-function resolveIPFSUrl(url: string): string {
+function resolveIPFSUrl(url: string, gatewayIndex = 0): string {
   if (!url) return url;
   
   if (url.startsWith("ipfs://")) {
     const cid = url.replace("ipfs://", "");
-    // Use Pinata as primary - most reliable
-    return `https://gateway.pinata.cloud/ipfs/${cid}`;
+    const gateway = IPFS_GATEWAYS[gatewayIndex % IPFS_GATEWAYS.length];
+    return `${gateway}${cid}`;
+  }
+  
+  // Already an HTTP URL pointing to IPFS - try to use a different gateway
+  const ipfsMatch = url.match(/\/ipfs\/(.+)$/);
+  if (ipfsMatch && gatewayIndex > 0) {
+    const cid = ipfsMatch[1];
+    const gateway = IPFS_GATEWAYS[gatewayIndex % IPFS_GATEWAYS.length];
+    return `${gateway}${cid}`;
   }
   
   return url;
 }
 
-// Fetch with IPFS gateway fallback
-async function fetchFromIPFS(ipfsUrl: string): Promise<Response> {
-  if (!ipfsUrl.startsWith("ipfs://")) {
-    return fetch(ipfsUrl, { signal: AbortSignal.timeout(15000) });
+// Fetch with IPFS gateway fallback and proper timeout
+async function fetchFromIPFSWithRetry(url: string, maxRetries = 3): Promise<Response | null> {
+  // Handle data URIs directly
+  if (url.startsWith("data:")) {
+    return new Response(url);
   }
+
+  const isIPFS = url.startsWith("ipfs://") || url.includes("/ipfs/");
   
-  const cid = ipfsUrl.replace("ipfs://", "");
-  
-  for (const gateway of IPFS_GATEWAYS) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const resolvedUrl = isIPFS ? resolveIPFSUrl(url, attempt) : url;
+    
     try {
-      const response = await fetch(`${gateway}${cid}`, { 
-        signal: AbortSignal.timeout(10000),
-        headers: { 'Accept': 'application/json' }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
+      const response = await fetch(resolvedUrl, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json, */*' },
       });
-      if (response.ok) return response;
-    } catch {
-      // Try next gateway
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        return response;
+      }
+      
+      console.warn(`[NFT] IPFS fetch attempt ${attempt + 1} failed: ${response.status} for ${resolvedUrl}`);
+    } catch (err) {
+      console.warn(`[NFT] IPFS fetch attempt ${attempt + 1} error for ${resolvedUrl}:`, err);
     }
   }
   
-  throw new Error(`All IPFS gateways failed for ${cid}`);
+  return null;
 }
 
 export function useNFTCollection(address: string | null) {
@@ -221,13 +242,11 @@ export function useNFTCollection(address: string | null) {
   const fetchingRef = useRef(false);
   const attemptedSwitchRef = useRef(false);
   const recentMintTokenIdsRef = useRef<Set<string>>(new Set());
-  const discoveryStartedAtRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
+  const maxRetries = 5;
 
   const ensureBaseNetwork = useCallback(async (): Promise<{ ok: boolean; chainId: string | null; error?: string }> => {
-    // First verify we have a valid address
     if (!window.ethereum) {
-      // In Base App context without window.ethereum, we trust the environment
       console.log("[NFT] No window.ethereum, assuming Base App environment on Base Mainnet");
       return { ok: true, chainId: BASE_CHAIN_ID };
     }
@@ -242,7 +261,6 @@ export function useNFTCollection(address: string | null) {
         return { ok: true, chainId };
       }
 
-      // Auto-prompt a network switch (once) as required.
       if (!attemptedSwitchRef.current) {
         attemptedSwitchRef.current = true;
         try {
@@ -254,7 +272,6 @@ export function useNFTCollection(address: string | null) {
           const newChainId = (await window.ethereum.request({ method: "eth_chainId" })) as string;
           return { ok: newChainId?.toLowerCase() === BASE_CHAIN_ID.toLowerCase(), chainId: newChainId };
         } catch (switchErr: any) {
-          // Chain not added
           if (switchErr?.code === 4902) {
             try {
               await window.ethereum.request({
@@ -274,14 +291,12 @@ export function useNFTCollection(address: string | null) {
 
       return { ok: false, chainId, error: `Connected to chain ${chainIdNum}. Please switch to Base Mainnet (8453).` };
     } catch (err) {
-      // Assume we're on Base if we can't check (Base App scenario)
       console.log("[NFT] Could not check chain, assuming Base App context");
       return { ok: true, chainId: BASE_CHAIN_ID };
     }
   }, []);
 
   const fetchBalance = useCallback(async (ownerAddress: string): Promise<number> => {
-    // balanceOf(address) = 0x70a08231
     const paddedAddress = ownerAddress.toLowerCase().replace("0x", "").padStart(64, "0");
     const data = `0x70a08231${paddedAddress}`;
 
@@ -290,7 +305,6 @@ export function useNFTCollection(address: string | null) {
   }, []);
 
   const fetchOwnerOf = useCallback(async (tokenId: bigint): Promise<string | null> => {
-    // ownerOf(uint256) = 0x6352211e
     const paddedTokenId = tokenId.toString(16).padStart(64, "0");
     const data = `0x6352211e${paddedTokenId}`;
 
@@ -301,20 +315,17 @@ export function useNFTCollection(address: string | null) {
       if (addr === ZERO_ADDRESS) return null;
       return addr;
     } catch {
-      // If burned or invalid tokenId, many contracts revert.
       return null;
     }
   }, []);
 
   const fetchTokenURI = useCallback(async (tokenId: bigint): Promise<string | null> => {
-    // tokenURI(uint256) = 0xc87b56dd
     const paddedTokenId = tokenId.toString(16).padStart(64, "0");
     const data = `0xc87b56dd${paddedTokenId}`;
 
     try {
       const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"])) as string;
       if (result && result.length > 130) {
-        // Decode ABI-encoded string
         const hex = result.slice(2);
         const length = parseInt(hex.slice(64, 128), 16);
         if (length > 0 && length < 10_000) {
@@ -326,126 +337,270 @@ export function useNFTCollection(address: string | null) {
           return String.fromCharCode(...bytes);
         }
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn(`[NFT] tokenURI fetch failed for token ${tokenId}:`, err);
     }
 
     return null;
   }, []);
 
-  const fetchMetadata = useCallback(async (tokenURI: string): Promise<NFTItem["metadata"]> => {
-    if (!tokenURI) return undefined;
+  const fetchMetadata = useCallback(async (tokenURI: string): Promise<{ metadata: NFTItem["metadata"]; error?: string }> => {
+    if (!tokenURI) return { metadata: undefined, error: "No tokenURI" };
 
     try {
-      // data URI (base64 JSON)
+      // Handle data URI (base64 JSON)
       if (tokenURI.startsWith("data:application/json;base64,")) {
         const base64 = tokenURI.replace("data:application/json;base64,", "");
         const decoded = JSON.parse(atob(base64));
-        // Resolve IPFS image URLs
         if (decoded.image) {
           decoded.image = resolveIPFSUrl(decoded.image);
         }
-        return decoded;
+        return { metadata: decoded };
+      }
+
+      // Handle data URI (inline JSON)
+      if (tokenURI.startsWith("data:application/json,")) {
+        const json = decodeURIComponent(tokenURI.replace("data:application/json,", ""));
+        const decoded = JSON.parse(json);
+        if (decoded.image) {
+          decoded.image = resolveIPFSUrl(decoded.image);
+        }
+        return { metadata: decoded };
       }
 
       // IPFS or HTTP
-      const response = await fetchFromIPFS(tokenURI);
-      if (response.ok) {
-        const metadata = await response.json();
-        // Resolve IPFS image URLs
-        if (metadata.image) {
-          metadata.image = resolveIPFSUrl(metadata.image);
+      const response = await fetchFromIPFSWithRetry(tokenURI);
+      if (response && response.ok) {
+        const text = await response.text();
+        try {
+          const metadata = JSON.parse(text);
+          if (metadata.image) {
+            metadata.image = resolveIPFSUrl(metadata.image);
+          }
+          return { metadata };
+        } catch (parseErr) {
+          return { metadata: undefined, error: "Invalid JSON in metadata" };
         }
-        return metadata;
       }
+      
+      return { metadata: undefined, error: "Failed to fetch metadata from IPFS" };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
       console.warn("[NFT] Failed to fetch metadata:", tokenURI, err);
+      return { metadata: undefined, error: msg };
     }
-
-    return undefined;
   }, []);
 
+  // Discover owned token IDs via Transfer events
   const fetchOwnedTokenIdsByEvents = useCallback(
     async (ownerAddress: string): Promise<string[]> => {
       const owner = ownerAddress.toLowerCase();
       const toTopic = addressToTopic(owner);
-
-      // Try to discover tokenIds via Transfer logs.
-      // Some RPCs/webviews are picky about `null` topic wildcards, so we fall back
-      // to a mint-only query (from=0x0) with no null wildcards.
-      let incoming: RpcLog[] = [];
-      let firstErr: string | null = null;
-
+      const zeroTopic = addressToTopic(ZERO_ADDRESS);
+      
+      let latestBlock: number;
       try {
-        // Incoming transfers to this wallet then validate via ownerOf.
-        incoming = await getTransferLogsWithFallback([TRANSFER_TOPIC, null, toTopic]);
-      } catch (err) {
-        firstErr = err instanceof Error ? err.message : String(err);
+        latestBlock = await getBlockNumber();
+      } catch {
+        latestBlock = 25000000; // Fallback to reasonable recent block
       }
 
-      if (incoming.length === 0) {
+      // Strategy 1: Look for mint events (from zero address to owner)
+      // This avoids null wildcards which some RPCs reject
+      let mintLogs: RpcLog[] = [];
+      try {
+        mintLogs = await getTransferLogsChunked(
+          [TRANSFER_TOPIC, zeroTopic, toTopic],
+          0,
+          latestBlock,
+          500000
+        );
+        console.log(`[NFT] Found ${mintLogs.length} mint events`);
+      } catch (err) {
+        console.warn("[NFT] Mint event query failed:", err);
+      }
+
+      // Strategy 2: Look for transfers TO this address (may include secondary sales)
+      // Only try if mint logs are empty and within last 1M blocks
+      let transferLogs: RpcLog[] = [];
+      if (mintLogs.length === 0) {
         try {
-          const zeroTopic = addressToTopic(ZERO_ADDRESS);
-          incoming = await getTransferLogsWithFallback([TRANSFER_TOPIC, zeroTopic, toTopic]);
-        } catch (err) {
-          const secondErr = err instanceof Error ? err.message : String(err);
-          throw new Error(
-            `Transfer log queries failed: ${[firstErr, secondErr].filter(Boolean).join(" | ")}`
+          // Use explicit from address instead of null wildcard for better RPC compatibility
+          // Query last 1M blocks for transfers to this address
+          const startBlock = Math.max(0, latestBlock - 1000000);
+          transferLogs = await getTransferLogsChunked(
+            [TRANSFER_TOPIC, null, toTopic],
+            startBlock,
+            latestBlock,
+            200000
           );
+          console.log(`[NFT] Found ${transferLogs.length} transfer-to events in recent blocks`);
+        } catch (err) {
+          console.warn("[NFT] Transfer-to query failed (expected for some RPCs):", err);
         }
       }
 
+      const allLogs = [...mintLogs, ...transferLogs];
+      
+      // Extract candidate token IDs
       const candidateIds = new Set<string>();
-      for (const log of incoming) {
+      for (const log of allLogs) {
         if (!log.topics || log.topics.length < 4) continue;
         if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) continue;
-        candidateIds.add(BigInt(log.topics[3]).toString());
+        try {
+          candidateIds.add(BigInt(log.topics[3]).toString());
+        } catch {
+          // Invalid topic, skip
+        }
       }
 
       const candidates = Array.from(candidateIds);
+      console.log(`[NFT] Validating ${candidates.length} candidate token IDs...`);
+
+      // Validate ownership in parallel (batched)
       const owned: string[] = [];
-      for (const id of candidates) {
-        const currentOwner = await fetchOwnerOf(BigInt(id));
-        if (currentOwner && currentOwner === owner) owned.push(id);
+      const batchSize = 5;
+      
+      for (let i = 0; i < candidates.length; i += batchSize) {
+        const batch = candidates.slice(i, i + batchSize);
+        const results = await Promise.all(
+          batch.map(async (id) => {
+            const currentOwner = await fetchOwnerOf(BigInt(id));
+            return { id, isOwned: currentOwner === owner };
+          })
+        );
+        
+        for (const { id, isOwned } of results) {
+          if (isOwned) owned.push(id);
+        }
       }
 
-      // Sort newest-first for nicer UX (highest tokenId first)
+      // Sort newest-first (highest tokenId first)
       owned.sort((a, b) => Number(BigInt(b) - BigInt(a)));
       return owned;
     },
     [fetchOwnerOf]
   );
 
-  // Fallback: scan recent token IDs to find owned ones (for when events aren't indexed yet)
+  // Fallback: scan recent token IDs to find owned ones
   const scanRecentTokenIds = useCallback(
-    async (ownerAddress: string, balance: number): Promise<string[]> => {
+    async (ownerAddress: string, targetBalance: number): Promise<string[]> => {
       const owner = ownerAddress.toLowerCase();
       const owned: string[] = [];
       
-      // Try to get totalSupply to know where to start scanning
       try {
-        const totalSupplyData = "0x18160ddd"; // totalSupply()
+        // Get totalSupply
+        const totalSupplyData = "0x18160ddd";
         const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data: totalSupplyData }, "latest"])) as string;
         const totalSupply = parseInt(result, 16);
         
         if (totalSupply > 0) {
-          // Scan from most recent token backwards
-          const scanLimit = Math.min(100, totalSupply); // Don't scan more than 100 tokens
+          console.log(`[NFT] Total supply: ${totalSupply}, scanning for ${targetBalance} owned tokens...`);
           
-          for (let i = totalSupply; i > Math.max(0, totalSupply - scanLimit) && owned.length < balance; i--) {
-            const currentOwner = await fetchOwnerOf(BigInt(i));
-            if (currentOwner && currentOwner === owner) {
-              owned.push(i.toString());
+          // Scan from most recent token backwards, in parallel batches
+          const scanLimit = Math.min(200, totalSupply);
+          const batchSize = 10;
+          
+          for (let i = totalSupply; i > Math.max(0, totalSupply - scanLimit) && owned.length < targetBalance; i -= batchSize) {
+            const batch: number[] = [];
+            for (let j = 0; j < batchSize && (i - j) > 0; j++) {
+              batch.push(i - j);
+            }
+            
+            const results = await Promise.all(
+              batch.map(async (tokenId) => {
+                const currentOwner = await fetchOwnerOf(BigInt(tokenId));
+                return { tokenId, isOwned: currentOwner === owner };
+              })
+            );
+            
+            for (const { tokenId, isOwned } of results) {
+              if (isOwned && owned.length < targetBalance) {
+                owned.push(tokenId.toString());
+              }
             }
           }
         }
       } catch (err) {
-        console.warn("[NFT] totalSupply fallback failed:", err);
+        console.warn("[NFT] Scan fallback failed:", err);
       }
       
       return owned;
     },
     [fetchOwnerOf]
+  );
+
+  // Progressive metadata loading - update state as each NFT loads
+  const loadNFTMetadataProgressively = useCallback(
+    async (
+      tokenIds: string[],
+      balance: number,
+      debug: DebugPanel,
+      onUpdate: (nfts: NFTItem[]) => void
+    ) => {
+      // Start with loading placeholders for all discovered tokens
+      const nfts: NFTItem[] = tokenIds.map((id) => ({
+        tokenId: id,
+        tokenURI: "",
+        isLoading: true,
+        hasError: false,
+        metadata: {
+          name: `Loading NFT #${id}...`,
+          description: "Fetching metadata...",
+        },
+      }));
+
+      // Immediately show loading state
+      onUpdate([...nfts]);
+
+      // Load each NFT's metadata independently
+      const loadToken = async (index: number, tokenId: string) => {
+        const tokenIdBig = BigInt(tokenId);
+        
+        // Fetch tokenURI
+        let tokenURI: string | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          tokenURI = await fetchTokenURI(tokenIdBig);
+          if (tokenURI) break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
+        if (tokenURI) {
+          debug.tokenURIs[tokenId] = tokenURI;
+        }
+
+        // Fetch metadata
+        const { metadata, error } = tokenURI
+          ? await fetchMetadata(tokenURI)
+          : { metadata: undefined, error: "No tokenURI found" };
+
+        // Update this specific NFT
+        nfts[index] = {
+          tokenId,
+          tokenURI: tokenURI ?? "",
+          isLoading: false,
+          hasError: !metadata,
+          errorReason: error,
+          metadata: metadata ?? {
+            name: `MemoryMint #${tokenId}`,
+            description: error || "Metadata unavailable",
+          },
+        };
+
+        // Trigger UI update
+        onUpdate([...nfts]);
+      };
+
+      // Load tokens in parallel batches for speed
+      const batchSize = 3;
+      for (let i = 0; i < tokenIds.length; i += batchSize) {
+        const batch = tokenIds.slice(i, i + batchSize).map((id, j) => loadToken(i + j, id));
+        await Promise.all(batch);
+      }
+
+      return nfts;
+    },
+    [fetchTokenURI, fetchMetadata]
   );
 
   const fetchCollection = useCallback(
@@ -459,13 +614,13 @@ export function useNFTCollection(address: string | null) {
       // Validate address format
       if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
         console.error("[NFT] Invalid address format:", address);
-        setState({ 
-          nfts: [], 
-          isLoading: false, 
-          error: "Invalid wallet address format", 
-          chainError: null, 
-          balance: null, 
-          debug: null 
+        setState({
+          nfts: [],
+          isLoading: false,
+          error: "Invalid wallet address format",
+          chainError: null,
+          balance: null,
+          debug: null,
         });
         return;
       }
@@ -476,7 +631,7 @@ export function useNFTCollection(address: string | null) {
       console.log(`[NFT] Fetching collection for address: ${address}`);
 
       // Clear cached NFT state on force refresh
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         nfts: forceRefresh ? [] : prev.nfts,
         isLoading: true,
@@ -492,7 +647,7 @@ export function useNFTCollection(address: string | null) {
         discoveredTokenIds: [],
         tokenURIs: {},
         errors: [],
-        discoveryMethod: 'none',
+        discoveryMethod: "none",
       };
 
       try {
@@ -516,7 +671,7 @@ export function useNFTCollection(address: string | null) {
 
         console.log("[NFT] Network check passed, fetching balance...");
 
-        // Direct on-chain validation (never show empty state if balance > 0)
+        // Fetch balance
         let balance: number;
         try {
           balance = await fetchBalance(address);
@@ -536,7 +691,7 @@ export function useNFTCollection(address: string | null) {
           fetchingRef.current = false;
           return;
         }
-        
+
         debug.balance = balance;
 
         if (balance === 0) {
@@ -556,16 +711,16 @@ export function useNFTCollection(address: string | null) {
         console.log(`[NFT] Found ${balance} NFT(s), discovering token IDs...`);
 
         let tokenIds: string[] = [];
-        
+
         // First check if we have recent mint token IDs (most reliable immediately after mint)
         const recent = Array.from(recentMintTokenIdsRef.current);
         if (recent.length > 0) {
           console.log("[NFT] Using recent mint token IDs:", recent);
           tokenIds = [...recent];
-          debug.discoveryMethod = 'recent_mint';
+          debug.discoveryMethod = "recent_mint";
         }
-        
-        // Then try event-based discovery
+
+        // Try event-based discovery
         if (tokenIds.length < balance) {
           try {
             console.log("[NFT] Trying event-based discovery...");
@@ -573,7 +728,7 @@ export function useNFTCollection(address: string | null) {
             console.log("[NFT] Event discovery found:", eventTokenIds);
             tokenIds = Array.from(new Set([...tokenIds, ...eventTokenIds]));
             if (eventTokenIds.length > 0) {
-              debug.discoveryMethod = 'events';
+              debug.discoveryMethod = "events";
             }
           } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
@@ -581,7 +736,7 @@ export function useNFTCollection(address: string | null) {
             debug.errors.push(`Event discovery: ${errMsg}`);
           }
         }
-        
+
         debug.discoveredTokenIds = tokenIds;
 
         // If we have balance but no token IDs from events, try scanning
@@ -592,7 +747,7 @@ export function useNFTCollection(address: string | null) {
             console.log("[NFT] Scan fallback found:", tokenIds);
             debug.discoveredTokenIds = tokenIds;
             if (tokenIds.length > 0) {
-              debug.discoveryMethod = 'scan';
+              debug.discoveryMethod = "scan";
             }
           } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
@@ -601,117 +756,71 @@ export function useNFTCollection(address: string | null) {
           }
         }
 
-        // If still no token IDs but we have balance, show loading state and schedule retry
+        // If still no token IDs but we have balance, show error state with retry option
         if (tokenIds.length === 0 && balance > 0) {
-          if (!discoveryStartedAtRef.current) discoveryStartedAtRef.current = Date.now();
-          const elapsedMs = Date.now() - discoveryStartedAtRef.current;
+          const shouldRetry = retryCountRef.current < maxRetries;
 
-          const shouldRetry = retryCountRef.current < 5 && elapsedMs < 60000; // Increased retry attempts
+          console.log(`[NFT] No token IDs found. Retry ${retryCountRef.current + 1}/${maxRetries}`);
 
-          console.log(`[NFT] No token IDs found yet. Retry ${retryCountRef.current + 1}/5, elapsed: ${elapsedMs}ms`);
-
-          // Show placeholders but stop "Syncing" forever — after retries, show an actionable error.
+          // Show placeholder NFTs
           const placeholders: NFTItem[] = Array.from({ length: balance }).map((_, i) => ({
-            tokenId: shouldRetry ? `loading-${i + 1}` : `error-${i + 1}`,
+            tokenId: shouldRetry ? `syncing-${i + 1}` : `pending-${i + 1}`,
             tokenURI: "",
             isLoading: shouldRetry,
             hasError: !shouldRetry,
-            metadata: shouldRetry
-              ? {
-                  name: `Syncing NFT ${i + 1} of ${balance}...`,
-                  description: "Blockchain indexing in progress. Please wait...",
-                }
-              : {
-                  name: `MemoryMint NFT ${i + 1}`,
-                  description: "Token discovery timed out. Your NFT exists on-chain.",
-                },
+            metadata: {
+              name: shouldRetry ? `Syncing NFT ${i + 1}...` : `MemoryMint NFT ${i + 1}`,
+              description: shouldRetry
+                ? "Blockchain indexing in progress..."
+                : "Token exists on-chain. Tap Refresh to load.",
+            },
           }));
-
-          const errorMsg = shouldRetry 
-            ? null 
-            : `Found ${balance} NFT(s) on-chain but couldn't retrieve token IDs. This may be a temporary RPC issue. Tap Refresh to retry.`;
 
           setState({
             nfts: placeholders,
             isLoading: false,
-            error: errorMsg,
+            error: shouldRetry ? null : `Found ${balance} NFT(s) but couldn't retrieve details. Tap Refresh to retry.`,
             chainError: null,
             balance,
             debug,
           });
 
-          // Auto-retry after a short delay (up to 5 times)
+          // Auto-retry with exponential backoff
           if (shouldRetry) {
             retryCountRef.current++;
-            const delay = Math.min(2000 * (retryCountRef.current), 10000); // Exponential backoff
+            const delay = Math.min(2000 * Math.pow(1.5, retryCountRef.current), 15000);
             console.log(`[NFT] Scheduling retry in ${delay}ms...`);
             setTimeout(() => {
               fetchingRef.current = false;
               fetchCollection(true);
-            }, 3000);
+            }, delay);
           }
 
           fetchingRef.current = false;
           return;
         }
 
-        discoveryStartedAtRef.current = null;
+        // Reset retry count on successful discovery
         retryCountRef.current = 0;
 
-        // Fetch tokenURI + metadata; if anything fails we still keep the NFT card.
-        const items: NFTItem[] = [];
-        for (const id of tokenIds) {
-          const tokenIdBig = BigInt(id);
-          let tokenURI: string | null = null;
-          
-          // Try fetching tokenURI with retry
-          for (let attempt = 0; attempt < 2; attempt++) {
-            tokenURI = await fetchTokenURI(tokenIdBig);
-            if (tokenURI) break;
-            await new Promise(r => setTimeout(r, 500)); // Small delay before retry
-          }
-          
-          if (tokenURI) debug.tokenURIs[id] = tokenURI;
-
-          const item: NFTItem = {
-            tokenId: id,
-            tokenURI: tokenURI ?? "",
+        // Load metadata progressively
+        await loadNFTMetadataProgressively(tokenIds, balance, debug, (updatedNfts) => {
+          setState((prev) => ({
+            ...prev,
+            nfts: updatedNfts,
             isLoading: false,
-            hasError: false,
-          };
-
-          if (tokenURI) {
-            const md = await fetchMetadata(tokenURI);
-            if (md) {
-              item.metadata = md;
-            } else {
-              item.metadata = { name: `MemoryMint #${id}` };
-              item.hasError = true;
-            }
-          } else {
-            item.metadata = { name: `MemoryMint #${id}` };
-            item.hasError = true;
-          }
-
-          items.push(item);
-        }
-
-        setState({
-          nfts: items,
-          isLoading: false,
-          error: null,
-          chainError: null,
-          balance,
-          debug,
+            error: null,
+            chainError: null,
+            balance,
+            debug,
+          }));
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to fetch NFTs";
         debug.errors.push(msg);
 
-        // Still honor the critical rule: if we *did* learn balance > 0, show placeholders.
+        // If we have balance, show error placeholders
         if (debug.balance && debug.balance > 0) {
-          if (!discoveryStartedAtRef.current) discoveryStartedAtRef.current = Date.now();
-
           const placeholders: NFTItem[] = Array.from({ length: debug.balance }).map((_, i) => ({
             tokenId: `error-${i + 1}`,
             tokenURI: "",
@@ -719,14 +828,14 @@ export function useNFTCollection(address: string | null) {
             hasError: true,
             metadata: {
               name: `MemoryMint NFT ${i + 1}`,
-              description: "Tap Refresh to load metadata.",
+              description: "Tap Refresh to load.",
             },
           }));
 
           setState({
             nfts: placeholders,
             isLoading: false,
-            error: null,
+            error: msg,
             chainError: null,
             balance: debug.balance,
             debug,
@@ -735,22 +844,28 @@ export function useNFTCollection(address: string | null) {
           return;
         }
 
-        setState(prev => ({ ...prev, isLoading: false, error: msg, debug }));
+        setState((prev) => ({ ...prev, isLoading: false, error: msg, debug }));
       } finally {
         fetchingRef.current = false;
       }
     },
-    [address, ensureBaseNetwork, fetchBalance, fetchMetadata, fetchOwnedTokenIdsByEvents, fetchTokenURI, scanRecentTokenIds]
+    [
+      address,
+      ensureBaseNetwork,
+      fetchBalance,
+      fetchOwnedTokenIdsByEvents,
+      loadNFTMetadataProgressively,
+      scanRecentTokenIds,
+    ]
   );
 
   // Auto-fetch on mount and address change
   useEffect(() => {
     retryCountRef.current = 0;
-    discoveryStartedAtRef.current = null;
     fetchCollection();
   }, [fetchCollection]);
 
-  // Auto-refresh after mint (instant refresh fix)
+  // Auto-refresh after mint
   useEffect(() => {
     const handler = (evt: Event) => {
       const e = evt as CustomEvent<{ address?: string; tokenIds?: string[]; txHash?: string }>;
@@ -766,7 +881,6 @@ export function useNFTCollection(address: string | null) {
 
         // Reset retry count and trigger refresh
         retryCountRef.current = 0;
-        discoveryStartedAtRef.current = null;
         fetchCollection(true);
       }
     };
@@ -776,9 +890,8 @@ export function useNFTCollection(address: string | null) {
   }, [address, fetchCollection]);
 
   const refetch = useCallback(() => {
-    attemptedSwitchRef.current = false; // allow switch prompt again on manual refresh
-    recentMintTokenIdsRef.current.clear(); // clear stale recent mints on manual refresh
-    discoveryStartedAtRef.current = null;
+    attemptedSwitchRef.current = false;
+    recentMintTokenIdsRef.current.clear();
     retryCountRef.current = 0;
     return fetchCollection(true);
   }, [fetchCollection]);
