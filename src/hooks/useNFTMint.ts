@@ -5,7 +5,7 @@ import { encodeFunctionData, parseAbi, decodeErrorResult } from 'viem';
 const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
 
 // Treasury address for AI fee collection
-const TREASURY_ADDRESS = '0xdb265232cf6c684b8e2d198d2b48a982cf390c90';
+const TREASURY_ADDRESS = '0x9153f77e298c418288818cb2ac2543292ef4f4d2';
 
 // AI generation fee in USD
 const AI_FEE_USD = 0.04;
