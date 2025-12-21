@@ -19,18 +19,6 @@ const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m =>
 const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
 const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
 
-// Lazy load components not needed on initial page load
-const GameScreen = lazy(() => import('@/components/game/GameScreen').then(m => ({ default: m.GameScreen })));
-const WalletScreen = lazy(() => import('@/components/game/WalletScreen').then(m => ({ default: m.WalletScreen })));
-const LevelSelector = lazy(() => import('@/components/game/LevelSelector').then(m => ({ default: m.LevelSelector })));
-const Leaderboard = lazy(() => import('@/components/game/Leaderboard').then(m => ({ default: m.Leaderboard })));
-const AIImageGenerator = lazy(() => import('@/components/game/AIImageGenerator').then(m => ({ default: m.AIImageGenerator })));
-const Tutorial = lazy(() => import('@/components/game/Tutorial').then(m => ({ default: m.Tutorial })));
-const SettingsScreen = lazy(() => import('@/components/game/SettingsScreen').then(m => ({ default: m.SettingsScreen })));
-const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m => ({ default: m.StatsScreen })));
-const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
-const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
-
 type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
 
 const pageVariants = {
