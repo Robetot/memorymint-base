@@ -107,7 +107,8 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
 
   const { 
     user: farcasterUser, 
-    isAuthenticated: isFarcasterAuth, 
+    isAuthenticated: isFarcasterAuth,
+    isExplicitlyConnected: isFarcasterExplicit,
     isLoading: isFarcasterLoading,
     isMiniApp,
     signIn: farcasterSignIn,
@@ -183,9 +184,10 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     }
   };
 
-  // Consider connected if either wallet, Farcaster, or Base App is connected
-  const isFullyConnected = isConnected || isFarcasterAuth || isBaseAppConnected;
-  const displayAddress = address || baseAppAddress || (farcasterUser ? `fid:${farcasterUser.fid}` : null);
+  // Consider connected if either wallet or Base App is connected
+  // Farcaster counts only if explicitly connected (not auto-detected from mini-app context)
+  const isFullyConnected = isConnected || isBaseAppConnected || isFarcasterExplicit;
+  const displayAddress = address || baseAppAddress || (isFarcasterExplicit && farcasterUser ? `fid:${farcasterUser.fid}` : null);
   // Don't show "requires Farcaster client" as an error - it's expected in browsers
   const displayError = error || (farcasterError && !farcasterError.includes('Farcaster client') ? farcasterError : null);
 
@@ -228,8 +230,8 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               <p className="font-body text-sm text-muted-foreground">
                 {isSmartWallet ? 'Smart Wallet Connected' : 'Wallet Connected'}
               </p>
-              <p className="font-medium text-foreground">
-                {farcasterUser?.displayName || farcasterUser?.username || 'Connected User'}
+              <p className="font-medium text-foreground font-mono text-sm">
+                {formatAddress(address)}
               </p>
               {isSmartWallet && (
                 <span className="text-xs text-[#0052FF] font-medium">Base Smart Wallet</span>
@@ -263,8 +265,8 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
             </div>
             <div className="flex-1">
               <p className="font-body text-sm text-muted-foreground">Base App Connected</p>
-              <p className="font-medium text-foreground">
-                {farcasterUser?.displayName || farcasterUser?.username || 'Connected User'}
+              <p className="font-medium text-foreground font-mono text-sm">
+                {formatAddress(baseAppAddress)}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -282,8 +284,8 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
         </Card>
       )}
 
-      {/* Connected State - Farcaster */}
-      {isFarcasterAuth && farcasterUser && (
+      {/* Connected State - Farcaster (only show if explicitly connected) */}
+      {isFarcasterExplicit && farcasterUser && (
         <Card className="w-full max-w-md mb-4 border-[#8B5CF6] bg-[#8B5CF6]/10">
           <CardContent className="flex items-center gap-3 py-4">
             <div className="w-10 h-10 rounded-full overflow-hidden bg-[#8B5CF6]/20 flex items-center justify-center">

@@ -26,10 +26,14 @@ export interface FarcasterUser {
   pfpUrl?: string;
 }
 
+// Storage key for explicit Farcaster connection
+const FARCASTER_EXPLICIT_CONNECT_KEY = 'memorymint_farcaster_explicit';
+
 export interface FarcasterContextType {
   // User state
   user: FarcasterUser | null;
   isAuthenticated: boolean;
+  isExplicitlyConnected: boolean; // True only when user explicitly connected Farcaster
   isLoading: boolean;
   error: string | null;
   
@@ -54,6 +58,25 @@ interface FarcasterProviderProps {
   children: ReactNode;
 }
 
+// Check if user previously explicitly connected Farcaster
+function wasExplicitlyConnected(): boolean {
+  try {
+    return localStorage.getItem(FARCASTER_EXPLICIT_CONNECT_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function setExplicitlyConnected(value: boolean) {
+  try {
+    if (value) {
+      localStorage.setItem(FARCASTER_EXPLICIT_CONNECT_KEY, 'true');
+    } else {
+      localStorage.removeItem(FARCASTER_EXPLICIT_CONNECT_KEY);
+    }
+  } catch {}
+}
+
 export function FarcasterProvider({ children }: FarcasterProviderProps) {
   const [user, setUser] = useState<FarcasterUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,6 +84,7 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
   const [isMiniApp, setIsMiniApp] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [context, setContext] = useState<any | null>(null);
+  const [isExplicitlyConnected, setIsExplicitlyConnectedState] = useState(wasExplicitlyConnected);
   
   // Get auth-kit profile for browser-based sign-in
   const { isAuthenticated: authKitAuthenticated, profile: authKitProfile } = useProfile();
@@ -136,7 +160,7 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
     setError(null);
 
     try {
-      // If we already have context user, we're signed in
+      // If we already have context user, we're signed in - mark as explicit
       if (context?.user) {
         setUser({
           fid: context.user.fid,
@@ -144,6 +168,8 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
           displayName: context.user.displayName,
           pfpUrl: context.user.pfpUrl,
         });
+        setIsExplicitlyConnectedState(true);
+        setExplicitlyConnected(true);
         setIsLoading(false);
         return true;
       }
@@ -185,6 +211,8 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
               pfpUrl: ctx.user.pfpUrl,
             });
             setContext(ctx);
+            setIsExplicitlyConnectedState(true);
+            setExplicitlyConnected(true);
             setIsLoading(false);
             return true;
           }
@@ -208,6 +236,8 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
   const signOut = useCallback(() => {
     setUser(null);
     setError(null);
+    setIsExplicitlyConnectedState(false);
+    setExplicitlyConnected(false);
   }, []);
 
   const openWarpcastCompose = useCallback((text: string, embeds?: string[]) => {
@@ -283,6 +313,7 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
   const value: FarcasterContextType = {
     user,
     isAuthenticated: !!user,
+    isExplicitlyConnected,
     isLoading,
     error,
     isMiniApp,
@@ -306,6 +337,7 @@ export function FarcasterProvider({ children }: FarcasterProviderProps) {
 const defaultFarcasterContext: FarcasterContextType = {
   user: null,
   isAuthenticated: false,
+  isExplicitlyConnected: false,
   isLoading: false,
   error: null,
   isMiniApp: false,
