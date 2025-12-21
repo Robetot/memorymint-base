@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload, Image } from 'lucide-react';
+import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload, Image, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/hooks/useWallet';
 import { useNFTMint } from '@/hooks/useNFTMint';
@@ -11,6 +11,7 @@ import { calculateRarity } from '@/utils/rarityCalculator';
 import { getLevel } from '@/data/levels';
 import { toast } from 'sonner';
 import { ANIMALS } from '@/data/animals';
+import { BatchImageGenerator } from './BatchImageGenerator';
 
 interface AIImageGeneratorProps {
   score: number;
@@ -55,6 +56,7 @@ export function AIImageGenerator({
   const [showPresetFallback, setShowPresetFallback] = useState(false);
   const [presetAnimals] = useState(() => getRandomPresetAnimals(12));
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [showBatchMode, setShowBatchMode] = useState(false);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
   const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress } = useNFTMint();
@@ -98,6 +100,8 @@ export function AIImageGenerator({
     setSelectedPreset(animalImage);
     setGeneratedImage(animalImage);
     setShowPresetFallback(false);
+    // Default to classic style for preset images
+    if (!selectedStyle) setSelectedStyle('classic');
     toast.success('Preset image selected!');
   };
 
@@ -202,9 +206,26 @@ export function AIImageGenerator({
       case 'confirming': return { title: 'Confirm in Wallet', subtitle: 'Approve the transaction to mint (Step 2/3)' };
       case 'waiting': return { title: 'Processing...', subtitle: 'Waiting for blockchain confirmation (Step 3/3)' };
       case 'success': return { title: 'Success!', subtitle: 'Your NFT has been minted' };
-      default: return { title: '', subtitle: '' };
+    default: return { title: '', subtitle: '' };
     }
   };
+
+  const handleBatchImageSelect = (image: string) => {
+    setGeneratedImage(image);
+    setShowBatchMode(false);
+    if (!selectedStyle) setSelectedStyle('classic');
+    toast.success('Image selected from batch!');
+  };
+
+  // Show batch mode
+  if (showBatchMode) {
+    return (
+      <BatchImageGenerator
+        onBack={() => setShowBatchMode(false)}
+        onSelectImage={handleBatchImageSelect}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background py-6 px-4">
@@ -310,25 +331,46 @@ export function AIImageGenerator({
               </div>
             </div>
 
-            {/* Generate Button */}
-            <Button
-              onClick={handleGenerate}
-              disabled={!prompt.trim() || !selectedStyle || isGenerating}
-              size="lg"
-              className="w-full text-lg font-display bg-gradient-to-r from-accent to-primary hover:from-accent/90 hover:to-primary/90"
-            >
-              {isGenerating ? (
-                <>
-                  <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-                  Generating with AI...
-                </>
-              ) : (
-                <>
-                  <Wand2 className="w-5 h-5 mr-2" />
-                  Generate Art
-                </>
-              )}
-            </Button>
+            {/* Generate Buttons */}
+            <div className="flex gap-3">
+              <Button
+                onClick={handleGenerate}
+                disabled={!prompt.trim() || !selectedStyle || isGenerating}
+                size="lg"
+                className="flex-1 text-lg font-display bg-gradient-to-r from-accent to-primary hover:from-accent/90 hover:to-primary/90"
+              >
+                {isGenerating ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="w-5 h-5 mr-2" />
+                    Generate
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={() => setShowBatchMode(true)}
+                variant="outline"
+                size="lg"
+                className="font-display"
+                disabled={isGenerating}
+              >
+                <Layers className="w-5 h-5" />
+              </Button>
+            </div>
+            
+            <p className="text-xs text-center text-muted-foreground">
+              <button 
+                onClick={() => setShowBatchMode(true)} 
+                className="text-primary hover:underline"
+              >
+                Batch mode
+              </button>
+              {' '}— generate multiple variants at once
+            </p>
 
             {generateError && (
               <p className="mt-3 text-sm text-destructive text-center">{generateError}</p>
