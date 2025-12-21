@@ -27,16 +27,19 @@ function checkRateLimit(clientIp: string): { allowed: boolean; remaining: number
   return { allowed: true, remaining: RATE_LIMIT_MAX - record.count }
 }
 
-// Allowed style values - must match frontend STYLE_OPTIONS prompts
-const ALLOWED_STYLES = [
-  'oil painting style, classical art, rich colors, brushwork texture',
-  'pixel art style, 8-bit retro, vibrant colors, nostalgic',
-  'anime style, japanese animation, vibrant, detailed',
-  '3d rendered, clay sculpture, soft lighting, depth',
-  'cyberpunk style, neon lights, futuristic, dark atmosphere',
-  'dark gothic style, mysterious, dramatic shadows, ornate details',
-  'fantasy art style, magical, ethereal, epic composition'
-]
+// Allowed style values - optimized for lower token count
+// Maps verbose style prompts to concise versions
+const STYLE_MAP: Record<string, string> = {
+  'oil painting style, classical art, rich colors, brushwork texture': 'oil painting, classical',
+  'pixel art style, 8-bit retro, vibrant colors, nostalgic': 'pixel art, 8-bit',
+  'anime style, japanese animation, vibrant, detailed': 'anime style',
+  '3d rendered, clay sculpture, soft lighting, depth': '3d clay render',
+  'cyberpunk style, neon lights, futuristic, dark atmosphere': 'cyberpunk, neon',
+  'dark gothic style, mysterious, dramatic shadows, ornate details': 'dark gothic',
+  'fantasy art style, magical, ethereal, epic composition': 'fantasy art, magical'
+}
+
+const ALLOWED_STYLES = Object.keys(STYLE_MAP)
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -123,9 +126,12 @@ serve(async (req) => {
       )
     }
 
-    // Combine user prompt with style prompt
-    const fullPrompt = `${sanitizedPrompt}, ${style}, high quality, detailed, masterpiece, 1024x1024`
-    console.log(`Generating image for IP ${clientIp}, remaining: ${remaining}`)
+    // Get optimized style (reduces ~60% tokens)
+    const optimizedStyle = STYLE_MAP[style] || style.split(',')[0]
+    
+    // Concise prompt: ~40 tokens vs ~80 tokens before
+    const fullPrompt = `${sanitizedPrompt}, ${optimizedStyle}`
+    console.log(`Generating image for IP ${clientIp}, remaining: ${remaining}, prompt tokens: ~${Math.ceil(fullPrompt.length / 4)}`)
 
     // Use Lovable AI Gateway with image generation model
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -139,7 +145,7 @@ serve(async (req) => {
         messages: [
           {
             role: 'user',
-            content: `Generate a beautiful, high-quality image: ${fullPrompt}`
+            content: fullPrompt
           }
         ],
         modalities: ['image', 'text']
