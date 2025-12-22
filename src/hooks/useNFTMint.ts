@@ -1,51 +1,47 @@
 import { useState, useCallback, useRef } from 'react';
 import { encodeFunctionData, parseAbi, decodeErrorResult } from 'viem';
 
-// MemoryMint contract address on Base Mainnet
+// ============ CONFIGURATION ============
+// NEW: MemoryMintFeeAware contract address on Base Mainnet
+// TODO: Update this after deploying the new contract
 const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
 
-// Treasury address for AI fee collection
-const TREASURY_ADDRESS = '0x9153f77e298c418288818cb2ac2543292ef4f4d2';
+// Base Mainnet Chain ID
+const BASE_CHAIN_ID = '0x2105'; // 8453
 
-// AI generation fee in USD
-const AI_FEE_USD = 0.04;
+// RPC endpoints for reading contract state
+const RPC_ENDPOINTS = [
+  'https://mainnet.base.org',
+  'https://base.llamarpc.com',
+  'https://base.meowrpc.com',
+];
 
 // Coinbase Paymaster URL for Base Mainnet (sponsored transactions)
 const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/paymaster';
 
-// Price cache duration (1 minute)
-const PRICE_CACHE_DURATION = 60000;
-
-// Minimal ABI needed for minting (works with MemoryMintUltra)
+// ============ CONTRACT ABI ============
+// Minimal ABI for MemoryMintFeeAware
 const CONTRACT_ABI = parseAbi([
-  'function mintNFT(string tokenURI) returns (uint256)',
-  'function batchMint(uint256 quantity) returns (uint256)',
+  'function mintNFT(string tokenURI) payable returns (uint256)',
+  'function batchMint(uint256 quantity) payable returns (uint256)',
+  'function mintPrice() view returns (uint256)',
+  'function owner() view returns (address)',
 ]);
 
-// Custom errors (for precise UX messaging)
+// Custom errors for precise UX messaging
 const CONTRACT_ERROR_ABI = parseAbi([
-  'error Paused()',
-  'error AlreadyMinted()',
-  'error InvalidQuantity()',
-  'error MaxBatchExceeded()',
-  'error TransferToNonReceiver()',
-  'error ReentrancyGuard()',
-  'error MetadataFrozen()',
   'error NotOwner()',
   'error ZeroAddress()',
   'error TokenNotExist()',
   'error NotApproved()',
-  'error NotAuthorized()',
-  'error NameAlreadySet()',
-  'error EmptyName()',
+  'error InvalidQuantity()',
+  'error MaxBatchExceeded()',
+  'error TransferToNonReceiver()',
+  'error InsufficientPayment()',
+  'error WithdrawFailed()',
 ]);
 
-// Price cache
-let priceCache: { price: number; timestamp: number } | null = null;
-
-// Estimated gas cost in ETH (conservative estimate for Base)
-const ESTIMATED_GAS_ETH = 0.0002;
-
+// ============ TYPES ============
 export interface MintState {
   isMinting: boolean;
   txHash: string | null;
@@ -54,7 +50,7 @@ export interface MintState {
   error: string | null;
   success: boolean;
   isSponsored: boolean;
-  aiFeeEth: string | null;
+  mintPriceEth: string | null;
 }
 
 export interface BalanceCheck {
@@ -63,6 +59,8 @@ export interface BalanceCheck {
   required: string;
   shortfall: string | null;
 }
+
+// ============ HELPER FUNCTIONS ============
 
 function encodeMintNFTCallData(tokenURI: string): `0x${string}` {
   return encodeFunctionData({
@@ -83,8 +81,10 @@ function encodeBatchMintCallData(quantity: number): `0x${string}` {
 function decodeMintError(error: unknown): string {
   const err: any = error;
 
+  // User rejected
   if (err?.code === 4001) return 'Transaction rejected by user';
 
+  // Extract revert data
   const revertData: unknown =
     err?.data?.data ??
     err?.data ??
@@ -99,85 +99,47 @@ function decodeMintError(error: unknown): string {
       });
 
       switch (decoded.errorName) {
-        case 'Paused':
-          return 'Minting is currently paused';
-        case 'AlreadyMinted':
-          return 'Please wait a moment and try again (mint throttle)';
+        case 'InsufficientPayment':
+          return 'Insufficient payment. Please ensure you have enough ETH.';
         case 'InvalidQuantity':
         case 'MaxBatchExceeded':
           return 'Batch size must be 1–10';
         case 'TransferToNonReceiver':
           return 'Recipient cannot receive ERC-721 tokens';
-        case 'ReentrancyGuard':
-          return 'Please retry (temporary mint lock)';
+        case 'NotOwner':
+          return 'Not authorized';
         default:
           return `Mint failed: ${decoded.errorName}`;
       }
     } catch {
-      // fall through
+      // Fall through to generic message
     }
   }
 
   const rawMsg: string | undefined = err?.data?.message || err?.error?.message || err?.message;
-  if (rawMsg) return rawMsg;
-  return 'Minting failed';
+  if (rawMsg) {
+    // Clean up common error messages
+    if (rawMsg.includes('insufficient funds')) {
+      return 'Insufficient ETH balance for transaction';
+    }
+    if (rawMsg.includes('gas required exceeds')) {
+      return 'Transaction would fail. Please check your balance.';
+    }
+    return rawMsg;
+  }
+  return 'Minting failed. Please try again.';
 }
 
 // Detect if wallet supports sponsored transactions (EIP-5792)
 function supportsWalletSendCalls(): boolean {
   const ethereum = window.ethereum as any;
   if (!ethereum) return false;
-  
   return !!(ethereum.isSmartWallet || ethereum.isPasskeyWallet || ethereum.isCoinbaseWallet);
 }
 
-// Get paymaster service URL based on environment
-function getPaymasterServiceUrl(): string | null {
+// Get paymaster service URL
+function getPaymasterServiceUrl(): string {
   return COINBASE_PAYMASTER_URL;
-}
-
-// Fetch ETH price with caching
-async function fetchEthPrice(): Promise<number> {
-  // Check cache first
-  if (priceCache && Date.now() - priceCache.timestamp < PRICE_CACHE_DURATION) {
-    return priceCache.price;
-  }
-
-  try {
-    const response = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd',
-      { cache: 'no-store' }
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to fetch ETH price');
-    }
-
-    const data = await response.json();
-    const ethPrice = data.ethereum.usd;
-
-    if (!ethPrice || ethPrice <= 0) {
-      throw new Error('Invalid ETH price');
-    }
-
-    // Update cache
-    priceCache = { price: ethPrice, timestamp: Date.now() };
-    return ethPrice;
-  } catch (error) {
-    // Use cached price as fallback
-    if (priceCache) {
-      return priceCache.price;
-    }
-    throw new Error('Unable to fetch ETH price');
-  }
-}
-
-// Calculate AI fee in wei
-function calculateAiFeeWei(ethPrice: number, quantity: number = 1): bigint {
-  const totalFeeUsd = AI_FEE_USD * quantity;
-  const aiFeeEth = totalFeeUsd / ethPrice;
-  // Round up to avoid underpayment
-  return BigInt(Math.ceil(aiFeeEth * 1e18));
 }
 
 // Format wei to ETH string
@@ -185,6 +147,35 @@ function formatWeiToEth(wei: bigint): string {
   return (Number(wei) / 1e18).toFixed(6);
 }
 
+// RPC call helper with fallback endpoints
+async function rpcCall(method: string, params: any[]): Promise<any> {
+  for (const endpoint of RPC_ENDPOINTS) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method,
+          params,
+        }),
+      });
+      
+      if (!response.ok) continue;
+      
+      const data = await response.json();
+      if (data.error) continue;
+      
+      return data.result;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error('All RPC endpoints failed');
+}
+
+// ============ MAIN HOOK ============
 export function useNFTMint() {
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
@@ -194,29 +185,81 @@ export function useNFTMint() {
     error: null,
     success: false,
     isSponsored: false,
-    aiFeeEth: null,
+    mintPriceEth: null,
   });
   
-  // Prevent double-charging on retries
+  // Prevent double-minting on retries
   const pendingMintRef = useRef<string | null>(null);
 
+  // ============ NETWORK VERIFICATION ============
   const verifyBaseNetwork = useCallback(async (): Promise<boolean> => {
     if (!window.ethereum) return false;
     
     try {
       const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
-      return chainId.toLowerCase() === '0x2105';
+      if (chainId.toLowerCase() !== BASE_CHAIN_ID) {
+        // Try to switch to Base
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: BASE_CHAIN_ID }],
+          });
+          return true;
+        } catch (switchError: any) {
+          // Chain not added, try to add it
+          if (switchError.code === 4902) {
+            try {
+              await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                  chainId: BASE_CHAIN_ID,
+                  chainName: 'Base',
+                  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                  rpcUrls: ['https://mainnet.base.org'],
+                  blockExplorerUrls: ['https://basescan.org'],
+                }],
+              });
+              return true;
+            } catch {
+              return false;
+            }
+          }
+          return false;
+        }
+      }
+      return true;
     } catch {
       return false;
     }
   }, []);
 
-  // Calculate AI fee in wei (included in mint transaction value)
-  const getAiFeeWei = useCallback(async (quantity: number = 1): Promise<bigint> => {
-    const ethPrice = await fetchEthPrice();
-    return calculateAiFeeWei(ethPrice, quantity);
+  // ============ READ MINT PRICE FROM CONTRACT ============
+  const getMintPrice = useCallback(async (): Promise<bigint> => {
+    try {
+      // Encode mintPrice() call
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'mintPrice',
+        args: [],
+      });
+
+      const result = await rpcCall('eth_call', [
+        { to: NFT_CONTRACT_ADDRESS, data },
+        'latest',
+      ]);
+
+      if (!result || result === '0x') {
+        return BigInt(0); // Free mint
+      }
+
+      return BigInt(result);
+    } catch (error) {
+      console.error('[Mint] Failed to read mintPrice:', error);
+      return BigInt(0); // Default to free if read fails
+    }
   }, []);
 
+  // ============ WAIT FOR RECEIPT ============
   const waitForReceipt = useCallback(
     async (txHash: string): Promise<{ success: boolean; tokenIds: string[]; blockNumber?: string }> => {
       let receipt: any = null;
@@ -238,7 +281,7 @@ export function useNFTMint() {
       }
 
       if (!receipt) {
-        throw new Error('Transaction is still pending. Please wait for confirmation and try again.');
+        throw new Error('Transaction is still pending. Please wait for confirmation.');
       }
 
       const status = receipt.status as string;
@@ -246,18 +289,15 @@ export function useNFTMint() {
         throw new Error('Transaction failed on-chain');
       }
 
+      // Extract token IDs from Transfer events
       const logs = (receipt.logs as Array<{ topics: string[] }>) || [];
       const tokenIds: string[] = [];
+      const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
-      if (logs.length > 0) {
-        const transferTopic =
-          '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-
-        for (const log of logs) {
-          if (log.topics.length >= 4 && log.topics[0] === transferTopic) {
-            const tokenId = parseInt(log.topics[3], 16).toString();
-            tokenIds.push(tokenId);
-          }
+      for (const log of logs) {
+        if (log.topics.length >= 4 && log.topics[0] === transferTopic) {
+          const tokenId = parseInt(log.topics[3], 16).toString();
+          tokenIds.push(tokenId);
         }
       }
 
@@ -266,6 +306,7 @@ export function useNFTMint() {
     []
   );
 
+  // Wait for one block confirmation
   const waitForOneConfirmation = useCallback(async (minedBlockHex?: string) => {
     if (!window.ethereum || !minedBlockHex) return;
 
@@ -278,32 +319,29 @@ export function useNFTMint() {
         const current = parseInt(currentHex, 16);
         if (current >= target) return;
       } catch {
-        // ignore
+        // Ignore
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
   }, []);
 
+  // Notify other components of successful mint
   const notifyMinted = useCallback((walletAddress: string, tokenIds: string[], txHash: string) => {
     window.dispatchEvent(
       new CustomEvent('memorymint:nft-minted', {
-        detail: {
-          address: walletAddress,
-          tokenIds,
-          txHash,
-        },
+        detail: { address: walletAddress, tokenIds, txHash },
       })
     );
   }, []);
 
-  // Send transaction with AI fee included in value (single transaction)
+  // ============ SEND TRANSACTION ============
   const sendMintTransaction = useCallback(async (
     walletAddress: string,
     data: `0x${string}`,
     valueWei: bigint
   ): Promise<{ txHash: string; isSponsored: boolean }> => {
     const ethereum = window.ethereum as any;
-    const valueHex = '0x' + valueWei.toString(16);
+    const valueHex = valueWei > 0n ? '0x' + valueWei.toString(16) : '0x0';
     
     // Try sponsored transaction with wallet_sendCalls (EIP-5792)
     if (supportsWalletSendCalls()) {
@@ -317,7 +355,7 @@ export function useNFTMint() {
         }];
 
         const capabilities: Record<string, any> = {
-          '0x2105': {
+          [BASE_CHAIN_ID]: {
             paymasterService: {
               url: getPaymasterServiceUrl(),
             },
@@ -329,7 +367,7 @@ export function useNFTMint() {
             method: 'wallet_sendCalls',
             params: [{
               version: '1.0',
-              chainId: '0x2105',
+              chainId: BASE_CHAIN_ID,
               from: walletAddress,
               calls,
               capabilities,
@@ -338,6 +376,7 @@ export function useNFTMint() {
 
           console.log('[Mint] wallet_sendCalls submitted:', callId);
 
+          // Poll for confirmation
           let status: any;
           let attempts = 0;
           const maxAttempts = 60;
@@ -351,36 +390,36 @@ export function useNFTMint() {
 
               if (status?.status === 'CONFIRMED' && status?.receipts?.[0]?.transactionHash) {
                 console.log('[Mint] Sponsored transaction confirmed!');
-                return { 
-                  txHash: status.receipts[0].transactionHash, 
-                  isSponsored: true 
-                };
+                return { txHash: status.receipts[0].transactionHash, isSponsored: true };
               }
 
               if (status?.status === 'FAILED') {
                 throw new Error(status?.reason || 'Sponsored transaction failed');
               }
             } catch (statusErr) {
-              console.log('[Mint] wallet_getCallsStatus not available, using callId as txHash');
+              // wallet_getCallsStatus not available
             }
 
             await new Promise(r => setTimeout(r, 2000));
             attempts++;
           }
 
+          // Use callId as txHash if it looks like one
           if (callId && typeof callId === 'string' && callId.startsWith('0x')) {
             return { txHash: callId, isSponsored: true };
           }
         } catch (sponsorErr: any) {
-          console.log('[Mint] Sponsored tx failed, falling back to regular tx:', sponsorErr?.message);
+          console.log('[Mint] Sponsored tx failed, falling back:', sponsorErr?.message);
         }
       } catch (err) {
-        console.log('[Mint] wallet_sendCalls not supported, using eth_sendTransaction');
+        console.log('[Mint] wallet_sendCalls not supported');
       }
     }
 
-    // Fallback to regular eth_sendTransaction with value
+    // Fallback to regular eth_sendTransaction
     console.log('[Mint] Sending regular transaction via eth_sendTransaction...');
+    console.log('[Mint] Value:', valueHex, '=', formatWeiToEth(valueWei), 'ETH');
+    
     const txHash = await ethereum.request({
       method: 'eth_sendTransaction',
       params: [{
@@ -394,7 +433,7 @@ export function useNFTMint() {
     return { txHash, isSponsored: false };
   }, []);
 
-  // Single NFT mint with AI fee included in transaction value
+  // ============ MINT NFT ============
   const mintNFT = useCallback(async (
     tokenURI: string,
     walletAddress: string
@@ -409,8 +448,8 @@ export function useNFTMint() {
       return false;
     }
 
-    // Prevent double-charging
-    const mintKey = `${walletAddress}-${tokenURI}-${Date.now()}`;
+    // Prevent double-minting
+    const mintKey = `${walletAddress}-${Date.now()}`;
     if (pendingMintRef.current === mintKey) {
       return false;
     }
@@ -431,23 +470,23 @@ export function useNFTMint() {
       error: null,
       success: false,
       isSponsored: false,
-      aiFeeEth: null,
+      mintPriceEth: null,
     });
 
     try {
-      // Calculate AI fee to include in transaction value
-      console.log('[Mint] Calculating AI fee...');
-      const aiFeeWei = await getAiFeeWei(1);
-      const aiFeeEth = formatWeiToEth(aiFeeWei);
+      // Read current mint price from contract
+      console.log('[Mint] Reading mintPrice from contract...');
+      const mintPriceWei = await getMintPrice();
+      const mintPriceEth = formatWeiToEth(mintPriceWei);
       
-      console.log(`[Mint] AI fee included in tx value: $${AI_FEE_USD} = ${aiFeeEth} ETH`);
-      setMintState(prev => ({ ...prev, aiFeeEth }));
+      console.log(`[Mint] Mint price: ${mintPriceEth} ETH (${mintPriceWei === 0n ? 'FREE' : 'paid'})`);
+      setMintState(prev => ({ ...prev, mintPriceEth }));
 
-      // Mint NFT with AI fee included in transaction value (single transaction)
-      console.log('[Mint] Minting NFT via MemoryMint...');
+      // Encode mint call
       const data = encodeMintNFTCallData(tokenURI);
 
-      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, aiFeeWei);
+      // Send transaction with value = mintPrice
+      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, mintPriceWei);
 
       console.log('[Mint] Transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
       setMintState(prev => ({ ...prev, txHash, isSponsored }));
@@ -463,7 +502,7 @@ export function useNFTMint() {
         error: null,
         success,
         isSponsored,
-        aiFeeEth,
+        mintPriceEth,
       });
 
       if (success) {
@@ -483,9 +522,9 @@ export function useNFTMint() {
       pendingMintRef.current = null;
       return false;
     }
-  }, [getAiFeeWei, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+  }, [getMintPrice, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
-  // Batch mint with AI fee included in transaction value
+  // ============ BATCH MINT ============
   const batchMintNFT = useCallback(async (
     walletAddress: string,
     quantity: number
@@ -519,23 +558,24 @@ export function useNFTMint() {
       error: null,
       success: false,
       isSponsored: false,
-      aiFeeEth: null,
+      mintPriceEth: null,
     });
 
     try {
-      // Calculate AI fee for batch to include in transaction value
-      console.log('[Mint] Calculating batch AI fee...');
-      const aiFeeWei = await getAiFeeWei(quantity);
-      const aiFeeEth = formatWeiToEth(aiFeeWei);
+      // Read current mint price from contract
+      console.log('[Mint] Reading mintPrice for batch...');
+      const mintPriceWei = await getMintPrice();
+      const totalPriceWei = mintPriceWei * BigInt(quantity);
+      const mintPriceEth = formatWeiToEth(totalPriceWei);
       
-      console.log(`[Mint] Batch AI fee included in tx value: $${AI_FEE_USD * quantity} = ${aiFeeEth} ETH for ${quantity} NFTs`);
-      setMintState(prev => ({ ...prev, aiFeeEth }));
+      console.log(`[Mint] Batch mint price: ${mintPriceEth} ETH for ${quantity} NFTs`);
+      setMintState(prev => ({ ...prev, mintPriceEth }));
 
-      // Batch mint NFTs with AI fee included in transaction value (single transaction)
-      console.log(`[Mint] Batch minting ${quantity} NFTs...`);
+      // Encode batch mint call
       const data = encodeBatchMintCallData(quantity);
 
-      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, aiFeeWei);
+      // Send transaction with value = mintPrice * quantity
+      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, totalPriceWei);
 
       console.log('[Mint] Batch transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
       setMintState(prev => ({ ...prev, txHash, isSponsored }));
@@ -551,7 +591,7 @@ export function useNFTMint() {
         error: null,
         success,
         isSponsored,
-        aiFeeEth,
+        mintPriceEth,
       });
 
       if (success) {
@@ -569,86 +609,14 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [getAiFeeWei, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+  }, [getMintPrice, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
-  // Quick mint with AI fee included in transaction value
+  // ============ QUICK MINT (empty tokenURI) ============
   const quickMint = useCallback(async (walletAddress: string): Promise<boolean> => {
-    if (!window.ethereum) {
-      setMintState(prev => ({ ...prev, error: 'No wallet detected' }));
-      return false;
-    }
+    return mintNFT('', walletAddress);
+  }, [mintNFT]);
 
-    if (!walletAddress) {
-      setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
-      return false;
-    }
-
-    const isBase = await verifyBaseNetwork();
-    if (!isBase) {
-      setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
-      return false;
-    }
-
-    setMintState({
-      isMinting: true,
-      txHash: null,
-      tokenId: null,
-      tokenIds: null,
-      error: null,
-      success: false,
-      isSponsored: false,
-      aiFeeEth: null,
-    });
-
-    try {
-      // Calculate AI fee to include in transaction value
-      console.log('[Mint] Calculating AI fee...');
-      const aiFeeWei = await getAiFeeWei(1);
-      const aiFeeEth = formatWeiToEth(aiFeeWei);
-      
-      console.log(`[Mint] AI fee included in tx value: $${AI_FEE_USD} = ${aiFeeEth} ETH`);
-      setMintState(prev => ({ ...prev, aiFeeEth }));
-
-      // Quick mint with AI fee included in transaction value (single transaction)
-      console.log("[Mint] Quick minting via mintNFT('')...");
-      const data = encodeMintNFTCallData('');
-
-      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, aiFeeWei);
-
-      console.log('[Mint] Quick mint submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
-      setMintState(prev => ({ ...prev, txHash, isSponsored }));
-
-      const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
-      await waitForOneConfirmation(blockNumber);
-
-      setMintState({
-        isMinting: false,
-        txHash,
-        tokenId: tokenIds[0] || null,
-        tokenIds: tokenIds.length > 0 ? tokenIds : null,
-        error: null,
-        success,
-        isSponsored,
-        aiFeeEth,
-      });
-
-      if (success) {
-        notifyMinted(walletAddress, tokenIds, txHash);
-      }
-
-      return success;
-    } catch (error: unknown) {
-      console.error('[Mint] Quick mint error:', error);
-
-      setMintState(prev => ({
-        ...prev,
-        isMinting: false,
-        error: decodeMintError(error),
-      }));
-      return false;
-    }
-  }, [getAiFeeWei, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
-
+  // ============ RESET STATE ============
   const resetMintState = useCallback(() => {
     setMintState({
       isMinting: false,
@@ -658,26 +626,27 @@ export function useNFTMint() {
       error: null,
       success: false,
       isSponsored: false,
-      aiFeeEth: null,
+      mintPriceEth: null,
     });
     pendingMintRef.current = null;
   }, []);
 
-  // Get current AI fee estimate
-  const getAiFeeEstimate = useCallback(async (quantity: number = 1): Promise<{ feeUsd: number; feeEth: string } | null> => {
+  // ============ GET MINT PRICE ESTIMATE ============
+  const getMintPriceEstimate = useCallback(async (quantity: number = 1): Promise<{ priceWei: bigint; priceEth: string; isFree: boolean } | null> => {
     try {
-      const ethPrice = await fetchEthPrice();
-      const aiFeeWei = calculateAiFeeWei(ethPrice, quantity);
+      const mintPriceWei = await getMintPrice();
+      const totalWei = mintPriceWei * BigInt(quantity);
       return {
-        feeUsd: AI_FEE_USD * quantity,
-        feeEth: formatWeiToEth(aiFeeWei),
+        priceWei: totalWei,
+        priceEth: formatWeiToEth(totalWei),
+        isFree: mintPriceWei === 0n,
       };
     } catch {
       return null;
     }
-  }, []);
+  }, [getMintPrice]);
 
-  // Check if user has enough balance for AI fee + gas
+  // ============ CHECK BALANCE ============
   const checkBalance = useCallback(async (walletAddress: string, quantity: number = 1): Promise<BalanceCheck | null> => {
     if (!window.ethereum || !walletAddress) return null;
 
@@ -691,13 +660,16 @@ export function useNFTMint() {
       const balanceWei = BigInt(balanceHex);
       const balanceEth = Number(balanceWei) / 1e18;
 
-      // Calculate required amount (AI fee + estimated gas)
-      const ethPrice = await fetchEthPrice();
-      const aiFeeWei = calculateAiFeeWei(ethPrice, quantity);
-      const aiFeeEth = Number(aiFeeWei) / 1e18;
-      const requiredEth = aiFeeEth + ESTIMATED_GAS_ETH;
+      // Get mint price from contract
+      const mintPriceWei = await getMintPrice();
+      const totalMintPriceWei = mintPriceWei * BigInt(quantity);
+      
+      // Add estimated gas (0.0002 ETH conservative)
+      const estimatedGasWei = BigInt(200000000000000); // 0.0002 ETH
+      const requiredWei = totalMintPriceWei + estimatedGasWei;
+      const requiredEth = Number(requiredWei) / 1e18;
 
-      const hasEnough = balanceEth >= requiredEth;
+      const hasEnough = balanceWei >= requiredWei;
       const shortfall = hasEnough ? null : (requiredEth - balanceEth).toFixed(6);
 
       return {
@@ -710,7 +682,7 @@ export function useNFTMint() {
       console.error('[Balance] Check failed:', error);
       return null;
     }
-  }, []);
+  }, [getMintPrice]);
 
   return {
     ...mintState,
@@ -718,12 +690,10 @@ export function useNFTMint() {
     batchMintNFT,
     quickMint,
     resetMintState,
-    getAiFeeEstimate,
+    getMintPriceEstimate,
     checkBalance,
+    getMintPrice,
     contractAddress: NFT_CONTRACT_ADDRESS,
-    treasuryAddress: TREASURY_ADDRESS,
-    aiFeeUsd: AI_FEE_USD,
-    estimatedGasEth: ESTIMATED_GAS_ETH,
     supportsSponsorship: supportsWalletSendCalls(),
   };
 }

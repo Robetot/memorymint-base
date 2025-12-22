@@ -60,7 +60,10 @@ export function AIImageGenerator({
   const [balanceCheck, setBalanceCheck] = useState<{ hasEnough: boolean; balance: string; required: string; shortfall: string | null } | null>(null);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
-  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getAiFeeEstimate, checkBalance, estimatedGasEth } = useNFTMint();
+  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getMintPriceEstimate, checkBalance } = useNFTMint();
+  
+  // Estimated gas fee for display
+  const estimatedGasEth = '0.0002';
   const { isGenerating, generateImage, error: generateError } = useAIGenerate();
   const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
 
@@ -521,7 +524,7 @@ export function AIImageGenerator({
                       <span className="text-foreground">~{estimatedGasEth} ETH</span>
                     </div>
                     <div className="border-t border-border pt-1 mt-1 flex justify-between font-medium">
-                      <span className="text-foreground">Total</span>
+                      <span className="text-foreground">Total (gas only)</span>
                       <span className="text-primary">
                         ~{estimatedGasEth} ETH
                       </span>
