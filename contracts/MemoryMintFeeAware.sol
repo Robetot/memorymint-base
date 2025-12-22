@@ -28,12 +28,11 @@ pragma solidity ^0.8.20;
  */
 
 // ============ Custom Errors (Gas Efficient) ============
-error NotOwner();
+error NotContractOwner();
+error NotTokenOwner();
 error ZeroAddress();
 error TokenNotExist();
 error NotApproved();
-error InvalidQuantity();
-error MaxBatchExceeded();
 error TransferToNonReceiver();
 error InsufficientPayment();
 error WithdrawFailed();
@@ -84,7 +83,6 @@ contract MemoryMintFeeAware {
     mapping(uint256 => string) private _tokenURIs;
 
     // ============ Constants ============
-    uint256 private constant MAX_BATCH_SIZE = 10;
     bytes4 private constant ERC721_RECEIVER_MAGIC = 0x150b7a02;
 
     // ============ Constructor ============
@@ -97,12 +95,16 @@ contract MemoryMintFeeAware {
 
     // ============ Modifiers ============
     modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
+        if (msg.sender != owner) revert NotContractOwner();
         _;
     }
 
     // ============ ERC165 Interface Detection ============
-    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+    /**
+     * @notice Check if contract supports an interface
+     * @dev Changed to public view for maximum tooling/indexer/marketplace compatibility
+     */
+    function supportsInterface(bytes4 interfaceId) public view returns (bool) {
         return
             interfaceId == 0x01ffc9a7 || // ERC165
             interfaceId == 0x80ac58cd || // ERC721
@@ -139,7 +141,7 @@ contract MemoryMintFeeAware {
     function approve(address to, uint256 tokenId) external {
         address tokenOwner = _owners[tokenId];
         if (msg.sender != tokenOwner && !_operatorApprovals[tokenOwner][msg.sender]) {
-            revert NotApproved();
+            revert NotTokenOwner();
         }
         _tokenApprovals[tokenId] = to;
         emit Approval(tokenOwner, to, tokenId);
@@ -163,7 +165,7 @@ contract MemoryMintFeeAware {
         if (to == address(0)) revert ZeroAddress();
         
         address tokenOwner = _owners[tokenId];
-        if (tokenOwner != from) revert NotOwner();
+        if (tokenOwner != from) revert NotTokenOwner();
         
         if (msg.sender != tokenOwner && 
             _tokenApprovals[tokenId] != msg.sender && 
@@ -225,37 +227,6 @@ contract MemoryMintFeeAware {
         emit MetadataUpdate(tokenId);
         
         return tokenId;
-    }
-
-    /**
-     * @notice Batch mint multiple NFTs (no metadata, for bulk collectors)
-     * @dev Payable - requires msg.value >= mintPrice * quantity
-     * @param quantity Number of NFTs to mint (1-10)
-     * @return startTokenId First token ID in batch
-     */
-    function batchMint(uint256 quantity) external payable returns (uint256) {
-        if (quantity == 0 || quantity > MAX_BATCH_SIZE) revert InvalidQuantity();
-        
-        // Check total payment
-        uint256 totalCost = mintPrice * quantity;
-        if (msg.value < totalCost) revert InsufficientPayment();
-        
-        uint256 startTokenId = _nextTokenId;
-        
-        unchecked {
-            _nextTokenId += quantity;
-            _balances[msg.sender] += quantity;
-        }
-        
-        // Mint all tokens in batch
-        for (uint256 i = 0; i < quantity;) {
-            uint256 tokenId = startTokenId + i;
-            _owners[tokenId] = msg.sender;
-            emit Transfer(address(0), msg.sender, tokenId);
-            unchecked { i++; }
-        }
-        
-        return startTokenId;
     }
 
     // ============ Owner Functions ============
@@ -323,7 +294,4 @@ contract MemoryMintFeeAware {
     function exists(uint256 tokenId) external view returns (bool) {
         return _owners[tokenId] != address(0);
     }
-
-    // ============ Receive ETH ============
-    receive() external payable {}
 }
