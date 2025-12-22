@@ -140,8 +140,9 @@ contract MemoryMintFeeAware {
 
     function approve(address to, uint256 tokenId) external {
         address tokenOwner = _owners[tokenId];
+        if (tokenOwner == address(0)) revert TokenNotExist();
         if (msg.sender != tokenOwner && !_operatorApprovals[tokenOwner][msg.sender]) {
-            revert NotTokenOwner();
+            revert NotApproved();
         }
         _tokenApprovals[tokenId] = to;
         emit Approval(tokenOwner, to, tokenId);
@@ -165,6 +166,7 @@ contract MemoryMintFeeAware {
         if (to == address(0)) revert ZeroAddress();
         
         address tokenOwner = _owners[tokenId];
+        if (tokenOwner == address(0)) revert TokenNotExist();
         if (tokenOwner != from) revert NotTokenOwner();
         
         if (msg.sender != tokenOwner && 
@@ -173,7 +175,9 @@ contract MemoryMintFeeAware {
             revert NotApproved();
         }
 
+        // Clear approval and emit for marketplace/indexer compatibility
         delete _tokenApprovals[tokenId];
+        emit Approval(from, address(0), tokenId);
 
         unchecked {
             _balances[from]--;
