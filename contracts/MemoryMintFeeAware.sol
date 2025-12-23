@@ -36,6 +36,7 @@ error NotApproved();
 error TransferToNonReceiver();
 error InsufficientPayment();
 error WithdrawFailed();
+error ApprovalToOwner();
 
 // ============ Interfaces ============
 interface IERC721Receiver {
@@ -141,6 +142,8 @@ contract MemoryMintFeeAware {
     function approve(address to, uint256 tokenId) external {
         address tokenOwner = _owners[tokenId];
         if (tokenOwner == address(0)) revert TokenNotExist();
+        // ERC-721: Cannot approve token owner as approved address
+        if (to == tokenOwner) revert ApprovalToOwner();
         if (msg.sender != tokenOwner && !_operatorApprovals[tokenOwner][msg.sender]) {
             revert NotApproved();
         }
@@ -154,6 +157,8 @@ contract MemoryMintFeeAware {
     }
 
     function setApprovalForAll(address operator, bool approved) external {
+        if (operator == address(0)) revert ZeroAddress();
+        if (operator == msg.sender) revert ApprovalToOwner();
         _operatorApprovals[msg.sender][operator] = approved;
         emit ApprovalForAll(msg.sender, operator, approved);
     }
@@ -229,6 +234,15 @@ contract MemoryMintFeeAware {
         
         emit Transfer(address(0), msg.sender, tokenId);
         emit MetadataUpdate(tokenId);
+        
+        // Safe mint: check ERC721Receiver if caller is a contract (prevents locked NFTs)
+        if (msg.sender.code.length > 0) {
+            try IERC721Receiver(msg.sender).onERC721Received(msg.sender, address(0), tokenId, "") returns (bytes4 retval) {
+                if (retval != ERC721_RECEIVER_MAGIC) revert TransferToNonReceiver();
+            } catch {
+                revert TransferToNonReceiver();
+            }
+        }
         
         return tokenId;
     }
