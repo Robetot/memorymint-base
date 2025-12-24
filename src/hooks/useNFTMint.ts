@@ -233,45 +233,64 @@ function supportsWalletSendCalls(): boolean {
   return !!(ethereum.isSmartWallet || ethereum.isPasskeyWallet || ethereum.isCoinbaseWallet);
 }
 
-// RPC call with timeout and retry logic for bot-resistance
+// RPC call with timeout, retry logic, and rate limit handling for bot-resistance
 async function rpcCall(method: string, params: any[], timeout = 10000): Promise<any> {
   const errors: string[] = [];
+  const maxRetries = 2;
   
   for (const endpoint of RPC_ENDPOINTS) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-      
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        errors.push(`${endpoint}: HTTP ${response.status}`);
-        continue;
+    for (let retry = 0; retry < maxRetries; retry++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // Handle rate limiting with backoff
+        if (response.status === 429) {
+          const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+          await new Promise(r => setTimeout(r, retryAfter * 1000));
+          continue;
+        }
+        
+        if (!response.ok) {
+          errors.push(`${endpoint}: HTTP ${response.status}`);
+          break; // Try next endpoint
+        }
+        
+        const data = await response.json();
+        if (data.error) {
+          // Retry on temporary errors
+          if (data.error.code === -32005 || data.error.message?.includes('rate limit')) {
+            await new Promise(r => setTimeout(r, 1000 * (retry + 1)));
+            continue;
+          }
+          errors.push(`${endpoint}: ${data.error.message || 'RPC error'}`);
+          break; // Try next endpoint
+        }
+        
+        return data.result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        if (msg.includes('aborted')) {
+          errors.push(`${endpoint}: Request timeout`);
+        } else {
+          errors.push(`${endpoint}: ${msg}`);
+        }
+        break; // Try next endpoint
       }
-      
-      const data = await response.json();
-      if (data.error) {
-        errors.push(`${endpoint}: ${data.error.message || 'RPC error'}`);
-        continue;
-      }
-      
-      return data.result;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      errors.push(`${endpoint}: ${msg}`);
-      continue;
     }
   }
   
   console.error('[RPC] All endpoints failed:', errors);
-  throw new Error('All RPC endpoints failed');
+  throw new Error('RPC temporarily unavailable. Please try again.');
 }
 
 // ============ MAIN HOOK ============
@@ -763,26 +782,46 @@ export function useNFTMint() {
     expectedRecipient: string,
     maxAttempts = 120
   ): Promise<{ success: boolean; tokenIds: string[] }> => {
-    if (!txHash || typeof txHash !== 'string' || !txHash.startsWith('0x')) {
-      throw new Error('Invalid transaction hash');
+    if (!txHash || typeof txHash !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      throw new Error('Invalid transaction hash format');
     }
     
-    if (!expectedRecipient || typeof expectedRecipient !== 'string' || !expectedRecipient.startsWith('0x')) {
-      throw new Error('Invalid recipient address');
+    if (!expectedRecipient || typeof expectedRecipient !== 'string' || !/^0x[a-fA-F0-9]{40}$/i.test(expectedRecipient)) {
+      throw new Error('Invalid recipient address format');
     }
     
     let receipt: any = null;
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 5;
     
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, 2000));
       try {
+        // Try wallet first, fallback to RPC
         receipt = await window.ethereum!.request({
           method: 'eth_getTransactionReceipt',
           params: [txHash],
         });
+        consecutiveErrors = 0; // Reset on success
         if (receipt) break;
       } catch (err) {
-        console.warn('[Receipt] Polling attempt failed:', err);
+        consecutiveErrors++;
+        console.warn(`[Receipt] Polling attempt ${i + 1} failed:`, err);
+        
+        // If wallet consistently fails, try RPC endpoint
+        if (consecutiveErrors >= 3) {
+          try {
+            receipt = await rpcCall('eth_getTransactionReceipt', [txHash]);
+            consecutiveErrors = 0;
+            if (receipt) break;
+          } catch {
+            // Continue polling
+          }
+        }
+        
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          throw new Error('Unable to confirm transaction. Please check BaseScan manually.');
+        }
         continue;
       }
     }
