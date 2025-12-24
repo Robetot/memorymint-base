@@ -233,20 +233,44 @@ function supportsWalletSendCalls(): boolean {
   return !!(ethereum.isSmartWallet || ethereum.isPasskeyWallet || ethereum.isCoinbaseWallet);
 }
 
-async function rpcCall(method: string, params: any[]): Promise<any> {
+// RPC call with timeout and retry logic for bot-resistance
+async function rpcCall(method: string, params: any[], timeout = 10000): Promise<any> {
+  const errors: string[] = [];
+  
   for (const endpoint of RPC_ENDPOINTS) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+        signal: controller.signal,
       });
-      if (!response.ok) continue;
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        errors.push(`${endpoint}: HTTP ${response.status}`);
+        continue;
+      }
+      
       const data = await response.json();
-      if (data.error) continue;
+      if (data.error) {
+        errors.push(`${endpoint}: ${data.error.message || 'RPC error'}`);
+        continue;
+      }
+      
       return data.result;
-    } catch { continue; }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      errors.push(`${endpoint}: ${msg}`);
+      continue;
+    }
   }
+  
+  console.error('[RPC] All endpoints failed:', errors);
   throw new Error('All RPC endpoints failed');
 }
 
@@ -471,8 +495,14 @@ export function useNFTMint() {
     }, pendingAdminConfigRef, FAIL_CLOSED_ADMIN_CONFIG);
   }, [safeRpcCall]);
 
-  // ============ FETCH ANTI-BOT CONFIG ============
+  // ============ FETCH ANTI-BOT CONFIG (HARDENED) ============
   const fetchAntiBotConfig = useCallback(async (walletAddress: string): Promise<AntiBotConfig | null> => {
+    // Validate wallet address format
+    if (!walletAddress || typeof walletAddress !== 'string' || !walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+      console.error('[AntiBot] Invalid wallet address format');
+      return null;
+    }
+    
     try {
       const [cooldownData, lastMintData, countData, maxData] = await Promise.all([
         rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintCooldown', args: [] }) }, 'latest']),
@@ -486,15 +516,26 @@ export function useNFTMint() {
       const mintCount = decodeUint256Result(countData, 'walletMintCount');
       const maxMints = decodeUint256Result(maxData, 'maxMintsPerWallet');
 
-      const now = BigInt(Math.floor(Date.now() / 1000));
+      // Use block timestamp for consistency (less gameable than client time)
+      const blockData = await rpcCall('eth_getBlockByNumber', ['latest', false]);
+      const blockTimestamp = blockData?.timestamp ? BigInt(blockData.timestamp) : BigInt(Math.floor(Date.now() / 1000));
+      
       const cooldownEnd = lastMintTime + cooldown;
-      const cooldownRemaining = cooldownEnd > now ? cooldownEnd - now : 0n;
-      const canMintNow = now >= cooldownEnd && (maxMints === 0n || mintCount < maxMints);
+      const cooldownRemaining = cooldownEnd > blockTimestamp ? cooldownEnd - blockTimestamp : 0n;
+      const canMintNow = blockTimestamp >= cooldownEnd && (maxMints === 0n || mintCount < maxMints);
 
       return { cooldown, lastMintTime, mintCount, maxMints, canMintNow, cooldownRemaining };
     } catch (error) {
       console.error('[AntiBot] Failed to fetch config:', error);
-      return null;
+      // Fail-closed: if we can't verify anti-bot state, return restrictive config
+      return {
+        cooldown: BigInt(60), // Default 60s cooldown assumption
+        lastMintTime: BigInt(Math.floor(Date.now() / 1000)),
+        mintCount: 0n,
+        maxMints: 0n,
+        canMintNow: false, // Fail-closed
+        cooldownRemaining: BigInt(60),
+      };
     }
   }, [decodeUint256Result]);
 
@@ -716,14 +757,23 @@ export function useNFTMint() {
     }, pendingUsdcPriceRef);
   }, [safeRpcCall, decodeUint256Result]);
 
-  // ============ WAIT FOR RECEIPT ============
+  // ============ WAIT FOR RECEIPT (HARDENED) ============
   const waitForReceipt = useCallback(async (
     txHash: string,
-    expectedRecipient: string
+    expectedRecipient: string,
+    maxAttempts = 120
   ): Promise<{ success: boolean; tokenIds: string[] }> => {
+    if (!txHash || typeof txHash !== 'string' || !txHash.startsWith('0x')) {
+      throw new Error('Invalid transaction hash');
+    }
+    
+    if (!expectedRecipient || typeof expectedRecipient !== 'string' || !expectedRecipient.startsWith('0x')) {
+      throw new Error('Invalid recipient address');
+    }
+    
     let receipt: any = null;
     
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, 2000));
       try {
         receipt = await window.ethereum!.request({
@@ -731,18 +781,29 @@ export function useNFTMint() {
           params: [txHash],
         });
         if (receipt) break;
-      } catch { /* continue */ }
+      } catch (err) {
+        console.warn('[Receipt] Polling attempt failed:', err);
+        continue;
+      }
     }
 
-    if (!receipt) throw new Error('Transaction is still pending');
-    if (receipt.status !== '0x1') throw new Error('Transaction failed on-chain');
+    if (!receipt) {
+      throw new Error('Transaction confirmation timeout. Please check the transaction on BaseScan.');
+    }
+    
+    if (receipt.status !== '0x1') {
+      throw new Error('Transaction reverted on-chain. Check gas and parameters.');
+    }
 
     const logs = (receipt.logs as Array<{ address: string; topics: string[]; data: string }>) || [];
     const tokenIds: string[] = [];
     const zeroAddress = '0x0000000000000000000000000000000000000000';
+    const seenTokenIds = new Set<string>(); // Prevent duplicates
 
     for (const log of logs) {
+      // Strict address match for security
       if (log.address?.toLowerCase() !== NFT_CONTRACT_ADDRESS.toLowerCase()) continue;
+      if (!log.topics || log.topics.length < 4) continue;
       
       try {
         const decoded = decodeEventLog({
@@ -751,15 +812,24 @@ export function useNFTMint() {
           topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
         }) as { eventName: string; args: { from: string; to: string; tokenId: bigint } };
         
+        // Strict validation: must be mint (from zero), to expected recipient
         if (
           decoded.eventName === 'Transfer' &&
           decoded.args.from.toLowerCase() === zeroAddress.toLowerCase() &&
           decoded.args.to.toLowerCase() === expectedRecipient.toLowerCase() &&
-          decoded.args.tokenId !== undefined
+          decoded.args.tokenId !== undefined &&
+          decoded.args.tokenId >= 0n
         ) {
-          tokenIds.push(decoded.args.tokenId.toString());
+          const tokenIdStr = decoded.args.tokenId.toString();
+          if (!seenTokenIds.has(tokenIdStr)) {
+            seenTokenIds.add(tokenIdStr);
+            tokenIds.push(tokenIdStr);
+          }
         }
-      } catch { continue; }
+      } catch (decodeErr) {
+        console.warn('[Receipt] Failed to decode transfer log:', decodeErr);
+        continue;
+      }
     }
 
     return { success: true, tokenIds };
