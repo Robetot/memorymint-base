@@ -132,6 +132,7 @@ export interface MintState {
   isClaiming: boolean;
   isWaitingForReceipt: boolean;
   isApprovingUSDC: boolean;
+  isAuthenticating: boolean;
   txHash: string | null;
   tokenId: string | null;
   tokenIds: string[] | null;
@@ -147,6 +148,8 @@ export interface MintState {
   detectedWalletType: DetectedWalletType;
   pollingMessage: string | null;
   mintQueuePosition: number;
+  requireSIWE: boolean;
+  isSIWEAuthenticated: boolean;
 }
 
 export interface PriceInfo {
@@ -356,6 +359,7 @@ export function useNFTMint() {
     isClaiming: false,
     isWaitingForReceipt: false,
     isApprovingUSDC: false,
+    isAuthenticating: false,
     txHash: null,
     tokenId: null,
     tokenIds: null,
@@ -371,6 +375,8 @@ export function useNFTMint() {
     detectedWalletType: 'unknown',
     pollingMessage: null,
     mintQueuePosition: 0,
+    requireSIWE: false,
+    isSIWEAuthenticated: false,
   });
   
   // Separate locks by operation type
@@ -1506,6 +1512,7 @@ export function useNFTMint() {
       isClaiming: false,
       isWaitingForReceipt: false,
       isApprovingUSDC: false,
+      isAuthenticating: false,
       txHash: null,
       tokenId: null,
       tokenIds: null,
@@ -1545,6 +1552,15 @@ export function useNFTMint() {
     const shortfall = hasEnough ? null : formatWeiToEth(required - balance);
     return { hasEnough, balance: formatWeiToEth(balance), required: formatWeiToEth(required), shortfall, token: 'ETH' as PaymentToken };
   }, [getMintPriceETH, getBatchMintPriceETH]);
+
+  // ============ SIWE AUTHENTICATION TOGGLE ============
+  const setRequireSIWE = useCallback((require: boolean) => {
+    setMintState(prev => ({ ...prev, requireSIWE: require }));
+  }, []);
+
+  const setSIWEAuthenticated = useCallback((authenticated: boolean) => {
+    setMintState(prev => ({ ...prev, isSIWEAuthenticated: authenticated }));
+  }, []);
 
   // ============ INIT ============
   useEffect(() => {
@@ -1589,6 +1605,8 @@ export function useNFTMint() {
     checkUSDCAllowance,
     approveUSDC,
     fetchAntiBotConfig,
+    setRequireSIWE,
+    setSIWEAuthenticated,
     NFT_CONTRACT_ADDRESS,
     USDC_ADDRESS,
     BASE_CHAIN_ID,
