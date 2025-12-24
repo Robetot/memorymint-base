@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.upload-to-ipfs]
 verify_jwt = false
+
+[functions.verify-siwe]
+verify_jwt = false
