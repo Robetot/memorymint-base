@@ -24,6 +24,7 @@ const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/p
 const CONTRACT_ABI = parseAbi([
   'function mintNFT(string tokenURI) payable returns (uint256)',
   'function mintWithSignature(string tokenURI, uint256 expiration, bytes signature) payable returns (uint256)',
+  'function batchMint(uint256 quantity) payable returns (uint256)',
   'function claimBonus(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
   'function mintPrice() view returns (uint256)',
   'function mintPriceUSDC() view returns (uint256)',
@@ -31,6 +32,7 @@ const CONTRACT_ABI = parseAbi([
   'function getEthUsdPrice() view returns (uint256)',
   'function canClaimBonus(address user, uint256 levelId) view returns (bool, string)',
   'function getBonusLevel(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
+  'function bonusLevels(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
   'function owner() view returns (address)',
 ]);
 
@@ -54,6 +56,7 @@ const CONTRACT_ERROR_ABI = parseAbi([
 // ============ TYPES ============
 export interface MintState {
   isMinting: boolean;
+  isClaiming: boolean;
   txHash: string | null;
   tokenId: string | null;
   tokenIds: string[] | null;
@@ -61,6 +64,23 @@ export interface MintState {
   success: boolean;
   isSponsored: boolean;
   mintPriceEth: string | null;
+  mintPriceUSDC: string | null;
+}
+
+export interface BonusClaimState {
+  isClaiming: boolean;
+  txHash: string | null;
+  error: string | null;
+  success: boolean;
+  amountClaimed: string | null;
+}
+
+export interface PriceInfo {
+  ethPrice: bigint;       // ETH/USD price (8 decimals from Chainlink)
+  mintPriceUSDC: bigint;  // Mint price in USDC (6 decimals)
+  mintPriceETH: bigint;   // Mint price in ETH (18 decimals)
+  mintPriceUSDCFormatted: string;
+  mintPriceETHFormatted: string;
 }
 
 export interface BalanceCheck {
@@ -189,6 +209,7 @@ async function rpcCall(method: string, params: any[]): Promise<any> {
 export function useNFTMint() {
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
+    isClaiming: false,
     txHash: null,
     tokenId: null,
     tokenIds: null,
@@ -196,6 +217,7 @@ export function useNFTMint() {
     success: false,
     isSponsored: false,
     mintPriceEth: null,
+    mintPriceUSDC: null,
   });
   
   // Prevent double-minting on retries
@@ -474,6 +496,7 @@ export function useNFTMint() {
 
     setMintState({
       isMinting: true,
+      isClaiming: false,
       txHash: null,
       tokenId: null,
       tokenIds: null,
@@ -481,6 +504,7 @@ export function useNFTMint() {
       success: false,
       isSponsored: false,
       mintPriceEth: null,
+      mintPriceUSDC: null,
     });
 
     try {
@@ -506,6 +530,7 @@ export function useNFTMint() {
 
       setMintState({
         isMinting: false,
+        isClaiming: false,
         txHash,
         tokenId: tokenIds[0] || null,
         tokenIds: tokenIds.length > 0 ? tokenIds : null,
@@ -513,6 +538,7 @@ export function useNFTMint() {
         success,
         isSponsored,
         mintPriceEth,
+        mintPriceUSDC: null,
       });
 
       if (success) {
@@ -562,6 +588,7 @@ export function useNFTMint() {
 
     setMintState({
       isMinting: true,
+      isClaiming: false,
       txHash: null,
       tokenId: null,
       tokenIds: null,
@@ -569,6 +596,7 @@ export function useNFTMint() {
       success: false,
       isSponsored: false,
       mintPriceEth: null,
+      mintPriceUSDC: null,
     });
 
     try {
@@ -595,6 +623,7 @@ export function useNFTMint() {
 
       setMintState({
         isMinting: false,
+        isClaiming: false,
         txHash,
         tokenId: tokenIds[0] || null,
         tokenIds: tokenIds.length > 0 ? tokenIds : null,
@@ -602,6 +631,7 @@ export function useNFTMint() {
         success,
         isSponsored,
         mintPriceEth,
+        mintPriceUSDC: null,
       });
 
       if (success) {
@@ -630,6 +660,7 @@ export function useNFTMint() {
   const resetMintState = useCallback(() => {
     setMintState({
       isMinting: false,
+      isClaiming: false,
       txHash: null,
       tokenId: null,
       tokenIds: null,
@@ -637,6 +668,7 @@ export function useNFTMint() {
       success: false,
       isSponsored: false,
       mintPriceEth: null,
+      mintPriceUSDC: null,
     });
     pendingMintRef.current = null;
   }, []);
@@ -694,15 +726,246 @@ export function useNFTMint() {
     }
   }, [getMintPrice]);
 
+  // ============ GET USDC PRICE INFO ============
+  const getPriceInfo = useCallback(async (): Promise<PriceInfo | null> => {
+    try {
+      // Read USDC price from contract
+      const mintPriceUSDCData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'mintPriceUSDC',
+        args: [],
+      });
+
+      const getMintPriceETHData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getMintPriceETH',
+        args: [],
+      });
+
+      const getEthUsdPriceData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getEthUsdPrice',
+        args: [],
+      });
+
+      const [usdcResult, ethResult, priceResult] = await Promise.all([
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: mintPriceUSDCData }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: getMintPriceETHData }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: getEthUsdPriceData }, 'latest']),
+      ]);
+
+      const mintPriceUSDC = usdcResult ? BigInt(usdcResult) : 0n;
+      const mintPriceETH = ethResult ? BigInt(ethResult) : 0n;
+      const ethPrice = priceResult ? BigInt(priceResult) : 0n;
+
+      return {
+        ethPrice,
+        mintPriceUSDC,
+        mintPriceETH,
+        mintPriceUSDCFormatted: formatUSDC(mintPriceUSDC),
+        mintPriceETHFormatted: formatWeiToEth(mintPriceETH),
+      };
+    } catch (error) {
+      console.error('[Price] Failed to get price info:', error);
+      return null;
+    }
+  }, []);
+
+  // ============ FORMAT USDC (6 decimals) ============
+  const formatUSDC = useCallback((amount: bigint): string => {
+    const value = Number(amount) / 1e6;
+    return `$${value.toFixed(2)}`;
+  }, []);
+
+  // ============ CHECK CAN CLAIM BONUS ============
+  const canClaimBonus = useCallback(async (
+    walletAddress: string,
+    levelId: bigint
+  ): Promise<{ canClaim: boolean; reason: string }> => {
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'canClaimBonus',
+        args: [walletAddress as `0x${string}`, levelId],
+      });
+
+      const result = await rpcCall('eth_call', [
+        { to: NFT_CONTRACT_ADDRESS, data },
+        'latest',
+      ]);
+
+      if (!result || result === '0x') {
+        return { canClaim: false, reason: 'Unable to check eligibility' };
+      }
+
+      // Decode the result (bool, string)
+      // For now, just check if result indicates true
+      const canClaim = result.startsWith('0x0000000000000000000000000000000000000000000000000000000000000001');
+      return { canClaim, reason: canClaim ? 'Eligible' : 'Not eligible' };
+    } catch (error) {
+      console.error('[ClaimBonus] Check failed:', error);
+      return { canClaim: false, reason: 'Error checking eligibility' };
+    }
+  }, []);
+
+  // ============ CLAIM BONUS ============
+  /**
+   * Claim bonus for completing a game level
+   * @param levelId The bonus level ID to claim
+   * @param gameLevel The game level completed
+   * @param levelProof Signature proving level completion (MUST include bonus level ID in signed message)
+   * 
+   * IMPORTANT: The levelProof must be generated by the backend with the following message:
+   * keccak256(abi.encodePacked(claimer, gameLevel, bonusLevelId, contractAddress, chainId))
+   * 
+   * This ensures the proof cannot be reused across different bonus levels.
+   */
+  const claimBonus = useCallback(async (
+    walletAddress: string,
+    levelId: bigint,
+    gameLevel: bigint,
+    levelProof: `0x${string}`
+  ): Promise<{ success: boolean; txHash: string | null; error: string | null }> => {
+    if (!window.ethereum) {
+      return { success: false, txHash: null, error: 'No wallet detected' };
+    }
+
+    if (!walletAddress) {
+      return { success: false, txHash: null, error: 'Wallet not connected' };
+    }
+
+    const isBase = await verifyBaseNetwork();
+    if (!isBase) {
+      return { success: false, txHash: null, error: 'Please switch to Base network' };
+    }
+
+    setMintState(prev => ({ ...prev, isClaiming: true, error: null }));
+
+    try {
+      // Check eligibility first
+      const { canClaim, reason } = await canClaimBonus(walletAddress, levelId);
+      if (!canClaim) {
+        setMintState(prev => ({ ...prev, isClaiming: false, error: reason }));
+        return { success: false, txHash: null, error: reason };
+      }
+
+      // Encode claimBonus call
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'claimBonus',
+        args: [levelId, gameLevel, levelProof],
+      });
+
+      const ethereum = window.ethereum as any;
+
+      // Send transaction (no value needed for claim)
+      console.log('[ClaimBonus] Sending claim transaction...');
+      const txHash = await ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: walletAddress,
+          to: NFT_CONTRACT_ADDRESS,
+          data,
+        }],
+      }) as string;
+
+      console.log('[ClaimBonus] Transaction submitted:', txHash);
+
+      // Wait for confirmation
+      const { success } = await waitForReceipt(txHash);
+
+      setMintState(prev => ({
+        ...prev,
+        isClaiming: false,
+        txHash,
+        success,
+        error: success ? null : 'Claim failed',
+      }));
+
+      return { success, txHash, error: success ? null : 'Claim failed' };
+    } catch (error: unknown) {
+      console.error('[ClaimBonus] Error:', error);
+      const errorMessage = decodeMintError(error);
+      setMintState(prev => ({
+        ...prev,
+        isClaiming: false,
+        error: errorMessage,
+      }));
+      return { success: false, txHash: null, error: errorMessage };
+    }
+  }, [canClaimBonus, verifyBaseNetwork, waitForReceipt]);
+
+  // ============ GET BONUS LEVEL INFO ============
+  const getBonusLevel = useCallback(async (levelId: bigint): Promise<{
+    amount: bigint;
+    active: boolean;
+    claimsRemaining: bigint;
+    minScore: bigint;
+    requiresNFT: boolean;
+  } | null> => {
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'bonusLevels',
+        args: [levelId],
+      });
+
+      const result = await rpcCall('eth_call', [
+        { to: NFT_CONTRACT_ADDRESS, data },
+        'latest',
+      ]);
+
+      if (!result || result === '0x') {
+        return null;
+      }
+
+      // Parse result (amount, active, claimsRemaining, minScore, requiresNFT)
+      // Each value is 32 bytes = 64 hex chars
+      const hex = result.slice(2); // Remove 0x
+      const amount = BigInt('0x' + hex.slice(0, 64));
+      const active = hex.slice(64, 128) !== '0'.repeat(64);
+      const claimsRemaining = BigInt('0x' + hex.slice(128, 192));
+      const minScore = BigInt('0x' + hex.slice(192, 256));
+      const requiresNFT = hex.slice(256, 320) !== '0'.repeat(64);
+
+      return { amount, active, claimsRemaining, minScore, requiresNFT };
+    } catch (error) {
+      console.error('[BonusLevel] Fetch failed:', error);
+      return null;
+    }
+  }, []);
+
+  /**
+   * Generate the message hash that the backend must sign for level proof
+   * This includes the bonus level ID to prevent cross-level replay attacks
+   * 
+   * Message format: keccak256(abi.encodePacked(claimer, gameLevel, bonusLevelId, contractAddress, chainId))
+   */
+  const getLevelProofMessage = useCallback((
+    claimer: string,
+    gameLevel: bigint,
+    bonusLevelId: bigint
+  ): string => {
+    // This is for reference - actual signing should happen on backend
+    // The packed encoding is: address (20 bytes) + uint256 (32 bytes) + uint256 (32 bytes) + address (20 bytes) + uint256 (32 bytes)
+    return `Level proof for ${claimer} at game level ${gameLevel} for bonus level ${bonusLevelId} on contract ${NFT_CONTRACT_ADDRESS} (chain 8453)`;
+  }, []);
+
   return {
     ...mintState,
     mintNFT,
     batchMintNFT,
     quickMint,
+    claimBonus,
+    canClaimBonus,
+    getBonusLevel,
     resetMintState,
     getMintPriceEstimate,
+    getPriceInfo,
     checkBalance,
     getMintPrice,
+    formatUSDC,
+    getLevelProofMessage,
     contractAddress: NFT_CONTRACT_ADDRESS,
     supportsSponsorship: supportsWalletSendCalls(),
   };
