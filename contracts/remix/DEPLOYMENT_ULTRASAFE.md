@@ -1,34 +1,45 @@
-# MemoryMintUltraSafe Deployment Guide
+# MemoryMintUltraSafe v2 - Deployment Guide
 
-## Security Audit Summary
+## Production Fixes Applied (v2)
 
-### Critical Fixes Applied
+| Fix | Issue | Solution | Result |
+|-----|-------|----------|--------|
+| **#1** | tx.origin blocks Base App & Smart Wallets | Disabled by default, only enabled in STRICT mode | ✅ Smart wallets work out of box |
+| **#2** | Level check not enforced on-chain | Level verification via signed proof when `checkLevel=true` | ✅ Prevents fake level claims |
+| **#3** | activeLevelIds grows forever | Auto-removes levels when deactivated | ✅ Array stays clean |
+| **#4** | Signature storage grows forever | Signatures have configurable expiration | ✅ Bounded storage growth |
+| **#5** | Unsafe default configuration | Production-safe constructor defaults | ✅ Safe without manual config |
 
-| # | Issue | Severity | Fix |
-|---|-------|----------|-----|
-| 1 | CEI Pattern violation in `claimBonus` | **CRITICAL** | All state updates now occur before ETH transfer |
-| 2 | FCFS `claimsRemaining` underflow risk | **CRITICAL** | Added check for >0 before decrement |
-| 3 | Signature replay without wallet binding | **CRITICAL** | Signature verification now includes wallet address |
-| 4 | Denylist bypassed by allowlist | **HIGH** | Denylist check now happens FIRST, takes absolute precedence |
-| 5 | Allowlisted wallets skip denylist | **HIGH** | Even allowlisted wallets are checked against denylist |
-| 6 | `mintWithSignature` missing denylist check | **HIGH** | Added explicit denylist check |
-| 7 | Approval not cleared properly on transfer | **MEDIUM** | Emit `Approval(owner, address(0), tokenId)` on transfer |
-| 8 | EIP-2 signature malleability | **MEDIUM** | Added s-value upper bound check |
-| 9 | Missing `receive()` attribution | **LOW** | ETH sent directly now credits `bonusPoolBalance` |
-| 10 | Inefficient storage reads | **LOW** | Used local variable caching throughout |
+---
 
-### Security Guarantees
+## Safe Defaults (No Manual Config Needed)
 
-| Guarantee | Status |
-|-----------|--------|
-| No burn functions added | ✅ |
-| No URI update logic added | ✅ |
-| All game interfaces preserved | ✅ |
-| CEI pattern enforced | ✅ |
-| Reentrancy protected | ✅ |
-| ERC-721 compliant | ✅ |
-| ERC-4906 compliant (OpenSea) | ✅ |
-| Anti-bot hardened | ✅ |
+```solidity
+// Constructor sets these automatically:
+antiBotMode = MODERATE           // Standard protection
+txOriginCheck = false            // FIX #1: Smart wallet compatible
+walletMintLimit = 10             // Reasonable default
+mintCooldownBlocks = 2           // ~4 seconds on Base
+denylistEnabled = true           // Protection on
+signatureRequired = true         // Anti-bot
+signatureExpirationSeconds = 3600 // 1 hour
+signatureSigner = deployer       // Owner is default signer
+```
+
+---
+
+## Platform Compatibility
+
+| Platform | Default Config | Notes |
+|----------|---------------|-------|
+| Base App | ✅ Works | tx.origin disabled in MODERATE |
+| Coinbase Smart Wallet | ✅ Works | tx.origin disabled in MODERATE |
+| Farcaster Frames | ✅ Works | tx.origin disabled in MODERATE |
+| MetaMask | ✅ Works | All modes |
+| OpenSea | ✅ Works | ERC-721 + ERC-4906 compliant |
+| MemoryMint Game | ✅ Works | All interfaces preserved |
+
+**⚠️ Warning:** STRICT mode enables tx.origin checks, which **blocks smart wallets**. Use only for maximum bot protection when smart wallet support isn't needed.
 
 ---
 
@@ -58,139 +69,164 @@ Go to https://remix.ethereum.org
 
 5. Click **Deploy** → Confirm in MetaMask
 
----
+### 5. Post-Deploy (Optional Tuning)
 
-## Post-Deployment Setup
-
-### Configure Mint Price
 ```solidity
+// Set mint price
 setMintPrice(1000000000000000) // 0.001 ETH
-```
 
-### Configure Anti-Bot (Recommended)
-```solidity
-// Set wallet mint limit (0 = unlimited)
-setWalletMintLimit(10)
+// Adjust wallet limit if needed
+setWalletMintLimit(5)
 
-// Set cooldown between mints (in blocks, ~2 sec per block on Base)
-setMintCooldown(1)
-
-// Enable tx.origin check (blocks contract mints)
-setTxOriginCheck(true)
-
-// Set anti-bot mode (0=DISABLED, 1=SOFT, 2=MODERATE, 3=STRICT)
-setAntiBotMode(2)
-
-// Set FCFS mint cap (0 = unlimited)
-setFCFSMintCap(1000)
-```
-
-### Configure Claim Bonus
-```solidity
-// Set claim mode (0=DISABLED, 1=FCFS, 2=UNLIMITED, 3=ONE_TIME, 4=CUSTOM)
-setClaimMode(3) // ONE_TIME recommended
-
-// Configure bonus level
-// configureBonusLevel(level, amount, active, claimsRemaining, minScore, requiresNFT)
-configureBonusLevel(1, 10000000000000000, true, 100, 500, false)  // Level 1: 0.01 ETH
-configureBonusLevel(5, 50000000000000000, true, 50, 2000, true)   // Level 5: 0.05 ETH
-
-// Set eligibility rules
-// setEligibilityRules(checkLevel, checkScore, checkNFTOwnership, useAndLogic)
-setEligibilityRules(true, true, false, true) // AND logic: must meet all
-
-// Deposit bonus funds
-depositBonusFunds{ value: 1000000000000000000 }() // 1 ETH
-
-// Set total claim cap (0 = unlimited)
-setTotalClaimCap(500)
-```
-
-### Allowlist/Denylist
-```solidity
-// Denylist is enabled by default - add known bots
-updateDenylist([botAddress1, botAddress2], true)
-
-// Enable allowlist for exclusive minting
-setAllowlistEnabled(true)
-updateAllowlist([vipAddress1, vipAddress2], true)
-```
-
-### Signature Minting (For Maximum Security)
-```solidity
-// Enable signature requirement
-setSignatureRequired(true)
-
-// Set signer address (your backend wallet)
-setSignatureSigner(0xYourSignerAddress)
+// Set different signer for production
+setSignatureSigner(0xYourBackendSignerAddress)
 ```
 
 ---
 
-## Anti-Bot Modes
+## Anti-Bot Mode Reference
 
-| Mode | Value | Features |
-|------|-------|----------|
-| DISABLED | 0 | No checks (not recommended) |
-| SOFT | 1 | Denylist only |
-| MODERATE | 2 | Limit + cooldown + tx.origin |
-| STRICT | 3 | All protections + reduced limits |
-| CUSTOM | 4 | Your configuration |
+| Mode | tx.origin | Wallet Limit | Cooldown | Denylist | Smart Wallet Support |
+|------|-----------|--------------|----------|----------|---------------------|
+| DISABLED | ❌ | ❌ | ❌ | ❌ | ✅ |
+| SOFT | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **MODERATE** (default) | ❌ | ✅ | ✅ | ✅ | ✅ |
+| STRICT | ✅ | ✅ | ✅ | ✅ | ❌ |
+| CUSTOM | Manual | Manual | Manual | Manual | Depends |
 
-**Recommended**: MODERATE (2) for public mints, STRICT (3) for high-value drops.
-
----
-
-## Claim Modes
-
-| Mode | Value | Behavior |
-|------|-------|----------|
-| DISABLED | 0 | No claims allowed |
-| FCFS | 1 | First come first served with per-level caps |
-| UNLIMITED | 2 | No restrictions (use with caution) |
-| ONE_TIME | 3 | One claim per wallet per level (recommended) |
-| CUSTOM | 4 | Uses eligibility rules |
-
-**Recommended**: ONE_TIME (3) to prevent abuse.
+**Recommendation:** Stay on MODERATE for production unless you specifically need STRICT.
 
 ---
 
-## Denylist Priority (Critical Security Feature)
+## Claim Bonus with Level Verification (FIX #2)
 
-The denylist check now takes **absolute precedence**:
+### When `checkLevel = true`:
 
-1. ✅ Denylisted wallet → **BLOCKED** (even if allowlisted)
-2. Allowlist enabled + wallet allowlisted → Allowed
-3. Allowlist enabled + wallet NOT allowlisted → Blocked
-4. Allowlist disabled → Other checks apply
+Users must provide a signed proof of level completion:
 
-This prevents compromised allowlisted wallets from being exploited.
+```typescript
+// Backend generates level proof
+const levelHash = ethers.solidityPackedKeccak256(
+  ['address', 'uint256', 'address', 'uint256'],
+  [userWallet, gameLevel, contractAddress, 8453] // Base chainId
+);
+const levelProof = await signer.signMessage(ethers.getBytes(levelHash));
+
+// Frontend calls new claimBonus
+contract.claimBonus(
+  bonusLevelId,    // The bonus level to claim
+  gameLevel,       // The game level completed
+  userScore,       // User's score
+  levelProof       // Backend-signed proof
+);
+```
+
+### When `checkLevel = false`:
+
+Use the legacy function (no proof needed):
+
+```typescript
+contract.claimBonus(level, userScore);
+```
+
+---
+
+## Mint with Signature (FIX #4 - Expiration)
+
+### Backend Signature Generation
+
+```typescript
+const expiration = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+
+const messageHash = ethers.solidityPackedKeccak256(
+  ['address', 'address', 'uint256', 'uint256'],
+  [userWallet, contractAddress, 8453, expiration]
+);
+
+const signature = await signer.signMessage(ethers.getBytes(messageHash));
+```
+
+### Frontend Mint Call
+
+```typescript
+const tx = await contract.mintWithSignature(
+  metadataURI,
+  expiration,
+  signature,
+  { value: mintPrice }
+);
+```
+
+---
+
+## Admin Configuration
+
+### Configure Signature Expiration (FIX #4)
+
+```solidity
+// Set to 1 hour (default)
+setSignatureExpiration(3600)
+
+// Set to 24 hours
+setSignatureExpiration(86400)
+
+// Disable expiration (not recommended)
+setSignatureExpiration(0)
+```
+
+### Configure Level Verification (FIX #2)
+
+```solidity
+// Enable level check (requires signed proof)
+setEligibilityRules(
+  true,   // checkLevel - REQUIRES SIGNED PROOF
+  true,   // checkScore
+  false,  // checkNFTOwnership
+  true    // useAndLogic (AND = all must pass)
+)
+
+// Disable level check (trusts frontend)
+setEligibilityRules(
+  false,  // checkLevel - NO PROOF REQUIRED
+  true,   // checkScore
+  false,  // checkNFTOwnership
+  true    // useAndLogic
+)
+```
+
+### Configure Bonus Levels
+
+```solidity
+// Create level 1 with FCFS cap of 100
+configureBonusLevel(
+  1,                      // level ID
+  10000000000000000,      // 0.01 ETH bonus
+  true,                   // active
+  100,                    // claimsRemaining (FCFS cap)
+  500,                    // minScore
+  false                   // requiresNFT
+)
+
+// Deactivate a level (auto-removes from activeLevelIds)
+deactivateBonusLevel(1)
+```
 
 ---
 
 ## View Functions
 
 ```solidity
-// Check if wallet can mint
+// Check mint eligibility
 canMint(walletAddress) // Returns (bool, string)
 
-// Check if wallet can claim bonus
+// Check claim eligibility
 canClaim(walletAddress, level, userScore) // Returns (bool, string)
 
-// Get wallet mint count
-getWalletMintCount(walletAddress)
+// Get active bonus levels (cleaned array - FIX #3)
+getActiveLevelIds() // Returns uint256[]
 
-// Check if level claimed
-hasClaimedLevel(walletAddress, level)
-
-// Get total claimed by wallet
-getTotalClaimed(walletAddress)
-
-// Get active bonus levels
-getActiveLevelIds()
-
-// Get total supply
-totalSupply()
+// Get signature expiration setting
+signatureExpirationSeconds()
 ```
 
 ---
@@ -198,16 +234,16 @@ totalSupply()
 ## Emergency Controls
 
 ```solidity
-// Pause all minting
+// Pause minting
 pauseMinting(true)
 
-// Emergency disable (cannot be bypassed)
+// Emergency stop (cannot be bypassed)
 setEmergencyMintDisabled(true)
 
-// Withdraw mint revenue (preserves bonus pool)
+// Withdraw mint revenue
 withdraw()
 
-// Withdraw bonus funds only
+// Withdraw bonus funds
 withdrawBonusFunds(amount)
 
 // Emergency: withdraw everything
@@ -220,76 +256,61 @@ emergencyWithdrawAll()
 
 | Operation | Estimated Gas | ~Cost @ 0.01 gwei |
 |-----------|--------------|-------------------|
-| Deploy | ~2,800,000 | ~0.000028 ETH |
-| mintNFT | ~150,000 | ~0.0000015 ETH |
-| mintWithSignature | ~165,000 | ~0.00000165 ETH |
-| claimBonus | ~80,000 | ~0.0000008 ETH |
+| Deploy | ~2,900,000 | ~0.000029 ETH |
+| mintWithSignature | ~170,000 | ~0.0000017 ETH |
+| claimBonus (with proof) | ~95,000 | ~0.00000095 ETH |
 | transferFrom | ~65,000 | ~0.00000065 ETH |
-| safeTransferFrom | ~75,000 | ~0.00000075 ETH |
 
 ---
 
-## Integration with MemoryMint Game
+## Breaking Changes from v1
 
-### Function Signatures (Unchanged)
+### 1. `mintWithSignature` signature format changed
 
-```solidity
-// Minting
-function mintNFT(string calldata metadataURI) external payable returns (uint256)
-function mintWithSignature(string calldata metadataURI, bytes32 messageHash, bytes calldata signature) external payable returns (uint256)
-
-// Claiming
-function claimBonus(uint256 level, uint256 userScore) external returns (uint256)
-
-// View
-function canMint(address wallet) external view returns (bool, string memory)
-function canClaim(address wallet, uint256 level, uint256 userScore) external view returns (bool, string memory)
+**v1:**
+```typescript
+mintWithSignature(metadataURI, messageHash, signature)
 ```
 
-### Frontend Integration
-
+**v2 (FIX #4):**
 ```typescript
-// Check eligibility before mint
-const [canMintResult, reason] = await contract.canMint(userAddress);
-if (!canMintResult) {
-  toast.error(reason);
-  return;
-}
+mintWithSignature(metadataURI, expiration, signature)
+```
 
-// Mint NFT
-const tx = await contract.mintNFT(metadataURI, { value: mintPrice });
+### 2. `claimBonus` with level verification
 
-// Claim bonus
-const [canClaimResult, claimReason] = await contract.canClaim(userAddress, level, score);
-if (canClaimResult) {
-  const claimTx = await contract.claimBonus(level, score);
-}
+**v1:**
+```typescript
+claimBonus(level, userScore)
+```
+
+**v2 (FIX #2) - when checkLevel enabled:**
+```typescript
+claimBonus(level, gameLevel, userScore, levelProof)
+```
+
+**v2 - legacy compatibility (when checkLevel disabled):**
+```typescript
+claimBonus(level, userScore) // Still works
 ```
 
 ---
 
 ## Verification Checklist
 
-Before going live:
-
 - [ ] Contract deployed to Base Mainnet
 - [ ] Contract verified on BaseScan
-- [ ] Mint price configured
-- [ ] Anti-bot mode set to MODERATE or STRICT
-- [ ] Denylist enabled (default)
-- [ ] Known bot addresses added to denylist
+- [ ] `canMint()` returns `(true, "Eligible to mint")`
+- [ ] Signature signer set (if different from deployer)
+- [ ] Test mint from Base App works
+- [ ] Test mint from Coinbase Wallet works
 - [ ] Bonus levels configured (if using claims)
 - [ ] Bonus pool funded (if using claims)
-- [ ] Claim mode set appropriately
-- [ ] Tested mint from game frontend
-- [ ] Tested claim from game frontend
-- [ ] Ownership transferred to multisig (recommended for production)
+- [ ] Level proof generation working in backend (if checkLevel enabled)
 
 ---
 
-## Contract Verification
-
-### BaseScan Verification
+## Contract Verification (BaseScan)
 
 1. Go to your contract on BaseScan
 2. Click "Verify & Publish"
@@ -297,12 +318,5 @@ Before going live:
    - Compiler: `0.8.20`
    - Optimization: Yes, 200 runs
    - EVM Version: `paris`
-4. Paste flattened source (contract is already self-contained)
+4. Paste full source code (contract is self-contained)
 5. Enter ABI-encoded constructor arguments
-
-### Constructor Args Encoding
-```
-name_: "MemoryMint"
-symbol_: "MMINT"  
-baseURI_: "ipfs://YOUR_CID/"
-```
