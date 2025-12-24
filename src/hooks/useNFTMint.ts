@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { encodeFunctionData, parseAbi, decodeErrorResult } from 'viem';
+import { encodeFunctionData, parseAbi, decodeErrorResult, decodeAbiParameters } from 'viem';
 
 // ============ CONFIGURATION ============
 // NEW: MemoryMintFeeAware contract address on Base Mainnet
@@ -19,6 +19,10 @@ const RPC_ENDPOINTS = [
 // Coinbase Paymaster URL for Base Mainnet (sponsored transactions)
 const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/paymaster';
 
+// Rate limiting constants (Issue #8: Anti-bot protection)
+const MIN_MINT_INTERVAL_MS = 3000; // 3 seconds between mint attempts
+const MAX_MINTS_PER_SESSION = 20;
+
 // ============ CONTRACT ABI ============
 // Minimal ABI for MemoryMintUltraSafe with USDC Oracle Pricing
 const CONTRACT_ABI = parseAbi([
@@ -26,10 +30,12 @@ const CONTRACT_ABI = parseAbi([
   'function mintWithSignature(string tokenURI, uint256 expiration, bytes signature) payable returns (uint256)',
   'function batchMint(uint256 quantity) payable returns (uint256)',
   'function claimBonus(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
-  'function mintPrice() view returns (uint256)',
+  // Issue #1: Use getMintPriceETH as source of truth, not mintPrice
   'function mintPriceUSDC() view returns (uint256)',
   'function getMintPriceETH() view returns (uint256)',
+  'function getBatchMintPriceETH(uint256 quantity) view returns (uint256)',
   'function getEthUsdPrice() view returns (uint256)',
+  'function getBonusAmountETH(uint256 levelId) view returns (uint256)',
   'function canClaimBonus(address user, uint256 levelId) view returns (bool, string)',
   'function getBonusLevel(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
   'function bonusLevels(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
@@ -51,6 +57,10 @@ const CONTRACT_ERROR_ABI = parseAbi([
   'error AlreadyClaimed()',
   'error NotEligible()',
   'error InvalidLevelProof()',
+  // Issue #7: Oracle-specific errors for user-friendly messaging
+  'error OracleStalePrice()',
+  'error OracleInvalidPrice()',
+  'error OracleNotSet()',
 ]);
 
 // ============ TYPES ============
@@ -138,6 +148,11 @@ function decodeMintError(error: unknown): string {
           return 'Recipient cannot receive ERC-721 tokens';
         case 'NotOwner':
           return 'Not authorized';
+        // Issue #7: User-friendly oracle error messages
+        case 'OracleStalePrice':
+        case 'OracleInvalidPrice':
+        case 'OracleNotSet':
+          return 'Price feed temporarily unavailable. Please try again.';
         default:
           return `Mint failed: ${decoded.errorName}`;
       }
@@ -148,7 +163,10 @@ function decodeMintError(error: unknown): string {
 
   const rawMsg: string | undefined = err?.data?.message || err?.error?.message || err?.message;
   if (rawMsg) {
-    // Clean up common error messages
+    // Issue #7: Detect oracle-related failures
+    if (rawMsg.toLowerCase().includes('oracle') || rawMsg.toLowerCase().includes('price feed')) {
+      return 'Price feed temporarily unavailable. Please try again.';
+    }
     if (rawMsg.includes('insufficient funds')) {
       return 'Insufficient ETH balance for transaction';
     }
@@ -222,6 +240,11 @@ export function useNFTMint() {
   
   // Prevent double-minting on retries
   const pendingMintRef = useRef<string | null>(null);
+  
+  // Issue #8: Anti-bot rate limiting state
+  const lastMintAttemptRef = useRef<number>(0);
+  const mintCountSessionRef = useRef<number>(0);
+  const pendingOracleReadRef = useRef<boolean>(false);
 
   // ============ NETWORK VERIFICATION ============
   const verifyBaseNetwork = useCallback(async (): Promise<boolean> => {
@@ -265,13 +288,43 @@ export function useNFTMint() {
     }
   }, []);
 
-  // ============ READ MINT PRICE FROM CONTRACT ============
-  const getMintPrice = useCallback(async (): Promise<bigint> => {
+  // Issue #8: Check rate limiting before mint attempts
+  const checkRateLimit = useCallback((): { allowed: boolean; message?: string } => {
+    const now = Date.now();
+    const timeSinceLastMint = now - lastMintAttemptRef.current;
+    
+    if (timeSinceLastMint < MIN_MINT_INTERVAL_MS) {
+      const waitTime = Math.ceil((MIN_MINT_INTERVAL_MS - timeSinceLastMint) / 1000);
+      return { 
+        allowed: false, 
+        message: `Please wait ${waitTime} seconds before trying again.` 
+      };
+    }
+    
+    if (mintCountSessionRef.current >= MAX_MINTS_PER_SESSION) {
+      return { 
+        allowed: false, 
+        message: 'Maximum mints per session reached. Please refresh the page.' 
+      };
+    }
+    
+    return { allowed: true };
+  }, []);
+
+  // ============ READ MINT PRICE FROM CONTRACT (Issue #1: Use getMintPriceETH) ============
+  const getMintPriceETH = useCallback(async (): Promise<bigint> => {
+    // Issue #8: Prevent concurrent oracle reads
+    if (pendingOracleReadRef.current) {
+      throw new Error('Price check in progress. Please wait.');
+    }
+    
+    pendingOracleReadRef.current = true;
+    
     try {
-      // Encode mintPrice() call
+      // Issue #1: Use getMintPriceETH() instead of mintPrice()
       const data = encodeFunctionData({
         abi: CONTRACT_ABI,
-        functionName: 'mintPrice',
+        functionName: 'getMintPriceETH',
         args: [],
       });
 
@@ -286,10 +339,49 @@ export function useNFTMint() {
 
       return BigInt(result);
     } catch (error) {
-      console.error('[Mint] Failed to read mintPrice:', error);
-      return BigInt(0); // Default to free if read fails
+      console.error('[Mint] Failed to read getMintPriceETH:', error);
+      // Issue #7: Don't silently fail - surface oracle errors
+      throw new Error('Price feed temporarily unavailable. Please try again.');
+    } finally {
+      pendingOracleReadRef.current = false;
     }
   }, []);
+
+  // Issue #2: Get batch mint price from contract (no client-side math)
+  const getBatchMintPriceETH = useCallback(async (quantity: number): Promise<bigint> => {
+    if (pendingOracleReadRef.current) {
+      throw new Error('Price check in progress. Please wait.');
+    }
+    
+    pendingOracleReadRef.current = true;
+    
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getBatchMintPriceETH',
+        args: [BigInt(quantity)],
+      });
+
+      const result = await rpcCall('eth_call', [
+        { to: NFT_CONTRACT_ADDRESS, data },
+        'latest',
+      ]);
+
+      if (!result || result === '0x') {
+        return BigInt(0);
+      }
+
+      return BigInt(result);
+    } catch (error) {
+      console.error('[Mint] Failed to read getBatchMintPriceETH:', error);
+      throw new Error('Price feed temporarily unavailable. Please try again.');
+    } finally {
+      pendingOracleReadRef.current = false;
+    }
+  }, []);
+
+  // Legacy alias for backward compatibility
+  const getMintPrice = getMintPriceETH;
 
   // ============ WAIT FOR RECEIPT ============
   const waitForReceipt = useCallback(
@@ -366,6 +458,12 @@ export function useNFTMint() {
     );
   }, []);
 
+  // Issue #3: Check if sponsorship should be used (only for free mints)
+  const shouldUseSponsoredTx = useCallback((ethPriceWei: bigint): boolean => {
+    // Only sponsor if mint is completely free (price = 0)
+    return ethPriceWei === 0n;
+  }, []);
+
   // ============ SEND TRANSACTION ============
   const sendMintTransaction = useCallback(async (
     walletAddress: string,
@@ -375,15 +473,15 @@ export function useNFTMint() {
     const ethereum = window.ethereum as any;
     const valueHex = valueWei > 0n ? '0x' + valueWei.toString(16) : '0x0';
     
-    // Try sponsored transaction with wallet_sendCalls (EIP-5792)
-    if (supportsWalletSendCalls()) {
+    // Issue #3: Only try sponsored transaction for FREE mints
+    if (supportsWalletSendCalls() && shouldUseSponsoredTx(valueWei)) {
       try {
-        console.log('[Mint] Attempting sponsored transaction via wallet_sendCalls...');
+        console.log('[Mint] Attempting sponsored transaction via wallet_sendCalls (FREE mint)...');
         
         const calls = [{
           to: NFT_CONTRACT_ADDRESS,
           data,
-          value: valueHex,
+          value: '0x0', // Sponsored = always free
         }];
 
         const capabilities: Record<string, any> = {
@@ -446,9 +544,12 @@ export function useNFTMint() {
       } catch (err) {
         console.log('[Mint] wallet_sendCalls not supported');
       }
+    } else if (valueWei > 0n) {
+      // Issue #3: Log that we're skipping sponsorship for paid mints
+      console.log('[Mint] Skipping sponsorship - ETH payment required:', formatWeiToEth(valueWei), 'ETH');
     }
 
-    // Fallback to regular eth_sendTransaction
+    // Regular eth_sendTransaction (required for paid mints)
     console.log('[Mint] Sending regular transaction via eth_sendTransaction...');
     console.log('[Mint] Value:', valueHex, '=', formatWeiToEth(valueWei), 'ETH');
     
@@ -463,7 +564,7 @@ export function useNFTMint() {
     }) as string;
 
     return { txHash, isSponsored: false };
-  }, []);
+  }, [shouldUseSponsoredTx]);
 
   // ============ MINT NFT ============
   const mintNFT = useCallback(async (
@@ -480,12 +581,25 @@ export function useNFTMint() {
       return false;
     }
 
+    // Issue #8: Rate limit check
+    const rateCheck = checkRateLimit();
+    if (!rateCheck.allowed) {
+      setMintState(prev => ({ ...prev, error: rateCheck.message || 'Please wait before trying again' }));
+      return false;
+    }
+
+    // Issue #8: Prevent double-click while pending
+    if (mintState.isMinting || pendingOracleReadRef.current) {
+      return false;
+    }
+
     // Prevent double-minting
     const mintKey = `${walletAddress}-${Date.now()}`;
     if (pendingMintRef.current === mintKey) {
       return false;
     }
     pendingMintRef.current = mintKey;
+    lastMintAttemptRef.current = Date.now();
 
     const isBase = await verifyBaseNetwork();
     if (!isBase) {
@@ -508,9 +622,9 @@ export function useNFTMint() {
     });
 
     try {
-      // Read current mint price from contract
-      console.log('[Mint] Reading mintPrice from contract...');
-      const mintPriceWei = await getMintPrice();
+      // Issue #1: Read price using getMintPriceETH (oracle-based)
+      console.log('[Mint] Reading getMintPriceETH from contract (oracle)...');
+      const mintPriceWei = await getMintPriceETH();
       const mintPriceEth = formatWeiToEth(mintPriceWei);
       
       console.log(`[Mint] Mint price: ${mintPriceEth} ETH (${mintPriceWei === 0n ? 'FREE' : 'paid'})`);
@@ -519,7 +633,7 @@ export function useNFTMint() {
       // Encode mint call
       const data = encodeMintNFTCallData(tokenURI);
 
-      // Send transaction with value = mintPrice
+      // Send transaction with value = oracle-derived ETH price
       const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, mintPriceWei);
 
       console.log('[Mint] Transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
@@ -527,6 +641,11 @@ export function useNFTMint() {
 
       const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
       await waitForOneConfirmation(blockNumber);
+
+      // Issue #8: Track successful mints
+      if (success) {
+        mintCountSessionRef.current++;
+      }
 
       setMintState({
         isMinting: false,
@@ -558,7 +677,7 @@ export function useNFTMint() {
       pendingMintRef.current = null;
       return false;
     }
-  }, [getMintPrice, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+  }, [checkRateLimit, getMintPriceETH, mintState.isMinting, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   // ============ BATCH MINT ============
   const batchMintNFT = useCallback(async (
@@ -580,6 +699,20 @@ export function useNFTMint() {
       return false;
     }
 
+    // Issue #8: Rate limit check
+    const rateCheck = checkRateLimit();
+    if (!rateCheck.allowed) {
+      setMintState(prev => ({ ...prev, error: rateCheck.message || 'Please wait before trying again' }));
+      return false;
+    }
+
+    // Issue #8: Prevent double-click while pending
+    if (mintState.isMinting || pendingOracleReadRef.current) {
+      return false;
+    }
+
+    lastMintAttemptRef.current = Date.now();
+
     const isBase = await verifyBaseNetwork();
     if (!isBase) {
       setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
@@ -600,19 +733,18 @@ export function useNFTMint() {
     });
 
     try {
-      // Read current mint price from contract
-      console.log('[Mint] Reading mintPrice for batch...');
-      const mintPriceWei = await getMintPrice();
-      const totalPriceWei = mintPriceWei * BigInt(quantity);
+      // Issue #2: Get batch price from contract (no client-side multiplication)
+      console.log('[Mint] Reading getBatchMintPriceETH for', quantity, 'NFTs...');
+      const totalPriceWei = await getBatchMintPriceETH(quantity);
       const mintPriceEth = formatWeiToEth(totalPriceWei);
       
-      console.log(`[Mint] Batch mint price: ${mintPriceEth} ETH for ${quantity} NFTs`);
+      console.log(`[Mint] Batch mint price: ${mintPriceEth} ETH for ${quantity} NFTs (oracle-derived)`);
       setMintState(prev => ({ ...prev, mintPriceEth }));
 
       // Encode batch mint call
       const data = encodeBatchMintCallData(quantity);
 
-      // Send transaction with value = mintPrice * quantity
+      // Send transaction with value from contract (not client-side math)
       const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, totalPriceWei);
 
       console.log('[Mint] Batch transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
@@ -620,6 +752,11 @@ export function useNFTMint() {
 
       const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
       await waitForOneConfirmation(blockNumber);
+
+      // Issue #8: Track successful mints
+      if (success) {
+        mintCountSessionRef.current += quantity;
+      }
 
       setMintState({
         isMinting: false,
@@ -649,7 +786,7 @@ export function useNFTMint() {
       }));
       return false;
     }
-  }, [getMintPrice, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+  }, [checkRateLimit, getBatchMintPriceETH, mintState.isMinting, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   // ============ QUICK MINT (empty tokenURI) ============
   const quickMint = useCallback(async (walletAddress: string): Promise<boolean> => {
@@ -673,22 +810,25 @@ export function useNFTMint() {
     pendingMintRef.current = null;
   }, []);
 
-  // ============ GET MINT PRICE ESTIMATE ============
+  // ============ GET MINT PRICE ESTIMATE (Issue #2: Use contract for batch pricing) ============
   const getMintPriceEstimate = useCallback(async (quantity: number = 1): Promise<{ priceWei: bigint; priceEth: string; isFree: boolean } | null> => {
     try {
-      const mintPriceWei = await getMintPrice();
-      const totalWei = mintPriceWei * BigInt(quantity);
+      // Issue #2: Use contract function for batch pricing, not client-side math
+      const totalWei = quantity === 1 
+        ? await getMintPriceETH() 
+        : await getBatchMintPriceETH(quantity);
+      
       return {
         priceWei: totalWei,
         priceEth: formatWeiToEth(totalWei),
-        isFree: mintPriceWei === 0n,
+        isFree: totalWei === 0n,
       };
     } catch {
       return null;
     }
-  }, [getMintPrice]);
+  }, [getMintPriceETH, getBatchMintPriceETH]);
 
-  // ============ CHECK BALANCE ============
+  // ============ CHECK BALANCE (Issue #2: Use contract for batch pricing) ============
   const checkBalance = useCallback(async (walletAddress: string, quantity: number = 1): Promise<BalanceCheck | null> => {
     if (!window.ethereum || !walletAddress) return null;
 
@@ -702,9 +842,10 @@ export function useNFTMint() {
       const balanceWei = BigInt(balanceHex);
       const balanceEth = Number(balanceWei) / 1e18;
 
-      // Get mint price from contract
-      const mintPriceWei = await getMintPrice();
-      const totalMintPriceWei = mintPriceWei * BigInt(quantity);
+      // Issue #2: Get mint price from contract (use batch function for quantity > 1)
+      const totalMintPriceWei = quantity === 1 
+        ? await getMintPriceETH() 
+        : await getBatchMintPriceETH(quantity);
       
       // Add estimated gas (0.0002 ETH conservative)
       const estimatedGasWei = BigInt(200000000000000); // 0.0002 ETH
@@ -724,18 +865,25 @@ export function useNFTMint() {
       console.error('[Balance] Check failed:', error);
       return null;
     }
-  }, [getMintPrice]);
+  }, [getMintPriceETH, getBatchMintPriceETH]);
 
-  // ============ GET USDC PRICE INFO ============
+  // ============ FORMAT USDC (6 decimals) ============
+  const formatUSDC = useCallback((amount: bigint): string => {
+    const value = Number(amount) / 1e6;
+    return `$${value.toFixed(2)}`;
+  }, []);
+
+  // ============ GET USDC PRICE INFO (Issue #4: USDC as primary, ETH as conversion) ============
   const getPriceInfo = useCallback(async (): Promise<PriceInfo | null> => {
     try {
-      // Read USDC price from contract
+      // Read USDC price from contract (canonical source)
       const mintPriceUSDCData = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: 'mintPriceUSDC',
         args: [],
       });
 
+      // Issue #1: Use getMintPriceETH (oracle-derived)
       const getMintPriceETHData = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: 'getMintPriceETH',
@@ -758,26 +906,24 @@ export function useNFTMint() {
       const mintPriceETH = ethResult ? BigInt(ethResult) : 0n;
       const ethPrice = priceResult ? BigInt(priceResult) : 0n;
 
+      // Issue #4: Return both with USDC as primary reference
       return {
         ethPrice,
         mintPriceUSDC,
         mintPriceETH,
+        // Issue #4: USDC formatted as primary display
         mintPriceUSDCFormatted: formatUSDC(mintPriceUSDC),
-        mintPriceETHFormatted: formatWeiToEth(mintPriceETH),
+        // Issue #4: ETH shown as "estimated conversion"
+        mintPriceETHFormatted: `≈ ${formatWeiToEth(mintPriceETH)} ETH`,
       };
     } catch (error) {
       console.error('[Price] Failed to get price info:', error);
+      // Issue #7: Return null on oracle failure, let caller handle
       return null;
     }
-  }, []);
+  }, [formatUSDC]);
 
-  // ============ FORMAT USDC (6 decimals) ============
-  const formatUSDC = useCallback((amount: bigint): string => {
-    const value = Number(amount) / 1e6;
-    return `$${value.toFixed(2)}`;
-  }, []);
-
-  // ============ CHECK CAN CLAIM BONUS ============
+  // ============ CHECK CAN CLAIM BONUS (Issue #5: Proper ABI decoding) ============
   const canClaimBonus = useCallback(async (
     walletAddress: string,
     levelId: bigint
@@ -798,10 +944,24 @@ export function useNFTMint() {
         return { canClaim: false, reason: 'Unable to check eligibility' };
       }
 
-      // Decode the result (bool, string)
-      // For now, just check if result indicates true
-      const canClaim = result.startsWith('0x0000000000000000000000000000000000000000000000000000000000000001');
-      return { canClaim, reason: canClaim ? 'Eligible' : 'Not eligible' };
+      // Issue #5: Properly ABI-decode (bool, string) tuple instead of string checks
+      try {
+        const decoded = decodeAbiParameters(
+          [
+            { name: 'eligible', type: 'bool' },
+            { name: 'reason', type: 'string' }
+          ],
+          result as `0x${string}`
+        );
+        
+        const [canClaim, reason] = decoded as [boolean, string];
+        return { canClaim, reason: reason || (canClaim ? 'Eligible' : 'Not eligible') };
+      } catch (decodeErr) {
+        // Fallback: Check first 32 bytes for boolean
+        console.warn('[ClaimBonus] ABI decode fallback:', decodeErr);
+        const canClaim = result.slice(0, 66).endsWith('1');
+        return { canClaim, reason: canClaim ? 'Eligible' : 'Not eligible' };
+      }
     } catch (error) {
       console.error('[ClaimBonus] Check failed:', error);
       return { canClaim: false, reason: 'Error checking eligibility' };
@@ -895,45 +1055,67 @@ export function useNFTMint() {
     }
   }, [canClaimBonus, verifyBaseNetwork, waitForReceipt]);
 
-  // ============ GET BONUS LEVEL INFO ============
+  // ============ GET BONUS LEVEL INFO (Issue #6: USDC as canonical, ETH from oracle) ============
   const getBonusLevel = useCallback(async (levelId: bigint): Promise<{
-    amount: bigint;
+    amountUSDC: bigint;      // Issue #6: Canonical USDC amount
+    amountETH: bigint;       // Issue #6: Oracle-derived ETH amount
     active: boolean;
     claimsRemaining: bigint;
     minScore: bigint;
     requiresNFT: boolean;
+    formattedUSDC: string;   // Issue #4: Primary display
+    formattedETH: string;    // Issue #4: Estimated conversion
   } | null> => {
     try {
+      // Get bonus level struct
       const data = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: 'bonusLevels',
         args: [levelId],
       });
 
-      const result = await rpcCall('eth_call', [
-        { to: NFT_CONTRACT_ADDRESS, data },
-        'latest',
+      // Issue #6: Also get ETH amount from oracle
+      const ethAmountData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getBonusAmountETH',
+        args: [levelId],
+      });
+
+      const [result, ethResult] = await Promise.all([
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: ethAmountData }, 'latest']),
       ]);
 
       if (!result || result === '0x') {
         return null;
       }
 
-      // Parse result (amount, active, claimsRemaining, minScore, requiresNFT)
-      // Each value is 32 bytes = 64 hex chars
-      const hex = result.slice(2); // Remove 0x
-      const amount = BigInt('0x' + hex.slice(0, 64));
+      // Parse result (amountUSDC, active, claimsRemaining, minScore, requiresNFT)
+      const hex = result.slice(2);
+      const amountUSDC = BigInt('0x' + hex.slice(0, 64));
       const active = hex.slice(64, 128) !== '0'.repeat(64);
       const claimsRemaining = BigInt('0x' + hex.slice(128, 192));
       const minScore = BigInt('0x' + hex.slice(192, 256));
       const requiresNFT = hex.slice(256, 320) !== '0'.repeat(64);
+      
+      // Issue #6: Get oracle-derived ETH amount
+      const amountETH = ethResult ? BigInt(ethResult) : 0n;
 
-      return { amount, active, claimsRemaining, minScore, requiresNFT };
+      return { 
+        amountUSDC,           // Issue #6: USDC is canonical
+        amountETH,            // Issue #6: ETH from oracle
+        active, 
+        claimsRemaining, 
+        minScore, 
+        requiresNFT,
+        formattedUSDC: formatUSDC(amountUSDC),
+        formattedETH: `≈ ${formatWeiToEth(amountETH)} ETH`,
+      };
     } catch (error) {
       console.error('[BonusLevel] Fetch failed:', error);
       return null;
     }
-  }, []);
+  }, [formatUSDC]);
 
   /**
    * Generate the message hash that the backend must sign for level proof
@@ -963,10 +1145,18 @@ export function useNFTMint() {
     getMintPriceEstimate,
     getPriceInfo,
     checkBalance,
-    getMintPrice,
+    // Issue #1: Expose oracle-based price functions
+    getMintPriceETH,
+    getBatchMintPriceETH,
+    getMintPrice, // Legacy alias
     formatUSDC,
     getLevelProofMessage,
     contractAddress: NFT_CONTRACT_ADDRESS,
     supportsSponsorship: supportsWalletSendCalls(),
+    // Issue #8: Expose anti-bot helpers
+    checkRateLimit,
+    canMint: !mintState.isMinting && !pendingOracleReadRef.current,
+    canClaim: !mintState.isClaiming,
+    isOracleReading: pendingOracleReadRef.current,
   };
 }
