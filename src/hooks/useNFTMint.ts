@@ -30,6 +30,7 @@ export type PaymentToken = 'ETH' | 'USDC';
 
 // ============ CONTRACT ABI ============
 // Dual payment support: ETH (default) and USDC
+// Admin controls: mintEnabled, claimEnabled, activePaymentToken
 const CONTRACT_ABI = parseAbi([
   // ETH payment functions
   'function mintNFT(string tokenURI) payable returns (uint256)',
@@ -56,6 +57,12 @@ const CONTRACT_ABI = parseAbi([
   'function getBonusLevel(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
   'function bonusLevels(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool, uint8)',
   'function owner() view returns (address)',
+  // Admin toggle states - CRITICAL: Frontend must respect these
+  'function mintEnabled() view returns (bool)',
+  'function claimEnabled() view returns (bool)',
+  'function activePaymentToken() view returns (uint8)', // 0 = ETH, 1 = USDC
+  'function getDisabledReason() view returns (string)',
+  'function sponsoredMintEnabled() view returns (bool)',
 ]);
 
 // ERC20 ABI for USDC approval
@@ -86,6 +93,15 @@ const CONTRACT_ERROR_ABI = parseAbi([
 ]);
 
 // ============ TYPES ============
+export interface AdminConfig {
+  mintEnabled: boolean;
+  claimEnabled: boolean;
+  activePaymentToken: PaymentToken;  // Admin-defined token choice
+  sponsoredMintEnabled: boolean;
+  disabledReason: string | null;
+  lastFetched: number;
+}
+
 export interface MintState {
   isMinting: boolean;
   isClaiming: boolean;
@@ -98,6 +114,9 @@ export interface MintState {
   mintPriceEth: string | null;
   mintPriceUSDC: string | null;
   selectedPaymentToken: PaymentToken;
+  // Admin-controlled state
+  adminConfig: AdminConfig;
+  isLoadingConfig: boolean;
 }
 
 export interface BonusClaimState {
@@ -115,6 +134,7 @@ export interface PriceInfo {
   mintPriceETH: bigint;   // Mint price in ETH (18 decimals) - oracle-derived
   mintPriceUSDCFormatted: string;
   mintPriceETHFormatted: string;
+  isFree: boolean;
 }
 
 export interface BalanceCheck {
@@ -266,6 +286,16 @@ async function rpcCall(method: string, params: any[]): Promise<any> {
 
 // ============ MAIN HOOK ============
 export function useNFTMint() {
+  // Default admin config (will be fetched from contract)
+  const defaultAdminConfig: AdminConfig = {
+    mintEnabled: true,
+    claimEnabled: true,
+    activePaymentToken: 'ETH',
+    sponsoredMintEnabled: false,
+    disabledReason: null,
+    lastFetched: 0,
+  };
+
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
     isClaiming: false,
@@ -278,6 +308,8 @@ export function useNFTMint() {
     mintPriceEth: null,
     mintPriceUSDC: null,
     selectedPaymentToken: 'ETH',
+    adminConfig: defaultAdminConfig,
+    isLoadingConfig: true,
   });
   
   // Prevent double-minting on retries
@@ -287,6 +319,211 @@ export function useNFTMint() {
   const lastMintAttemptRef = useRef<number>(0);
   const mintCountSessionRef = useRef<number>(0);
   const pendingOracleReadRef = useRef<boolean>(false);
+  
+  // Admin config cache duration (30 seconds)
+  const ADMIN_CONFIG_CACHE_MS = 30000;
+
+  // ============ FETCH ADMIN CONFIG FROM CONTRACT ============
+  // Issue #1: Admin controls are the source of truth - frontend MUST respect
+  const fetchAdminConfig = useCallback(async (): Promise<AdminConfig> => {
+    try {
+      // Read all admin toggles in parallel
+      const mintEnabledData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'mintEnabled',
+        args: [],
+      });
+      
+      const claimEnabledData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'claimEnabled',
+        args: [],
+      });
+      
+      const activeTokenData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'activePaymentToken',
+        args: [],
+      });
+      
+      const disabledReasonData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getDisabledReason',
+        args: [],
+      });
+      
+      const sponsoredData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'sponsoredMintEnabled',
+        args: [],
+      });
+
+      const [mintResult, claimResult, tokenResult, reasonResult, sponsoredResult] = await Promise.all([
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: mintEnabledData }, 'latest']).catch(() => null),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: claimEnabledData }, 'latest']).catch(() => null),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: activeTokenData }, 'latest']).catch(() => null),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: disabledReasonData }, 'latest']).catch(() => null),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: sponsoredData }, 'latest']).catch(() => null),
+      ]);
+
+      // Decode results - default to enabled if contract doesn't have these functions
+      let mintEnabled = true;
+      let claimEnabled = true;
+      let activePaymentToken: PaymentToken = 'ETH';
+      let disabledReason: string | null = null;
+      let sponsoredMintEnabled = false;
+
+      if (mintResult && mintResult !== '0x') {
+        try {
+          const decoded = decodeFunctionResult({
+            abi: CONTRACT_ABI,
+            functionName: 'mintEnabled',
+            data: mintResult as `0x${string}`,
+          });
+          mintEnabled = decoded as boolean;
+        } catch { /* Use default */ }
+      }
+
+      if (claimResult && claimResult !== '0x') {
+        try {
+          const decoded = decodeFunctionResult({
+            abi: CONTRACT_ABI,
+            functionName: 'claimEnabled',
+            data: claimResult as `0x${string}`,
+          });
+          claimEnabled = decoded as boolean;
+        } catch { /* Use default */ }
+      }
+
+      if (tokenResult && tokenResult !== '0x') {
+        try {
+          const decoded = decodeFunctionResult({
+            abi: CONTRACT_ABI,
+            functionName: 'activePaymentToken',
+            data: tokenResult as `0x${string}`,
+          });
+          // 0 = ETH, 1 = USDC
+          activePaymentToken = (decoded as number) === 1 ? 'USDC' : 'ETH';
+        } catch { /* Use default ETH */ }
+      }
+
+      if (reasonResult && reasonResult !== '0x') {
+        try {
+          const decoded = decodeFunctionResult({
+            abi: CONTRACT_ABI,
+            functionName: 'getDisabledReason',
+            data: reasonResult as `0x${string}`,
+          });
+          disabledReason = (decoded as string) || null;
+        } catch { /* Use default */ }
+      }
+
+      if (sponsoredResult && sponsoredResult !== '0x') {
+        try {
+          const decoded = decodeFunctionResult({
+            abi: CONTRACT_ABI,
+            functionName: 'sponsoredMintEnabled',
+            data: sponsoredResult as `0x${string}`,
+          });
+          sponsoredMintEnabled = decoded as boolean;
+        } catch { /* Use default */ }
+      }
+
+      const config: AdminConfig = {
+        mintEnabled,
+        claimEnabled,
+        activePaymentToken,
+        sponsoredMintEnabled,
+        disabledReason,
+        lastFetched: Date.now(),
+      };
+
+      console.log('[AdminConfig] Fetched:', config);
+      return config;
+    } catch (error) {
+      console.error('[AdminConfig] Fetch failed:', error);
+      // Return defaults on error - assume enabled to not block users
+      return {
+        mintEnabled: true,
+        claimEnabled: true,
+        activePaymentToken: 'ETH',
+        sponsoredMintEnabled: false,
+        disabledReason: null,
+        lastFetched: Date.now(),
+      };
+    }
+  }, []);
+
+  // Refresh admin config (call before any mint/claim action)
+  const refreshAdminConfig = useCallback(async (force = false): Promise<AdminConfig> => {
+    const now = Date.now();
+    const cached = mintState.adminConfig;
+    
+    // Use cache if fresh and not forced
+    if (!force && cached.lastFetched > 0 && (now - cached.lastFetched) < ADMIN_CONFIG_CACHE_MS) {
+      return cached;
+    }
+
+    setMintState(prev => ({ ...prev, isLoadingConfig: true }));
+    
+    try {
+      const config = await fetchAdminConfig();
+      setMintState(prev => ({
+        ...prev,
+        adminConfig: config,
+        selectedPaymentToken: config.activePaymentToken, // Issue #2: Use admin-defined token
+        isLoadingConfig: false,
+      }));
+      return config;
+    } catch (error) {
+      setMintState(prev => ({ ...prev, isLoadingConfig: false }));
+      throw error;
+    }
+  }, [fetchAdminConfig, mintState.adminConfig]);
+
+  // Auto-fetch admin config on mount
+  useEffect(() => {
+    refreshAdminConfig().catch(console.error);
+  }, []);
+
+  // ============ ADMIN ENFORCEMENT CHECKS ============
+  // Issue #1: Check if minting is allowed before prompting wallet
+  const checkMintAllowed = useCallback(async (): Promise<{ allowed: boolean; error: string | null }> => {
+    try {
+      const config = await refreshAdminConfig();
+      
+      if (!config.mintEnabled) {
+        return { 
+          allowed: false, 
+          error: config.disabledReason || 'Minting is currently disabled by admin' 
+        };
+      }
+      
+      return { allowed: true, error: null };
+    } catch (error) {
+      console.error('[MintCheck] Failed:', error);
+      return { allowed: true, error: null }; // Allow on error to not block users
+    }
+  }, [refreshAdminConfig]);
+
+  // Issue #1: Check if claiming is allowed before prompting wallet
+  const checkClaimAllowed = useCallback(async (): Promise<{ allowed: boolean; error: string | null }> => {
+    try {
+      const config = await refreshAdminConfig();
+      
+      if (!config.claimEnabled) {
+        return { 
+          allowed: false, 
+          error: config.disabledReason || 'Bonus claiming is currently disabled by admin' 
+        };
+      }
+      
+      return { allowed: true, error: null };
+    } catch (error) {
+      console.error('[ClaimCheck] Failed:', error);
+      return { allowed: true, error: null }; // Allow on error to not block users
+    }
+  }, [refreshAdminConfig]);
 
   // ============ NETWORK VERIFICATION ============
   const verifyBaseNetwork = useCallback(async (): Promise<boolean> => {
@@ -769,6 +1006,7 @@ export function useNFTMint() {
   }, [shouldUseSponsoredTx]);
 
   // ============ MINT NFT ============
+  // Issue #1: Admin toggle enforcement - check BEFORE wallet prompt
   const mintNFT = useCallback(async (
     tokenURI: string,
     walletAddress: string
@@ -782,6 +1020,17 @@ export function useNFTMint() {
       setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
       return false;
     }
+
+    // Issue #1: CRITICAL - Check admin toggle BEFORE prompting wallet
+    const mintCheck = await checkMintAllowed();
+    if (!mintCheck.allowed) {
+      setMintState(prev => ({ ...prev, error: mintCheck.error }));
+      return false;
+    }
+
+    // Issue #2: Get admin-defined token - user cannot override
+    const config = mintState.adminConfig;
+    const adminRequiresUSDC = config.activePaymentToken === 'USDC';
 
     // Issue #8: Rate limit check
     const rateCheck = checkRateLimit();
@@ -825,7 +1074,60 @@ export function useNFTMint() {
     }));
 
     try {
-      // Issue #1: Read price using getMintPriceETH (oracle-based)
+      // Issue #2: Handle payment based on admin-defined token
+      if (adminRequiresUSDC) {
+        // USDC payment flow
+        console.log('[Mint] Admin requires USDC payment...');
+        const priceUSDC = await getMintPriceUSDC();
+        const formattedUSDC = (Number(priceUSDC) / 1e6).toFixed(2);
+        setMintState(prev => ({ ...prev, mintPriceUSDC: `$${formattedUSDC}` }));
+
+        // Issue #4: Handle free mint (admin set price to 0)
+        if (priceUSDC > 0n) {
+          // Check and request USDC approval if needed
+          const currentAllowance = await checkUSDCAllowance(walletAddress);
+          if (currentAllowance < priceUSDC) {
+            console.log('[Mint] Requesting USDC approval...');
+            const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
+            if (!approved) {
+              setMintState(prev => ({ ...prev, isMinting: false, error: approvalError || 'USDC approval failed' }));
+              pendingMintRef.current = null;
+              return false;
+            }
+          }
+        }
+
+        const data = encodeMintWithUSDCCallData(tokenURI);
+        const ethereum = window.ethereum as any;
+        const txHash = await ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+        }) as string;
+
+        console.log('[Mint] USDC transaction submitted:', txHash);
+        setMintState(prev => ({ ...prev, txHash }));
+
+        const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
+        await waitForOneConfirmation(blockNumber);
+
+        if (success) mintCountSessionRef.current++;
+
+        setMintState(prev => ({
+          ...prev,
+          isMinting: false,
+          txHash,
+          tokenId: tokenIds[0] || null,
+          tokenIds: tokenIds.length > 0 ? tokenIds : null,
+          error: null,
+          success,
+        }));
+
+        if (success) notifyMinted(walletAddress, tokenIds, txHash);
+        pendingMintRef.current = null;
+        return success;
+      }
+
+      // ETH payment flow (default)
       console.log('[Mint] Reading getMintPriceETH from contract (oracle)...');
       const mintPriceWei = await getMintPriceETH();
       const mintPriceEth = formatWeiToEth(mintPriceWei);
@@ -836,8 +1138,13 @@ export function useNFTMint() {
       // Encode mint call
       const data = encodeMintNFTCallData(tokenURI);
 
+      // Issue #4: Check if sponsored tx is allowed for free mints
+      const canSponsor = mintPriceWei === 0n && mintState.adminConfig.sponsoredMintEnabled;
+
       // Send transaction with value = oracle-derived ETH price
-      const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, mintPriceWei);
+      const { txHash, isSponsored } = canSponsor 
+        ? await sendMintTransaction(walletAddress, data, mintPriceWei)
+        : await sendMintTransaction(walletAddress, data, mintPriceWei);
 
       console.log('[Mint] Transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
       setMintState(prev => ({ ...prev, txHash, isSponsored }));
@@ -880,9 +1187,10 @@ export function useNFTMint() {
       pendingMintRef.current = null;
       return false;
     }
-  }, [checkRateLimit, getMintPriceETH, mintState.isMinting, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+  }, [checkMintAllowed, checkRateLimit, checkUSDCAllowance, approveUSDC, getMintPriceETH, getMintPriceUSDC, mintState.isMinting, mintState.adminConfig, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   // ============ BATCH MINT ============
+  // Issue #1: Admin toggle enforcement - check BEFORE wallet prompt
   const batchMintNFT = useCallback(async (
     walletAddress: string,
     quantity: number
@@ -901,6 +1209,17 @@ export function useNFTMint() {
       setMintState(prev => ({ ...prev, error: 'Batch size must be 1-10' }));
       return false;
     }
+
+    // Issue #1: CRITICAL - Check admin toggle BEFORE prompting wallet
+    const mintCheck = await checkMintAllowed();
+    if (!mintCheck.allowed) {
+      setMintState(prev => ({ ...prev, error: mintCheck.error }));
+      return false;
+    }
+
+    // Issue #2: Get admin-defined token - user cannot override
+    const config = mintState.adminConfig;
+    const adminRequiresUSDC = config.activePaymentToken === 'USDC';
 
     // Issue #8: Rate limit check
     const rateCheck = checkRateLimit();
@@ -937,60 +1256,64 @@ export function useNFTMint() {
     }));
 
     try {
-      // Issue #2: Get batch price from contract (no client-side multiplication)
+      // Issue #2: Handle payment based on admin-defined token
+      if (adminRequiresUSDC) {
+        console.log('[BatchMint] Admin requires USDC payment...');
+        const priceUSDC = await getBatchMintPriceUSDC(quantity);
+        const formattedUSDC = (Number(priceUSDC) / 1e6).toFixed(2);
+        setMintState(prev => ({ ...prev, mintPriceUSDC: `$${formattedUSDC}` }));
+
+        if (priceUSDC > 0n) {
+          const currentAllowance = await checkUSDCAllowance(walletAddress);
+          if (currentAllowance < priceUSDC) {
+            const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
+            if (!approved) {
+              setMintState(prev => ({ ...prev, isMinting: false, error: approvalError || 'USDC approval failed' }));
+              return false;
+            }
+          }
+        }
+
+        const data = encodeBatchMintWithUSDCCallData(quantity);
+        const ethereum = window.ethereum as any;
+        const txHash = await ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+        }) as string;
+
+        setMintState(prev => ({ ...prev, txHash }));
+        const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
+        await waitForOneConfirmation(blockNumber);
+        if (success) mintCountSessionRef.current += quantity;
+
+        setMintState(prev => ({ ...prev, isMinting: false, txHash, tokenId: tokenIds[0] || null, tokenIds: tokenIds.length > 0 ? tokenIds : null, error: null, success }));
+        if (success) notifyMinted(walletAddress, tokenIds, txHash);
+        return success;
+      }
+
+      // ETH payment flow
       console.log('[Mint] Reading getBatchMintPriceETH for', quantity, 'NFTs...');
       const totalPriceWei = await getBatchMintPriceETH(quantity);
       const mintPriceEth = formatWeiToEth(totalPriceWei);
-      
-      console.log(`[Mint] Batch mint price: ${mintPriceEth} ETH for ${quantity} NFTs (oracle-derived)`);
       setMintState(prev => ({ ...prev, mintPriceEth }));
 
-      // Encode batch mint call
       const data = encodeBatchMintCallData(quantity);
-
-      // Send transaction with value from contract (not client-side math)
       const { txHash, isSponsored } = await sendMintTransaction(walletAddress, data, totalPriceWei);
-
-      console.log('[Mint] Batch transaction submitted:', txHash, isSponsored ? '(SPONSORED)' : '');
       setMintState(prev => ({ ...prev, txHash, isSponsored }));
 
       const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
       await waitForOneConfirmation(blockNumber);
+      if (success) mintCountSessionRef.current += quantity;
 
-      // Issue #8: Track successful mints
-      if (success) {
-        mintCountSessionRef.current += quantity;
-      }
-
-      setMintState(prev => ({
-        ...prev,
-        isMinting: false,
-        isClaiming: false,
-        txHash,
-        tokenId: tokenIds[0] || null,
-        tokenIds: tokenIds.length > 0 ? tokenIds : null,
-        error: null,
-        success,
-        isSponsored,
-        mintPriceEth,
-      }));
-
-      if (success) {
-        notifyMinted(walletAddress, tokenIds, txHash);
-      }
-
+      setMintState(prev => ({ ...prev, isMinting: false, isClaiming: false, txHash, tokenId: tokenIds[0] || null, tokenIds: tokenIds.length > 0 ? tokenIds : null, error: null, success, isSponsored, mintPriceEth }));
+      if (success) notifyMinted(walletAddress, tokenIds, txHash);
       return success;
     } catch (error: unknown) {
       console.error('[Mint] Batch minting error:', error);
-
-      setMintState(prev => ({
-        ...prev,
-        isMinting: false,
-        error: decodeMintError(error),
-      }));
+      setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error) }));
       return false;
     }
-  }, [checkRateLimit, getBatchMintPriceETH, mintState.isMinting, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+  }, [checkMintAllowed, checkRateLimit, checkUSDCAllowance, approveUSDC, getBatchMintPriceETH, getBatchMintPriceUSDC, mintState.isMinting, mintState.adminConfig, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
   // ============ MINT WITH USDC ============
   const mintWithUSDC = useCallback(async (
@@ -1347,6 +1670,8 @@ export function useNFTMint() {
         mintPriceUSDCFormatted: formattedUSDC,
         // Issue #4: ETH shown as "estimated conversion"
         mintPriceETHFormatted: `≈ ${formattedETH} ETH`,
+        // Issue #4: Free mint detection
+        isFree: mintPriceUSDC === 0n && mintPriceETH === 0n,
       };
     } catch (error) {
       console.error('[Price] Failed to get price info:', error);
@@ -1672,8 +1997,12 @@ export function useNFTMint() {
     // USDC approval
     checkUSDCAllowance,
     approveUSDC,
-    // Payment token selection
+    // Payment token selection (read-only, admin-defined)
     setSelectedPaymentToken,
+    // Admin config & enforcement
+    refreshAdminConfig,
+    checkMintAllowed,
+    checkClaimAllowed,
     // Formatting
     formatUSDC,
     getLevelProofMessage,
@@ -1682,10 +2011,15 @@ export function useNFTMint() {
     usdcAddress: USDC_ADDRESS,
     usdcDecimals: USDC_DECIMALS,
     supportsSponsorship: supportsWalletSendCalls(),
+    // Admin-controlled state (read-only)
+    mintEnabled: mintState.adminConfig.mintEnabled,
+    claimEnabled: mintState.adminConfig.claimEnabled,
+    activePaymentToken: mintState.adminConfig.activePaymentToken,
+    disabledReason: mintState.adminConfig.disabledReason,
     // Anti-bot helpers
     checkRateLimit,
-    canMint: !mintState.isMinting && !pendingOracleReadRef.current,
-    canClaim: !mintState.isClaiming,
+    canMint: !mintState.isMinting && !pendingOracleReadRef.current && mintState.adminConfig.mintEnabled,
+    canClaim: !mintState.isClaiming && mintState.adminConfig.claimEnabled,
     isOracleReading: pendingOracleReadRef.current,
   };
 }
