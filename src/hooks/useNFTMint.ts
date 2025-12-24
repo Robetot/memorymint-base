@@ -322,7 +322,85 @@ export function useNFTMint() {
   }, []);
 
   // ============ FETCH ADMIN CONFIG ============
+  // Issue #2: When force === true, bypass pending lock to always fetch fresh on-chain data
   const fetchAdminConfig = useCallback(async (force = false): Promise<AdminConfig> => {
+    // Issue #2: If force is true, do not use safeRpcCall which checks pendingAdminConfigRef
+    if (force) {
+      // Bypass pending lock - always fetch fresh
+      try {
+        const calls = [
+          { fn: 'mintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintEnabled', data: r as `0x${string}` }) as boolean },
+          { fn: 'claimEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'claimEnabled', data: r as `0x${string}` }) as boolean },
+          { fn: 'activePaymentToken', decode: (r: string) => (decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'activePaymentToken', data: r as `0x${string}` }) as number) === 1 ? 'USDC' : 'ETH' },
+          { fn: 'sponsoredMintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'sponsoredMintEnabled', data: r as `0x${string}` }) as boolean },
+          { fn: 'getDisabledReason', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'getDisabledReason', data: r as `0x${string}` }) as string },
+        ];
+
+        const results = await Promise.allSettled(
+          calls.map(async ({ fn }) => {
+            const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: fn as any, args: [] });
+            const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+            return { fn, result };
+          })
+        );
+
+        const mintResult = results[0];
+        const claimResult = results[1];
+        
+        if (mintResult.status === 'rejected' || claimResult.status === 'rejected') {
+          console.error('[AdminConfig] Critical config call failed');
+          return FAIL_CLOSED_ADMIN_CONFIG;
+        }
+
+        try {
+          const mintEnabled = calls[0].decode((mintResult as PromiseFulfilledResult<{ fn: string; result: string }>).value.result) as boolean;
+          const claimEnabled = calls[1].decode((claimResult as PromiseFulfilledResult<{ fn: string; result: string }>).value.result) as boolean;
+          
+          let activePaymentToken: PaymentToken = 'ETH';
+          let sponsoredMintEnabled = false;
+          let disabledReason: string | null = null;
+
+          if (results[2].status === 'fulfilled') {
+            try {
+              const tokenResult = calls[2].decode((results[2] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
+              activePaymentToken = tokenResult as PaymentToken;
+            } catch { /* use default */ }
+          }
+
+          if (results[3].status === 'fulfilled') {
+            try {
+              const sponsoredResult = calls[3].decode((results[3] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
+              sponsoredMintEnabled = sponsoredResult as boolean;
+            } catch { /* use default */ }
+          }
+
+          if (results[4].status === 'fulfilled') {
+            try {
+              const reasonResult = calls[4].decode((results[4] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
+              disabledReason = (reasonResult as string) || null;
+            } catch { /* use default */ }
+          }
+
+          return {
+            mintEnabled,
+            claimEnabled,
+            activePaymentToken,
+            sponsoredMintEnabled,
+            disabledReason,
+            lastFetched: Date.now(),
+            isLoaded: true,
+          };
+        } catch (error) {
+          console.error('[AdminConfig] Decode failed:', error);
+          return FAIL_CLOSED_ADMIN_CONFIG;
+        }
+      } catch (error) {
+        console.error('[AdminConfig] Forced fetch failed:', error);
+        return FAIL_CLOSED_ADMIN_CONFIG;
+      }
+    }
+
+    // Non-forced fetch uses safeRpcCall with pending lock
     return safeRpcCall(async () => {
       const calls = [
         { fn: 'mintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintEnabled', data: r as `0x${string}` }) as boolean },
@@ -889,36 +967,65 @@ export function useNFTMint() {
     return executeMint(walletAddress, '', 1);
   }, [executeMint]);
 
+  // Issue #1: mintWithSignature now uses pendingMintRef lock and full enforcement
   const mintWithSignature = useCallback(async (
     tokenURI: string,
     walletAddress: string,
     expiration: bigint,
     signature: `0x${string}`
   ): Promise<boolean> => {
-    const now = BigInt(Math.floor(Date.now() / 1000));
-    if (expiration <= now) {
-      setMintState(prev => ({ ...prev, error: 'Signature has expired' }));
+    if (!window.ethereum || !walletAddress) {
+      setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
       return false;
     }
 
-    // Issue #3: Fetch fresh config
-    const freshConfig = await fetchAdminConfig(true);
-    const { allowed, error } = await enforceMintAllowed(walletAddress, 'ETH');
-    if (!allowed) {
-      setMintState(prev => ({ ...prev, error }));
+    // Issue #1: Use same pendingMintRef lock as executeMint
+    if (pendingMintRef.current) {
       return false;
     }
-
-    const isBase = await verifyBaseNetwork();
-    if (!isBase) {
-      setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
-      return false;
-    }
-
-    setMintState(prev => ({ ...prev, isMinting: true, error: null }));
+    pendingMintRef.current = true;
 
     try {
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      if (expiration <= now) {
+        setMintState(prev => ({ ...prev, error: 'Signature has expired' }));
+        return false;
+      }
+
+      // Issue #1: Fetch fresh config and enforce using same pattern as executeMint
+      const freshConfig = await fetchAdminConfig(true);
+      const paymentToken = freshConfig.activePaymentToken;
+      
+      // Issue #1: Enforce payment token - mintWithSignature is ETH only
+      if (paymentToken !== 'ETH') {
+        setMintState(prev => ({ ...prev, error: 'Only ETH payments are currently accepted for signature mints' }));
+        return false;
+      }
+
+      const { allowed, error, config } = await enforceMintAllowed(walletAddress, 'ETH');
+      if (!allowed) {
+        setMintState(prev => ({ ...prev, error }));
+        return false;
+      }
+
+      const isBase = await verifyBaseNetwork();
+      if (!isBase) {
+        setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
+        return false;
+      }
+
+      setMintState(prev => ({
+        ...prev,
+        isMinting: true,
+        error: null,
+        success: false,
+        selectedPaymentToken: 'ETH',
+      }));
+
       const priceWei = await getMintPriceETH();
+      setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
+
+      // Issue #1: No sponsored mint for signature-based mints - always regular tx
       const data = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: 'mintWithSignature',
@@ -935,6 +1042,8 @@ export function useNFTMint() {
         }],
       });
 
+      setMintState(prev => ({ ...prev, txHash, isSponsored: false }));
+
       const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
 
       setMintState(prev => ({
@@ -942,15 +1051,20 @@ export function useNFTMint() {
         isMinting: false,
         txHash,
         tokenId: tokenIds[0] || null,
-        tokenIds,
+        tokenIds: tokenIds.length > 0 ? tokenIds : null,
         success,
+        isSponsored: false,
       }));
 
       if (success) notifyMinted(walletAddress, tokenIds, txHash);
       return success;
     } catch (error: unknown) {
+      console.error('[MintWithSignature] Error:', error);
       setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error) }));
       return false;
+    } finally {
+      // Issue #1: Always release lock
+      pendingMintRef.current = false;
     }
   }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, waitForReceipt, notifyMinted]);
 
