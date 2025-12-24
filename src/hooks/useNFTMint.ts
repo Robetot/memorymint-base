@@ -20,11 +20,17 @@ const RPC_ENDPOINTS = [
 const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/paymaster';
 
 // ============ CONTRACT ABI ============
-// Minimal ABI for MemoryMintFeeAware
+// Minimal ABI for MemoryMintUltraSafe with USDC Oracle Pricing
 const CONTRACT_ABI = parseAbi([
   'function mintNFT(string tokenURI) payable returns (uint256)',
-  'function batchMint(uint256 quantity) payable returns (uint256)',
+  'function mintWithSignature(string tokenURI, uint256 expiration, bytes signature) payable returns (uint256)',
+  'function claimBonus(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
   'function mintPrice() view returns (uint256)',
+  'function mintPriceUSDC() view returns (uint256)',
+  'function getMintPriceETH() view returns (uint256)',
+  'function getEthUsdPrice() view returns (uint256)',
+  'function canClaimBonus(address user, uint256 levelId) view returns (bool, string)',
+  'function getBonusLevel(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
   'function owner() view returns (address)',
 ]);
 
@@ -39,6 +45,10 @@ const CONTRACT_ERROR_ABI = parseAbi([
   'error TransferToNonReceiver()',
   'error InsufficientPayment()',
   'error WithdrawFailed()',
+  'error ClaimNotActive()',
+  'error AlreadyClaimed()',
+  'error NotEligible()',
+  'error InvalidLevelProof()',
 ]);
 
 // ============ TYPES ============
