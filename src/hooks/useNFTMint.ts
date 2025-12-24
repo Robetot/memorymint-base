@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult } from 'viem';
+import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult, decodeEventLog, formatEther } from 'viem';
 
 // ============ CONFIGURATION ============
 const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
@@ -251,9 +251,12 @@ function getPaymasterServiceUrl(): string {
   return COINBASE_PAYMASTER_URL;
 }
 
-// Format wei to ETH string
+// Issue #5: Safe ETH formatting using viem's formatEther (no precision loss)
 function formatWeiToEth(wei: bigint): string {
-  return (Number(wei) / 1e18).toFixed(6);
+  const formatted = formatEther(wei);
+  // Limit to 6 decimal places for display
+  const num = parseFloat(formatted);
+  return num.toFixed(6);
 }
 
 // RPC call helper with fallback endpoints
@@ -284,17 +287,31 @@ async function rpcCall(method: string, params: any[]): Promise<any> {
   throw new Error('All RPC endpoints failed');
 }
 
+// ERC721 Transfer event ABI for robust token ID extraction (Issue #6)
+const ERC721_TRANSFER_EVENT = {
+  type: 'event',
+  name: 'Transfer',
+  inputs: [
+    { name: 'from', type: 'address', indexed: true },
+    { name: 'to', type: 'address', indexed: true },
+    { name: 'tokenId', type: 'uint256', indexed: true },
+  ],
+} as const;
+
 // ============ MAIN HOOK ============
 export function useNFTMint() {
-  // Default admin config (will be fetched from contract)
+  // Issue #2: FAIL-CLOSED default admin config - disabled when unknown
   const defaultAdminConfig: AdminConfig = {
-    mintEnabled: true,
-    claimEnabled: true,
+    mintEnabled: false,  // FAIL-CLOSED: default disabled
+    claimEnabled: false, // FAIL-CLOSED: default disabled
     activePaymentToken: 'ETH',
     sponsoredMintEnabled: false,
-    disabledReason: null,
+    disabledReason: 'Loading admin configuration...',
     lastFetched: 0,
   };
+  
+  // Track if admin config was successfully loaded
+  const adminConfigLoadedRef = useRef<boolean>(false);
 
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
@@ -439,16 +456,18 @@ export function useNFTMint() {
       };
 
       console.log('[AdminConfig] Fetched:', config);
+      adminConfigLoadedRef.current = true;
       return config;
     } catch (error) {
       console.error('[AdminConfig] Fetch failed:', error);
-      // Return defaults on error - assume enabled to not block users
+      // Issue #2: FAIL-CLOSED - Return disabled state on error
+      adminConfigLoadedRef.current = false;
       return {
-        mintEnabled: true,
-        claimEnabled: true,
+        mintEnabled: false,
+        claimEnabled: false,
         activePaymentToken: 'ETH',
         sponsoredMintEnabled: false,
-        disabledReason: null,
+        disabledReason: 'Admin config unavailable - please try again',
         lastFetched: Date.now(),
       };
     }
@@ -502,7 +521,8 @@ export function useNFTMint() {
       return { allowed: true, error: null };
     } catch (error) {
       console.error('[MintCheck] Failed:', error);
-      return { allowed: true, error: null }; // Allow on error to not block users
+      // Issue #2: FAIL-CLOSED - Block on error, don't allow
+      return { allowed: false, error: 'Unable to verify mint status - please try again' };
     }
   }, [refreshAdminConfig]);
 
@@ -521,7 +541,8 @@ export function useNFTMint() {
       return { allowed: true, error: null };
     } catch (error) {
       console.error('[ClaimCheck] Failed:', error);
-      return { allowed: true, error: null }; // Allow on error to not block users
+      // Issue #2: FAIL-CLOSED - Block on error, don't allow
+      return { allowed: false, error: 'Unable to verify claim status - please try again' };
     }
   }, [refreshAdminConfig]);
 
@@ -745,6 +766,7 @@ export function useNFTMint() {
   }, [decodeUint256Result]);
 
   // ============ USDC ALLOWANCE & APPROVAL ============
+  // Issue #1: Properly ABI-decode USDC allowance instead of raw BigInt
   const checkUSDCAllowance = useCallback(async (walletAddress: string): Promise<bigint> => {
     try {
       const data = encodeFunctionData({
@@ -759,7 +781,20 @@ export function useNFTMint() {
       ]);
 
       if (!result || result === '0x') return 0n;
-      return BigInt(result);
+      
+      // Issue #1: CRITICAL FIX - Use proper ABI decoding instead of BigInt(result)
+      try {
+        const decoded = decodeFunctionResult({
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          data: result as `0x${string}`,
+        });
+        return decoded as bigint;
+      } catch (decodeErr) {
+        console.error('[USDC] ABI decode failed, falling back:', decodeErr);
+        // Fallback for non-standard responses
+        return BigInt(result);
+      }
     } catch (error) {
       console.error('[USDC] Failed to check allowance:', error);
       return 0n;
@@ -852,15 +887,28 @@ export function useNFTMint() {
         throw new Error('Transaction failed on-chain');
       }
 
-      // Extract token IDs from Transfer events
-      const logs = (receipt.logs as Array<{ topics: string[] }>) || [];
+      // Issue #6: Extract token IDs using proper ABI decoding instead of raw log parsing
+      const logs = (receipt.logs as Array<{ address: string; topics: string[]; data: string }>) || [];
       const tokenIds: string[] = [];
-      const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
       for (const log of logs) {
-        if (log.topics.length >= 4 && log.topics[0] === transferTopic) {
-          const tokenId = parseInt(log.topics[3], 16).toString();
-          tokenIds.push(tokenId);
+        // Only process logs from the NFT contract
+        if (log.address?.toLowerCase() !== NFT_CONTRACT_ADDRESS.toLowerCase()) continue;
+        
+        try {
+          // Use proper ABI decoding for ERC721 Transfer events
+          const decoded = decodeEventLog({
+            abi: [ERC721_TRANSFER_EVENT],
+            data: log.data as `0x${string}`,
+            topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+          }) as { eventName: string; args: { from: string; to: string; tokenId: bigint } };
+          
+          if (decoded.eventName === 'Transfer' && decoded.args.tokenId !== undefined) {
+            tokenIds.push(decoded.args.tokenId.toString());
+          }
+        } catch {
+          // Skip logs that don't match Transfer event
+          continue;
         }
       }
 
@@ -897,10 +945,11 @@ export function useNFTMint() {
     );
   }, []);
 
-  // Issue #3: Check if sponsorship should be used (only for free mints)
-  const shouldUseSponsoredTx = useCallback((ethPriceWei: bigint): boolean => {
-    // Only sponsor if mint is completely free (price = 0)
-    return ethPriceWei === 0n;
+  // Issue #3: Check if sponsorship should be used
+  // Sponsored tx requires BOTH: price = 0 AND admin-enabled sponsorship
+  const shouldUseSponsoredTx = useCallback((ethPriceWei: bigint, adminConfig: AdminConfig): boolean => {
+    // Issue #3: CRITICAL - Must check BOTH conditions
+    return ethPriceWei === 0n && adminConfig.sponsoredMintEnabled;
   }, []);
 
   // ============ SEND TRANSACTION ============
@@ -912,8 +961,9 @@ export function useNFTMint() {
     const ethereum = window.ethereum as any;
     const valueHex = valueWei > 0n ? '0x' + valueWei.toString(16) : '0x0';
     
-    // Issue #3: Only try sponsored transaction for FREE mints
-    if (supportsWalletSendCalls() && shouldUseSponsoredTx(valueWei)) {
+    // Issue #3: Only try sponsored transaction for FREE mints AND admin-enabled
+    const canSponsor = shouldUseSponsoredTx(valueWei, mintState.adminConfig);
+    if (supportsWalletSendCalls() && canSponsor) {
       try {
         console.log('[Mint] Attempting sponsored transaction via wallet_sendCalls (FREE mint)...');
         
