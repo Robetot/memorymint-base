@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
-import { encodeFunctionData, parseAbi, decodeErrorResult, decodeAbiParameters } from 'viem';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult } from 'viem';
 
 // ============ CONFIGURATION ============
 // NEW: MemoryMintFeeAware contract address on Base Mainnet
@@ -311,7 +311,37 @@ export function useNFTMint() {
     return { allowed: true };
   }, []);
 
-  // ============ READ MINT PRICE FROM CONTRACT (Issue #1: Use getMintPriceETH) ============
+  // ============ SAFE ABI DECODE HELPER ============
+  // Issue #1: eth_call returns ABI-encoded data, not raw values
+  // Must use decodeFunctionResult instead of BigInt(result)
+  type ContractFunctionName = 'mintNFT' | 'mintWithSignature' | 'batchMint' | 'claimBonus' | 
+    'mintPriceUSDC' | 'getMintPriceETH' | 'getBatchMintPriceETH' | 'getEthUsdPrice' | 
+    'getBonusAmountETH' | 'canClaimBonus' | 'getBonusLevel' | 'bonusLevels' | 'owner';
+    
+  const decodeUint256Result = useCallback((
+    result: string,
+    functionName: ContractFunctionName
+  ): bigint => {
+    if (!result || result === '0x') {
+      return 0n;
+    }
+    
+    try {
+      const decoded = decodeFunctionResult({
+        abi: CONTRACT_ABI,
+        functionName,
+        data: result as `0x${string}`,
+      });
+      
+      // decodeFunctionResult returns the value directly for single return values
+      return decoded as bigint;
+    } catch (error) {
+      console.error(`[Decode] Failed to decode ${functionName}:`, error);
+      throw new Error('Failed to decode contract response');
+    }
+  }, []);
+
+  // ============ READ MINT PRICE FROM CONTRACT (Issue #1: Use getMintPriceETH with proper ABI decoding) ============
   const getMintPriceETH = useCallback(async (): Promise<bigint> => {
     // Issue #8: Prevent concurrent oracle reads
     if (pendingOracleReadRef.current) {
@@ -333,11 +363,8 @@ export function useNFTMint() {
         'latest',
       ]);
 
-      if (!result || result === '0x') {
-        return BigInt(0); // Free mint
-      }
-
-      return BigInt(result);
+      // Issue #1: Properly ABI-decode the result instead of BigInt(result)
+      return decodeUint256Result(result, 'getMintPriceETH');
     } catch (error) {
       console.error('[Mint] Failed to read getMintPriceETH:', error);
       // Issue #7: Don't silently fail - surface oracle errors
@@ -345,9 +372,9 @@ export function useNFTMint() {
     } finally {
       pendingOracleReadRef.current = false;
     }
-  }, []);
+  }, [decodeUint256Result]);
 
-  // Issue #2: Get batch mint price from contract (no client-side math)
+  // Issue #2: Get batch mint price from contract (no client-side math, proper ABI decoding)
   const getBatchMintPriceETH = useCallback(async (quantity: number): Promise<bigint> => {
     if (pendingOracleReadRef.current) {
       throw new Error('Price check in progress. Please wait.');
@@ -367,18 +394,15 @@ export function useNFTMint() {
         'latest',
       ]);
 
-      if (!result || result === '0x') {
-        return BigInt(0);
-      }
-
-      return BigInt(result);
+      // Issue #1: Properly ABI-decode the result instead of BigInt(result)
+      return decodeUint256Result(result, 'getBatchMintPriceETH');
     } catch (error) {
       console.error('[Mint] Failed to read getBatchMintPriceETH:', error);
       throw new Error('Price feed temporarily unavailable. Please try again.');
     } finally {
       pendingOracleReadRef.current = false;
     }
-  }, []);
+  }, [decodeUint256Result]);
 
   // Legacy alias for backward compatibility
   const getMintPrice = getMintPriceETH;
@@ -874,6 +898,7 @@ export function useNFTMint() {
   }, []);
 
   // ============ GET USDC PRICE INFO (Issue #4: USDC as primary, ETH as conversion) ============
+  // Issue #3: Update mintPriceUSDC state when fetching price info
   const getPriceInfo = useCallback(async (): Promise<PriceInfo | null> => {
     try {
       // Read USDC price from contract (canonical source)
@@ -902,9 +927,20 @@ export function useNFTMint() {
         rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: getEthUsdPriceData }, 'latest']),
       ]);
 
-      const mintPriceUSDC = usdcResult ? BigInt(usdcResult) : 0n;
-      const mintPriceETH = ethResult ? BigInt(ethResult) : 0n;
-      const ethPrice = priceResult ? BigInt(priceResult) : 0n;
+      // Issue #1: Properly ABI-decode all results instead of BigInt(result)
+      const mintPriceUSDC = decodeUint256Result(usdcResult, 'mintPriceUSDC');
+      const mintPriceETH = decodeUint256Result(ethResult, 'getMintPriceETH');
+      const ethPrice = decodeUint256Result(priceResult, 'getEthUsdPrice');
+
+      const formattedUSDC = formatUSDC(mintPriceUSDC);
+      const formattedETH = formatWeiToEth(mintPriceETH);
+
+      // Issue #3: Update mintPriceUSDC state so UI consumers receive a non-null value
+      setMintState(prev => ({
+        ...prev,
+        mintPriceUSDC: formattedUSDC,
+        mintPriceEth: formattedETH,
+      }));
 
       // Issue #4: Return both with USDC as primary reference
       return {
@@ -912,16 +948,16 @@ export function useNFTMint() {
         mintPriceUSDC,
         mintPriceETH,
         // Issue #4: USDC formatted as primary display
-        mintPriceUSDCFormatted: formatUSDC(mintPriceUSDC),
+        mintPriceUSDCFormatted: formattedUSDC,
         // Issue #4: ETH shown as "estimated conversion"
-        mintPriceETHFormatted: `≈ ${formatWeiToEth(mintPriceETH)} ETH`,
+        mintPriceETHFormatted: `≈ ${formattedETH} ETH`,
       };
     } catch (error) {
       console.error('[Price] Failed to get price info:', error);
       // Issue #7: Return null on oracle failure, let caller handle
       return null;
     }
-  }, [formatUSDC]);
+  }, [formatUSDC, decodeUint256Result]);
 
   // ============ CHECK CAN CLAIM BONUS (Issue #5: Proper ABI decoding) ============
   const canClaimBonus = useCallback(async (
@@ -944,23 +980,20 @@ export function useNFTMint() {
         return { canClaim: false, reason: 'Unable to check eligibility' };
       }
 
-      // Issue #5: Properly ABI-decode (bool, string) tuple instead of string checks
+      // Issue #5: Properly ABI-decode (bool, string) tuple using decodeFunctionResult
       try {
-        const decoded = decodeAbiParameters(
-          [
-            { name: 'eligible', type: 'bool' },
-            { name: 'reason', type: 'string' }
-          ],
-          result as `0x${string}`
-        );
+        const decoded = decodeFunctionResult({
+          abi: CONTRACT_ABI,
+          functionName: 'canClaimBonus',
+          data: result as `0x${string}`,
+        });
         
+        // decodeFunctionResult returns an array for multiple return values
         const [canClaim, reason] = decoded as [boolean, string];
         return { canClaim, reason: reason || (canClaim ? 'Eligible' : 'Not eligible') };
       } catch (decodeErr) {
-        // Fallback: Check first 32 bytes for boolean
-        console.warn('[ClaimBonus] ABI decode fallback:', decodeErr);
-        const canClaim = result.slice(0, 66).endsWith('1');
-        return { canClaim, reason: canClaim ? 'Eligible' : 'Not eligible' };
+        console.error('[ClaimBonus] ABI decode failed:', decodeErr);
+        return { canClaim: false, reason: 'Failed to decode eligibility response' };
       }
     } catch (error) {
       console.error('[ClaimBonus] Check failed:', error);
@@ -1056,6 +1089,7 @@ export function useNFTMint() {
   }, [canClaimBonus, verifyBaseNetwork, waitForReceipt]);
 
   // ============ GET BONUS LEVEL INFO (Issue #6: USDC as canonical, ETH from oracle) ============
+  // Issue #2: Remove unsafe manual hex slicing, use proper ABI decoding
   const getBonusLevel = useCallback(async (levelId: bigint): Promise<{
     amountUSDC: bigint;      // Issue #6: Canonical USDC amount
     amountETH: bigint;       // Issue #6: Oracle-derived ETH amount
@@ -1090,32 +1124,41 @@ export function useNFTMint() {
         return null;
       }
 
-      // Parse result (amountUSDC, active, claimsRemaining, minScore, requiresNFT)
-      const hex = result.slice(2);
-      const amountUSDC = BigInt('0x' + hex.slice(0, 64));
-      const active = hex.slice(64, 128) !== '0'.repeat(64);
-      const claimsRemaining = BigInt('0x' + hex.slice(128, 192));
-      const minScore = BigInt('0x' + hex.slice(192, 256));
-      const requiresNFT = hex.slice(256, 320) !== '0'.repeat(64);
-      
-      // Issue #6: Get oracle-derived ETH amount
-      const amountETH = ethResult ? BigInt(ethResult) : 0n;
+      // Issue #2: Properly ABI-decode the struct using decodeFunctionResult
+      // bonusLevels returns: (uint256, bool, uint256, uint256, bool)
+      // Field order must match Solidity struct exactly
+      try {
+        const decoded = decodeFunctionResult({
+          abi: CONTRACT_ABI,
+          functionName: 'bonusLevels',
+          data: result as `0x${string}`,
+        });
+        
+        // Decoded tuple: [amountUSDC, active, claimsRemaining, minScore, requiresNFT]
+        const [amountUSDC, active, claimsRemaining, minScore, requiresNFT] = decoded as [bigint, boolean, bigint, bigint, boolean];
+        
+        // Issue #6: Get oracle-derived ETH amount with proper decoding
+        const amountETH = decodeUint256Result(ethResult, 'getBonusAmountETH');
 
-      return { 
-        amountUSDC,           // Issue #6: USDC is canonical
-        amountETH,            // Issue #6: ETH from oracle
-        active, 
-        claimsRemaining, 
-        minScore, 
-        requiresNFT,
-        formattedUSDC: formatUSDC(amountUSDC),
-        formattedETH: `≈ ${formatWeiToEth(amountETH)} ETH`,
-      };
+        return { 
+          amountUSDC,           // Issue #6: USDC is canonical
+          amountETH,            // Issue #6: ETH from oracle
+          active, 
+          claimsRemaining, 
+          minScore, 
+          requiresNFT,
+          formattedUSDC: formatUSDC(amountUSDC),
+          formattedETH: `≈ ${formatWeiToEth(amountETH)} ETH`,
+        };
+      } catch (decodeErr) {
+        console.error('[BonusLevel] ABI decode failed:', decodeErr);
+        return null;
+      }
     } catch (error) {
       console.error('[BonusLevel] Fetch failed:', error);
       return null;
     }
-  }, [formatUSDC]);
+  }, [formatUSDC, decodeUint256Result]);
 
   /**
    * Generate the message hash that the backend must sign for level proof
