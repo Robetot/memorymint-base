@@ -24,6 +24,9 @@ const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/p
 // Payment token types
 export type PaymentToken = 'ETH' | 'USDC';
 
+// Wallet types for detection
+export type DetectedWalletType = 'metamask' | 'coinbase' | 'baseapp' | 'farcaster' | 'unknown';
+
 // ============ CONTRACT ABI ============
 const CONTRACT_ABI = parseAbi([
   // ETH payment functions
@@ -127,6 +130,8 @@ export interface AntiBotConfig {
 export interface MintState {
   isMinting: boolean;
   isClaiming: boolean;
+  isWaitingForReceipt: boolean;
+  isApprovingUSDC: boolean;
   txHash: string | null;
   tokenId: string | null;
   tokenIds: string[] | null;
@@ -139,6 +144,9 @@ export interface MintState {
   adminConfig: AdminConfig;
   antiBotConfig: AntiBotConfig | null;
   isLoadingConfig: boolean;
+  detectedWalletType: DetectedWalletType;
+  pollingMessage: string | null;
+  mintQueuePosition: number;
 }
 
 export interface PriceInfo {
@@ -169,6 +177,12 @@ const FAIL_CLOSED_ADMIN_CONFIG: AdminConfig = {
   isLoaded: false,
 };
 
+// ============ ADMIN CONFIG CACHE ============
+const ADMIN_CONFIG_CACHE_TTL = 5000; // 5 seconds cache for non-forced fetches
+const FORCED_FETCH_COOLDOWN = 1000; // 1 second minimum between forced fetches
+let lastForcedFetchTime = 0;
+let cachedAdminConfig: AdminConfig | null = null;
+
 // ============ HELPER FUNCTIONS ============
 function formatWeiToEth(wei: bigint): string {
   return formatEther(wei);
@@ -176,6 +190,48 @@ function formatWeiToEth(wei: bigint): string {
 
 function formatUSDCAmount(amount: bigint): string {
   return `$${formatUnits(amount, USDC_DECIMALS)}`;
+}
+
+function detectWalletType(): DetectedWalletType {
+  const ethereum = window.ethereum as any;
+  if (!ethereum) return 'unknown';
+  
+  // Check for Farcaster context
+  if (typeof window !== 'undefined') {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('fc') || urlParams.get('source') === 'farcaster') {
+      return 'farcaster';
+    }
+  }
+  
+  // Check for smart wallet indicators (Base App)
+  if (ethereum.isSmartWallet || ethereum.isPasskeyWallet) {
+    return 'baseapp';
+  }
+  
+  // Check user agent for Base App
+  const userAgent = navigator.userAgent.toLowerCase();
+  if (ethereum.isCoinbaseWallet && (userAgent.includes('base') || userAgent.includes('coinbase'))) {
+    return 'baseapp';
+  }
+  
+  // URL params for Base App
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has('baseapp') || urlParams.get('source') === 'baseapp') {
+    return 'baseapp';
+  }
+  
+  // Coinbase Wallet (not Base App)
+  if (ethereum.isCoinbaseWallet) {
+    return 'coinbase';
+  }
+  
+  // MetaMask
+  if (ethereum.isMetaMask) {
+    return 'metamask';
+  }
+  
+  return 'unknown';
 }
 
 function decodeMintError(error: unknown): string {
@@ -298,6 +354,8 @@ export function useNFTMint() {
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
     isClaiming: false,
+    isWaitingForReceipt: false,
+    isApprovingUSDC: false,
     txHash: null,
     tokenId: null,
     tokenIds: null,
@@ -310,19 +368,29 @@ export function useNFTMint() {
     adminConfig: FAIL_CLOSED_ADMIN_CONFIG,
     antiBotConfig: null,
     isLoadingConfig: true,
+    detectedWalletType: 'unknown',
+    pollingMessage: null,
+    mintQueuePosition: 0,
   });
   
-  // Issue #1: Split oracle locks by token type
+  // Separate locks by operation type
   const pendingEthPriceRef = useRef<boolean>(false);
   const pendingUsdcPriceRef = useRef<boolean>(false);
   const pendingAdminConfigRef = useRef<boolean>(false);
   
-  // Issue #8: Simplified boolean lock for pending mint
-  const pendingMintRef = useRef<boolean>(false);
+  // Mint queue instead of simple lock
+  const mintQueueRef = useRef<Array<() => Promise<boolean>>>([]);
+  const isMintProcessingRef = useRef<boolean>(false);
   
   // Network switch tracking
   const currentChainRef = useRef<string | null>(null);
   const isNetworkSwitchingRef = useRef<boolean>(false);
+
+  // Detect wallet type on mount
+  useEffect(() => {
+    const walletType = detectWalletType();
+    setMintState(prev => ({ ...prev, detectedWalletType: walletType }));
+  }, []);
 
   // ============ SAFE RPC WRAPPER ============
   const safeRpcCall = useCallback(async <T>(
@@ -364,12 +432,26 @@ export function useNFTMint() {
     }
   }, []);
 
-  // ============ FETCH ADMIN CONFIG ============
-  // Issue #2: When force === true, bypass pending lock to always fetch fresh on-chain data
+  // ============ FETCH ADMIN CONFIG WITH CACHING ============
   const fetchAdminConfig = useCallback(async (force = false): Promise<AdminConfig> => {
-    // Issue #2: If force is true, do not use safeRpcCall which checks pendingAdminConfigRef
+    const now = Date.now();
+    
+    // Check cache for non-forced fetches
+    if (!force && cachedAdminConfig && cachedAdminConfig.isLoaded) {
+      if (now - cachedAdminConfig.lastFetched < ADMIN_CONFIG_CACHE_TTL) {
+        return cachedAdminConfig;
+      }
+    }
+    
+    // Enforce cooldown on forced fetches
+    if (force && (now - lastForcedFetchTime < FORCED_FETCH_COOLDOWN)) {
+      if (cachedAdminConfig) return cachedAdminConfig;
+    }
+    
+    // If force is true, bypass pending lock
     if (force) {
-      // Bypass pending lock - always fetch fresh
+      lastForcedFetchTime = now;
+      
       try {
         const calls = [
           { fn: 'mintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintEnabled', data: r as `0x${string}` }) as boolean },
@@ -424,15 +506,19 @@ export function useNFTMint() {
             } catch { /* use default */ }
           }
 
-          return {
+          const config: AdminConfig = {
             mintEnabled,
             claimEnabled,
             activePaymentToken,
             sponsoredMintEnabled,
             disabledReason,
-            lastFetched: Date.now(),
+            lastFetched: now,
             isLoaded: true,
           };
+          
+          // Update cache
+          cachedAdminConfig = config;
+          return config;
         } catch (error) {
           console.error('[AdminConfig] Decode failed:', error);
           return FAIL_CLOSED_ADMIN_CONFIG;
@@ -498,15 +584,19 @@ export function useNFTMint() {
           } catch { /* use default */ }
         }
 
-        return {
+        const config: AdminConfig = {
           mintEnabled,
           claimEnabled,
           activePaymentToken,
           sponsoredMintEnabled,
           disabledReason,
-          lastFetched: Date.now(),
+          lastFetched: now,
           isLoaded: true,
         };
+        
+        // Update cache
+        cachedAdminConfig = config;
+        return config;
       } catch (error) {
         console.error('[AdminConfig] Decode failed:', error);
         return FAIL_CLOSED_ADMIN_CONFIG;
@@ -539,6 +629,13 @@ export function useNFTMint() {
       const blockData = await rpcCall('eth_getBlockByNumber', ['latest', false]);
       const blockTimestamp = blockData?.timestamp ? BigInt(blockData.timestamp) : BigInt(Math.floor(Date.now() / 1000));
       
+      // Log any timestamp discrepancy
+      const clientTimestamp = BigInt(Math.floor(Date.now() / 1000));
+      const discrepancy = clientTimestamp > blockTimestamp ? clientTimestamp - blockTimestamp : blockTimestamp - clientTimestamp;
+      if (discrepancy > 60n) {
+        console.warn(`[AntiBot] Timestamp discrepancy: client=${clientTimestamp}, block=${blockTimestamp}, diff=${discrepancy}s`);
+      }
+      
       const cooldownEnd = lastMintTime + cooldown;
       const cooldownRemaining = cooldownEnd > blockTimestamp ? cooldownEnd - blockTimestamp : 0n;
       const canMintNow = blockTimestamp >= cooldownEnd && (maxMints === 0n || mintCount < maxMints);
@@ -569,15 +666,19 @@ export function useNFTMint() {
       
       if (chainId.toLowerCase() !== BASE_CHAIN_ID) {
         isNetworkSwitchingRef.current = true;
+        setMintState(prev => ({ ...prev, pollingMessage: 'Switching to Base network...' }));
+        
         try {
           await window.ethereum.request({
             method: 'wallet_switchEthereumChain',
             params: [{ chainId: BASE_CHAIN_ID }],
           });
           currentChainRef.current = BASE_CHAIN_ID;
+          setMintState(prev => ({ ...prev, pollingMessage: null }));
           return true;
         } catch (switchError: any) {
           if (switchError.code === 4902) {
+            setMintState(prev => ({ ...prev, pollingMessage: 'Adding Base network...' }));
             try {
               await window.ethereum.request({
                 method: 'wallet_addEthereumChain',
@@ -590,16 +691,23 @@ export function useNFTMint() {
                 }],
               });
               currentChainRef.current = BASE_CHAIN_ID;
+              setMintState(prev => ({ ...prev, pollingMessage: null }));
               return true;
-            } catch { return false; }
+            } catch {
+              setMintState(prev => ({ ...prev, pollingMessage: null, error: 'Failed to add Base network. Please add it manually.' }));
+              return false;
+            }
           }
+          setMintState(prev => ({ ...prev, pollingMessage: null, error: 'Please switch to Base network to continue.' }));
           return false;
         } finally {
           isNetworkSwitchingRef.current = false;
         }
       }
       return true;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }, []);
 
   // ============ PRE-MINT ENFORCEMENT ============
@@ -611,7 +719,7 @@ export function useNFTMint() {
       return { allowed: false, error: 'Network switch in progress', config: FAIL_CLOSED_ADMIN_CONFIG };
     }
 
-    // Issue #3: Always fetch fresh admin config - never rely on cached token
+    // Always fetch fresh admin config
     const config = await fetchAdminConfig(true);
     setMintState(prev => ({ ...prev, adminConfig: config, isLoadingConfig: false }));
 
@@ -689,20 +797,20 @@ export function useNFTMint() {
   }, []);
 
   // ============ APPROVE USDC ============
-  // Issue #7: Require Base network verification before approval
-  // Issue #4: Use MaxUint256 for approval to avoid price-change failures
   const approveUSDC = useCallback(async (
     walletAddress: string,
     _amount: bigint // Ignored - we use MaxUint256
   ): Promise<{ success: boolean; error: string | null }> => {
-    // Issue #7: Verify network before approval
+    // Verify network before approval
     const isBase = await verifyBaseNetwork();
     if (!isBase) {
       return { success: false, error: 'Please switch to Base network before approving USDC' };
     }
 
+    setMintState(prev => ({ ...prev, isApprovingUSDC: true, pollingMessage: 'Waiting for USDC approval...' }));
+
     try {
-      // Issue #4: Approve MaxUint256 for stable approvals
+      // Approve MaxUint256 for stable approvals
       const data = encodeFunctionData({
         abi: ERC20_ABI,
         functionName: 'approve',
@@ -715,6 +823,8 @@ export function useNFTMint() {
         params: [{ from: walletAddress, to: USDC_ADDRESS, data }],
       }) as string;
 
+      setMintState(prev => ({ ...prev, pollingMessage: 'Confirming USDC approval...' }));
+
       let receipt: any = null;
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 2000));
@@ -725,7 +835,14 @@ export function useNFTMint() {
           });
           if (receipt) break;
         } catch { /* continue */ }
+        
+        // Update message with attempt count
+        if (i % 5 === 0 && i > 0) {
+          setMintState(prev => ({ ...prev, pollingMessage: `Confirming USDC approval... (${i * 2}s)` }));
+        }
       }
+
+      setMintState(prev => ({ ...prev, isApprovingUSDC: false, pollingMessage: null }));
 
       if (!receipt || receipt.status !== '0x1') {
         return { success: false, error: 'USDC approval failed' };
@@ -733,6 +850,7 @@ export function useNFTMint() {
 
       return { success: true, error: null };
     } catch (error: any) {
+      setMintState(prev => ({ ...prev, isApprovingUSDC: false, pollingMessage: null }));
       if (error?.code === 4001) {
         return { success: false, error: 'Approval rejected by user' };
       }
@@ -741,7 +859,6 @@ export function useNFTMint() {
   }, [verifyBaseNetwork]);
 
   // ============ GET MINT PRICE ETH ============
-  // Issue #1: Use dedicated ETH price lock
   const getMintPriceETH = useCallback(async (): Promise<bigint> => {
     return safeRpcCall(async () => {
       const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getMintPriceETH', args: [] });
@@ -759,7 +876,6 @@ export function useNFTMint() {
   }, [safeRpcCall, decodeUint256Result]);
 
   // ============ GET MINT PRICE USDC ============
-  // Issue #1: Use dedicated USDC price lock
   const getMintPriceUSDC = useCallback(async (): Promise<bigint> => {
     return safeRpcCall(async () => {
       const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPriceUSDC', args: [] });
@@ -790,12 +906,21 @@ export function useNFTMint() {
       throw new Error('Invalid recipient address format');
     }
     
+    setMintState(prev => ({ ...prev, isWaitingForReceipt: true, pollingMessage: 'Confirming transaction...' }));
+    
     let receipt: any = null;
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 5;
     
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, 2000));
+      
+      // Update polling message
+      const seconds = (i + 1) * 2;
+      if (seconds % 10 === 0) {
+        setMintState(prev => ({ ...prev, pollingMessage: `Confirming transaction... (${seconds}s)` }));
+      }
+      
       try {
         // Try wallet first, fallback to RPC
         receipt = await window.ethereum!.request({
@@ -820,11 +945,14 @@ export function useNFTMint() {
         }
         
         if (consecutiveErrors >= maxConsecutiveErrors) {
+          setMintState(prev => ({ ...prev, isWaitingForReceipt: false, pollingMessage: null }));
           throw new Error('Unable to confirm transaction. Please check BaseScan manually.');
         }
         continue;
       }
     }
+
+    setMintState(prev => ({ ...prev, isWaitingForReceipt: false, pollingMessage: null }));
 
     if (!receipt) {
       throw new Error('Transaction confirmation timeout. Please check the transaction on BaseScan.');
@@ -884,8 +1012,7 @@ export function useNFTMint() {
   }, []);
 
   // ============ INTERNAL MINT EXECUTOR ============
-  // Issue #3: executeMint fetches fresh config and determines token internally
-  const executeMint = useCallback(async (
+  const executeMintInternal = useCallback(async (
     walletAddress: string,
     tokenURI: string | null,
     quantity: number
@@ -895,14 +1022,8 @@ export function useNFTMint() {
       return false;
     }
 
-    // Issue #8: Simple boolean lock
-    if (pendingMintRef.current) {
-      return false;
-    }
-    pendingMintRef.current = true;
-
     try {
-      // Issue #3: Fetch fresh config - token is determined here, not by caller
+      // Fetch fresh config and determine payment token
       const freshConfig = await fetchAdminConfig(true);
       const paymentToken = freshConfig.activePaymentToken;
       
@@ -924,6 +1045,7 @@ export function useNFTMint() {
         error: null,
         success: false,
         selectedPaymentToken: paymentToken,
+        pollingMessage: 'Preparing transaction...',
       }));
 
       let txHash: string;
@@ -938,11 +1060,13 @@ export function useNFTMint() {
           if (allowance < priceUSDC) {
             const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
             if (!approved) {
-              setMintState(prev => ({ ...prev, isMinting: false, error: approvalError }));
+              setMintState(prev => ({ ...prev, isMinting: false, error: approvalError, pollingMessage: null }));
               return false;
             }
           }
         }
+
+        setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
 
         const data = quantity === 1
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintWithUSDC', args: [tokenURI || ''] })
@@ -968,7 +1092,8 @@ export function useNFTMint() {
           supportsWalletSendCalls();
 
         if (canSponsor) {
-          // Issue #2 & #5: Sponsored mint is all-or-nothing - no fallback
+          setMintState(prev => ({ ...prev, pollingMessage: 'Requesting sponsored mint...' }));
+          
           try {
             const callId = await (window.ethereum as any).request({
               method: 'wallet_sendCalls',
@@ -985,7 +1110,8 @@ export function useNFTMint() {
               }],
             });
 
-            // Issue #5: Poll for confirmation - do not continue without confirmed tx
+            setMintState(prev => ({ ...prev, pollingMessage: 'Confirming sponsored transaction...' }));
+
             let confirmed = false;
             for (let i = 0; i < 60; i++) {
               try {
@@ -1007,19 +1133,48 @@ export function useNFTMint() {
                   throw statusErr;
                 }
               }
+              
+              // Update polling message
+              if (i % 5 === 0 && i > 0) {
+                setMintState(prev => ({ ...prev, pollingMessage: `Confirming sponsored transaction... (${i * 2}s)` }));
+              }
+              
               await new Promise(r => setTimeout(r, 2000));
             }
             
-            // Issue #5: If not confirmed, throw error - do NOT fabricate txHash
             if (!confirmed) {
-              throw new Error('Sponsored transaction was not confirmed. Please try again.');
+              // Fallback to normal transaction if sponsored mint times out
+              console.warn('[Mint] Sponsored mint timeout, falling back to normal transaction');
+              setMintState(prev => ({ ...prev, pollingMessage: 'Sponsored mint unavailable, using normal transaction...' }));
+              
+              txHash = await (window.ethereum as any).request({
+                method: 'eth_sendTransaction',
+                params: [{
+                  from: walletAddress,
+                  to: NFT_CONTRACT_ADDRESS,
+                  data,
+                  value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
+                }],
+              });
             }
           } catch (sponsorErr: any) {
-            // Issue #2: Do NOT fallback to paid transaction - abort entirely
-            console.error('[Mint] Sponsored transaction failed:', sponsorErr);
-            throw new Error(sponsorErr?.message || 'Sponsored mint failed. Please try again.');
+            // Fallback to normal transaction on sponsored mint failure
+            console.warn('[Mint] Sponsored transaction failed, falling back:', sponsorErr);
+            setMintState(prev => ({ ...prev, pollingMessage: 'Using normal transaction...' }));
+            
+            txHash = await (window.ethereum as any).request({
+              method: 'eth_sendTransaction',
+              params: [{
+                from: walletAddress,
+                to: NFT_CONTRACT_ADDRESS,
+                data,
+                value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
+              }],
+            });
           }
         } else {
+          setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+          
           txHash = await (window.ethereum as any).request({
             method: 'eth_sendTransaction',
             params: [{
@@ -1044,22 +1199,63 @@ export function useNFTMint() {
         tokenIds: tokenIds.length > 0 ? tokenIds : null,
         success,
         isSponsored,
+        pollingMessage: null,
       }));
 
       if (success) notifyMinted(walletAddress, tokenIds, txHash!);
       return success;
     } catch (error: unknown) {
       console.error('[Mint] Error:', error);
-      setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error) }));
+      setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error), pollingMessage: null }));
       return false;
-    } finally {
-      // Issue #8: Always release lock
-      pendingMintRef.current = false;
     }
   }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, getBatchMintPriceETH, getMintPriceUSDC, getBatchMintPriceUSDC, checkUSDCAllowance, approveUSDC, waitForReceipt, notifyMinted]);
 
+  // ============ MINT QUEUE PROCESSOR ============
+  const processNextInQueue = useCallback(async () => {
+    if (isMintProcessingRef.current || mintQueueRef.current.length === 0) {
+      return;
+    }
+    
+    isMintProcessingRef.current = true;
+    const nextMint = mintQueueRef.current.shift();
+    
+    // Update queue position for remaining items
+    setMintState(prev => ({ ...prev, mintQueuePosition: mintQueueRef.current.length }));
+    
+    if (nextMint) {
+      await nextMint();
+    }
+    
+    isMintProcessingRef.current = false;
+    
+    // Process next if queue not empty
+    if (mintQueueRef.current.length > 0) {
+      processNextInQueue();
+    }
+  }, []);
+
+  // ============ QUEUE-BASED MINT EXECUTOR ============
+  const executeMint = useCallback(async (
+    walletAddress: string,
+    tokenURI: string | null,
+    quantity: number
+  ): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const mintTask = async () => {
+        const result = await executeMintInternal(walletAddress, tokenURI, quantity);
+        resolve(result);
+        return result;
+      };
+      
+      mintQueueRef.current.push(mintTask);
+      setMintState(prev => ({ ...prev, mintQueuePosition: mintQueueRef.current.length }));
+      
+      processNextInQueue();
+    });
+  }, [executeMintInternal, processNextInQueue]);
+
   // ============ PUBLIC MINT FUNCTIONS ============
-  // Issue #3: Do not pass token - executeMint determines it from fresh config
   const mintNFT = useCallback(async (tokenURI: string, walletAddress: string): Promise<boolean> => {
     return executeMint(walletAddress, tokenURI, 1);
   }, [executeMint]);
@@ -1076,7 +1272,7 @@ export function useNFTMint() {
     return executeMint(walletAddress, '', 1);
   }, [executeMint]);
 
-  // Issue #1: mintWithSignature now uses pendingMintRef lock and full enforcement
+  // mintWithSignature now uses the same queue system
   const mintWithSignature = useCallback(async (
     tokenURI: string,
     walletAddress: string,
@@ -1088,97 +1284,103 @@ export function useNFTMint() {
       return false;
     }
 
-    // Issue #1: Use same pendingMintRef lock as executeMint
-    if (pendingMintRef.current) {
-      return false;
-    }
-    pendingMintRef.current = true;
+    return new Promise((resolve) => {
+      const mintTask = async () => {
+        try {
+          const now = BigInt(Math.floor(Date.now() / 1000));
+          if (expiration <= now) {
+            setMintState(prev => ({ ...prev, error: 'Signature has expired' }));
+            resolve(false);
+            return false;
+          }
 
-    try {
-      const now = BigInt(Math.floor(Date.now() / 1000));
-      if (expiration <= now) {
-        setMintState(prev => ({ ...prev, error: 'Signature has expired' }));
-        return false;
-      }
+          // Fetch fresh config and enforce
+          const freshConfig = await fetchAdminConfig(true);
+          const paymentToken = freshConfig.activePaymentToken;
+          
+          // mintWithSignature is ETH only
+          if (paymentToken !== 'ETH') {
+            setMintState(prev => ({ ...prev, error: 'Only ETH payments are currently accepted for signature mints' }));
+            resolve(false);
+            return false;
+          }
 
-      // Issue #1: Fetch fresh config and enforce using same pattern as executeMint
-      const freshConfig = await fetchAdminConfig(true);
-      const paymentToken = freshConfig.activePaymentToken;
+          const { allowed, error } = await enforceMintAllowed(walletAddress, 'ETH');
+          if (!allowed) {
+            setMintState(prev => ({ ...prev, error }));
+            resolve(false);
+            return false;
+          }
+
+          const isBase = await verifyBaseNetwork();
+          if (!isBase) {
+            setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
+            resolve(false);
+            return false;
+          }
+
+          setMintState(prev => ({
+            ...prev,
+            isMinting: true,
+            error: null,
+            success: false,
+            selectedPaymentToken: 'ETH',
+            pollingMessage: 'Preparing signature mint...',
+          }));
+
+          const priceWei = await getMintPriceETH();
+          setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei), pollingMessage: 'Waiting for signature...' }));
+
+          // No sponsored mint for signature-based mints
+          const data = encodeFunctionData({
+            abi: CONTRACT_ABI,
+            functionName: 'mintWithSignature',
+            args: [tokenURI, expiration, signature],
+          });
+
+          const txHash = await (window.ethereum as any).request({
+            method: 'eth_sendTransaction',
+            params: [{
+              from: walletAddress,
+              to: NFT_CONTRACT_ADDRESS,
+              data,
+              value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
+            }],
+          });
+
+          setMintState(prev => ({ ...prev, txHash, isSponsored: false }));
+
+          const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
+
+          setMintState(prev => ({
+            ...prev,
+            isMinting: false,
+            txHash,
+            tokenId: tokenIds[0] || null,
+            tokenIds: tokenIds.length > 0 ? tokenIds : null,
+            success,
+            isSponsored: false,
+            pollingMessage: null,
+          }));
+
+          if (success) notifyMinted(walletAddress, tokenIds, txHash);
+          resolve(success);
+          return success;
+        } catch (error: unknown) {
+          console.error('[MintWithSignature] Error:', error);
+          setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error), pollingMessage: null }));
+          resolve(false);
+          return false;
+        }
+      };
       
-      // Issue #1: Enforce payment token - mintWithSignature is ETH only
-      if (paymentToken !== 'ETH') {
-        setMintState(prev => ({ ...prev, error: 'Only ETH payments are currently accepted for signature mints' }));
-        return false;
-      }
-
-      const { allowed, error, config } = await enforceMintAllowed(walletAddress, 'ETH');
-      if (!allowed) {
-        setMintState(prev => ({ ...prev, error }));
-        return false;
-      }
-
-      const isBase = await verifyBaseNetwork();
-      if (!isBase) {
-        setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
-        return false;
-      }
-
-      setMintState(prev => ({
-        ...prev,
-        isMinting: true,
-        error: null,
-        success: false,
-        selectedPaymentToken: 'ETH',
-      }));
-
-      const priceWei = await getMintPriceETH();
-      setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
-
-      // Issue #1: No sponsored mint for signature-based mints - always regular tx
-      const data = encodeFunctionData({
-        abi: CONTRACT_ABI,
-        functionName: 'mintWithSignature',
-        args: [tokenURI, expiration, signature],
-      });
-
-      const txHash = await (window.ethereum as any).request({
-        method: 'eth_sendTransaction',
-        params: [{
-          from: walletAddress,
-          to: NFT_CONTRACT_ADDRESS,
-          data,
-          value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
-        }],
-      });
-
-      setMintState(prev => ({ ...prev, txHash, isSponsored: false }));
-
-      const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
-
-      setMintState(prev => ({
-        ...prev,
-        isMinting: false,
-        txHash,
-        tokenId: tokenIds[0] || null,
-        tokenIds: tokenIds.length > 0 ? tokenIds : null,
-        success,
-        isSponsored: false,
-      }));
-
-      if (success) notifyMinted(walletAddress, tokenIds, txHash);
-      return success;
-    } catch (error: unknown) {
-      console.error('[MintWithSignature] Error:', error);
-      setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error) }));
-      return false;
-    } finally {
-      // Issue #1: Always release lock
-      pendingMintRef.current = false;
-    }
-  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, waitForReceipt, notifyMinted]);
+      mintQueueRef.current.push(mintTask);
+      setMintState(prev => ({ ...prev, mintQueuePosition: mintQueueRef.current.length }));
+      processNextInQueue();
+    });
+  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, waitForReceipt, notifyMinted, processNextInQueue]);
 
   // ============ BONUS CLAIM PRE-ELIGIBILITY CHECK ============
-  // Issue #6: Check eligibility before wallet prompt
   const checkBonusEligibility = useCallback(async (
     walletAddress: string,
     levelId: bigint
@@ -1220,7 +1422,12 @@ export function useNFTMint() {
       return { success: false, txHash: null, error: 'Wallet not connected' };
     }
 
-    // Issue #6: Check eligibility BEFORE wallet prompt
+    // Validate levelProof format
+    if (!levelProof || typeof levelProof !== 'string' || !levelProof.match(/^0x[a-fA-F0-9]*$/)) {
+      return { success: false, txHash: null, error: 'Invalid level proof format' };
+    }
+
+    // Check eligibility BEFORE wallet prompt
     const eligibility = await checkBonusEligibility(walletAddress, levelId);
     if (!eligibility.eligible) {
       return { success: false, txHash: null, error: eligibility.reason };
@@ -1236,7 +1443,7 @@ export function useNFTMint() {
       return { success: false, txHash: null, error: 'Please switch to Base network' };
     }
 
-    setMintState(prev => ({ ...prev, isClaiming: true, error: null }));
+    setMintState(prev => ({ ...prev, isClaiming: true, error: null, pollingMessage: 'Preparing claim...' }));
 
     try {
       const functionName = config.activePaymentToken === 'USDC' ? 'claimBonusAsUSDC' : 'claimBonus';
@@ -1247,10 +1454,14 @@ export function useNFTMint() {
         args: [levelId, gameLevel, levelProof],
       });
 
+      setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+
       const txHash = await (window.ethereum as any).request({
         method: 'eth_sendTransaction',
         params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
       }) as string;
+
+      setMintState(prev => ({ ...prev, pollingMessage: 'Confirming claim...' }));
 
       let receipt: any = null;
       for (let i = 0; i < 60; i++) {
@@ -1262,6 +1473,10 @@ export function useNFTMint() {
           });
           if (receipt) break;
         } catch { /* continue */ }
+        
+        if (i % 5 === 0 && i > 0) {
+          setMintState(prev => ({ ...prev, pollingMessage: `Confirming claim... (${i * 2}s)` }));
+        }
       }
 
       const success = receipt?.status === '0x1';
@@ -1272,12 +1487,13 @@ export function useNFTMint() {
         txHash,
         success,
         error: success ? null : 'Claim failed',
+        pollingMessage: null,
       }));
 
       return { success, txHash, error: success ? null : 'Claim failed' };
     } catch (error: unknown) {
       const errorMessage = decodeMintError(error);
-      setMintState(prev => ({ ...prev, isClaiming: false, error: errorMessage }));
+      setMintState(prev => ({ ...prev, isClaiming: false, error: errorMessage, pollingMessage: null }));
       return { success: false, txHash: null, error: errorMessage };
     }
   }, [checkBonusEligibility, enforceClaimAllowed, verifyBaseNetwork]);
@@ -1288,6 +1504,8 @@ export function useNFTMint() {
       ...prev,
       isMinting: false,
       isClaiming: false,
+      isWaitingForReceipt: false,
+      isApprovingUSDC: false,
       txHash: null,
       tokenId: null,
       tokenIds: null,
@@ -1296,8 +1514,11 @@ export function useNFTMint() {
       isSponsored: false,
       mintPriceEth: null,
       mintPriceUSDC: null,
+      pollingMessage: null,
+      mintQueuePosition: 0,
     }));
-    pendingMintRef.current = false;
+    mintQueueRef.current = [];
+    isMintProcessingRef.current = false;
     pendingEthPriceRef.current = false;
     pendingUsdcPriceRef.current = false;
   }, []);
