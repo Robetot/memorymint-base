@@ -2,9 +2,11 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult } from 'viem';
 
 // ============ CONFIGURATION ============
-// NEW: MemoryMintFeeAware contract address on Base Mainnet
-// TODO: Update this after deploying the new contract
 const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
+
+// Base Mainnet USDC address
+const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const USDC_DECIMALS = 6;
 
 // Base Mainnet Chain ID
 const BASE_CHAIN_ID = '0x2105'; // 8453
@@ -19,27 +21,47 @@ const RPC_ENDPOINTS = [
 // Coinbase Paymaster URL for Base Mainnet (sponsored transactions)
 const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/paymaster';
 
-// Rate limiting constants (Issue #8: Anti-bot protection)
-const MIN_MINT_INTERVAL_MS = 3000; // 3 seconds between mint attempts
+// Rate limiting constants
+const MIN_MINT_INTERVAL_MS = 3000;
 const MAX_MINTS_PER_SESSION = 20;
 
+// Payment token types
+export type PaymentToken = 'ETH' | 'USDC';
+
 // ============ CONTRACT ABI ============
-// Minimal ABI for MemoryMintUltraSafe with USDC Oracle Pricing
+// Dual payment support: ETH (default) and USDC
 const CONTRACT_ABI = parseAbi([
+  // ETH payment functions
   'function mintNFT(string tokenURI) payable returns (uint256)',
   'function mintWithSignature(string tokenURI, uint256 expiration, bytes signature) payable returns (uint256)',
   'function batchMint(uint256 quantity) payable returns (uint256)',
+  // USDC payment functions
+  'function mintWithUSDC(string tokenURI) returns (uint256)',
+  'function batchMintWithUSDC(uint256 quantity) returns (uint256)',
+  // Bonus claim functions (ETH or USDC payout)
   'function claimBonus(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
-  // Issue #1: Use getMintPriceETH as source of truth, not mintPrice
+  'function claimBonusAsUSDC(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
+  // Price getters - ETH (oracle-derived)
   'function mintPriceUSDC() view returns (uint256)',
   'function getMintPriceETH() view returns (uint256)',
   'function getBatchMintPriceETH(uint256 quantity) view returns (uint256)',
+  // Price getters - USDC (canonical)
+  'function getBatchMintPriceUSDC(uint256 quantity) view returns (uint256)',
+  // Oracle
   'function getEthUsdPrice() view returns (uint256)',
+  // Bonus
   'function getBonusAmountETH(uint256 levelId) view returns (uint256)',
+  'function getBonusAmountUSDC(uint256 levelId) view returns (uint256)',
   'function canClaimBonus(address user, uint256 levelId) view returns (bool, string)',
   'function getBonusLevel(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
-  'function bonusLevels(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
+  'function bonusLevels(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool, uint8)',
   'function owner() view returns (address)',
+]);
+
+// ERC20 ABI for USDC approval
+const ERC20_ABI = parseAbi([
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function allowance(address owner, address spender) view returns (uint256)',
 ]);
 
 // Custom errors for precise UX messaging
@@ -52,12 +74,12 @@ const CONTRACT_ERROR_ABI = parseAbi([
   'error MaxBatchExceeded()',
   'error TransferToNonReceiver()',
   'error InsufficientPayment()',
+  'error InsufficientUSDCAllowance()',
   'error WithdrawFailed()',
   'error ClaimNotActive()',
   'error AlreadyClaimed()',
   'error NotEligible()',
   'error InvalidLevelProof()',
-  // Issue #7: Oracle-specific errors for user-friendly messaging
   'error OracleStalePrice()',
   'error OracleInvalidPrice()',
   'error OracleNotSet()',
@@ -75,6 +97,7 @@ export interface MintState {
   isSponsored: boolean;
   mintPriceEth: string | null;
   mintPriceUSDC: string | null;
+  selectedPaymentToken: PaymentToken;
 }
 
 export interface BonusClaimState {
@@ -83,12 +106,13 @@ export interface BonusClaimState {
   error: string | null;
   success: boolean;
   amountClaimed: string | null;
+  payoutToken: PaymentToken;
 }
 
 export interface PriceInfo {
   ethPrice: bigint;       // ETH/USD price (8 decimals from Chainlink)
-  mintPriceUSDC: bigint;  // Mint price in USDC (6 decimals)
-  mintPriceETH: bigint;   // Mint price in ETH (18 decimals)
+  mintPriceUSDC: bigint;  // Mint price in USDC (6 decimals) - CANONICAL
+  mintPriceETH: bigint;   // Mint price in ETH (18 decimals) - oracle-derived
   mintPriceUSDCFormatted: string;
   mintPriceETHFormatted: string;
 }
@@ -98,6 +122,7 @@ export interface BalanceCheck {
   balance: string;
   required: string;
   shortfall: string | null;
+  token: PaymentToken;
 }
 
 // ============ HELPER FUNCTIONS ============
@@ -110,10 +135,26 @@ function encodeMintNFTCallData(tokenURI: string): `0x${string}` {
   });
 }
 
+function encodeMintWithUSDCCallData(tokenURI: string): `0x${string}` {
+  return encodeFunctionData({
+    abi: CONTRACT_ABI,
+    functionName: 'mintWithUSDC',
+    args: [tokenURI],
+  });
+}
+
 function encodeBatchMintCallData(quantity: number): `0x${string}` {
   return encodeFunctionData({
     abi: CONTRACT_ABI,
     functionName: 'batchMint',
+    args: [BigInt(quantity)],
+  });
+}
+
+function encodeBatchMintWithUSDCCallData(quantity: number): `0x${string}` {
+  return encodeFunctionData({
+    abi: CONTRACT_ABI,
+    functionName: 'batchMintWithUSDC',
     args: [BigInt(quantity)],
   });
 }
@@ -236,6 +277,7 @@ export function useNFTMint() {
     isSponsored: false,
     mintPriceEth: null,
     mintPriceUSDC: null,
+    selectedPaymentToken: 'ETH',
   });
   
   // Prevent double-minting on retries
@@ -314,9 +356,10 @@ export function useNFTMint() {
   // ============ SAFE ABI DECODE HELPER ============
   // Issue #1: eth_call returns ABI-encoded data, not raw values
   // Must use decodeFunctionResult instead of BigInt(result)
-  type ContractFunctionName = 'mintNFT' | 'mintWithSignature' | 'batchMint' | 'claimBonus' | 
-    'mintPriceUSDC' | 'getMintPriceETH' | 'getBatchMintPriceETH' | 'getEthUsdPrice' | 
-    'getBonusAmountETH' | 'canClaimBonus' | 'getBonusLevel' | 'bonusLevels' | 'owner';
+  type ContractFunctionName = 'mintNFT' | 'mintWithSignature' | 'batchMint' | 'mintWithUSDC' | 'batchMintWithUSDC' |
+    'claimBonus' | 'claimBonusAsUSDC' | 'mintPriceUSDC' | 'getMintPriceETH' | 'getBatchMintPriceETH' | 
+    'getBatchMintPriceUSDC' | 'getEthUsdPrice' | 'getBonusAmountETH' | 'getBonusAmountUSDC' |
+    'canClaimBonus' | 'getBonusLevel' | 'bonusLevels' | 'owner';
     
   const decodeUint256Result = useCallback((
     result: string,
@@ -406,6 +449,141 @@ export function useNFTMint() {
 
   // Legacy alias for backward compatibility
   const getMintPrice = getMintPriceETH;
+
+  // ============ USDC PRICE GETTERS ============
+  const getMintPriceUSDC = useCallback(async (): Promise<bigint> => {
+    if (pendingOracleReadRef.current) {
+      throw new Error('Price check in progress. Please wait.');
+    }
+    
+    pendingOracleReadRef.current = true;
+    
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'mintPriceUSDC',
+        args: [],
+      });
+
+      const result = await rpcCall('eth_call', [
+        { to: NFT_CONTRACT_ADDRESS, data },
+        'latest',
+      ]);
+
+      return decodeUint256Result(result, 'mintPriceUSDC');
+    } catch (error) {
+      console.error('[Mint] Failed to read mintPriceUSDC:', error);
+      throw new Error('Price feed temporarily unavailable. Please try again.');
+    } finally {
+      pendingOracleReadRef.current = false;
+    }
+  }, [decodeUint256Result]);
+
+  const getBatchMintPriceUSDC = useCallback(async (quantity: number): Promise<bigint> => {
+    if (pendingOracleReadRef.current) {
+      throw new Error('Price check in progress. Please wait.');
+    }
+    
+    pendingOracleReadRef.current = true;
+    
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getBatchMintPriceUSDC',
+        args: [BigInt(quantity)],
+      });
+
+      const result = await rpcCall('eth_call', [
+        { to: NFT_CONTRACT_ADDRESS, data },
+        'latest',
+      ]);
+
+      return decodeUint256Result(result, 'getBatchMintPriceUSDC');
+    } catch (error) {
+      console.error('[Mint] Failed to read getBatchMintPriceUSDC:', error);
+      throw new Error('Price feed temporarily unavailable. Please try again.');
+    } finally {
+      pendingOracleReadRef.current = false;
+    }
+  }, [decodeUint256Result]);
+
+  // ============ USDC ALLOWANCE & APPROVAL ============
+  const checkUSDCAllowance = useCallback(async (walletAddress: string): Promise<bigint> => {
+    try {
+      const data = encodeFunctionData({
+        abi: ERC20_ABI,
+        functionName: 'allowance',
+        args: [walletAddress as `0x${string}`, NFT_CONTRACT_ADDRESS as `0x${string}`],
+      });
+
+      const result = await rpcCall('eth_call', [
+        { to: USDC_ADDRESS, data },
+        'latest',
+      ]);
+
+      if (!result || result === '0x') return 0n;
+      return BigInt(result);
+    } catch (error) {
+      console.error('[USDC] Failed to check allowance:', error);
+      return 0n;
+    }
+  }, []);
+
+  const approveUSDC = useCallback(async (
+    walletAddress: string,
+    amount: bigint
+  ): Promise<{ success: boolean; txHash: string | null; error: string | null }> => {
+    try {
+      const data = encodeFunctionData({
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [NFT_CONTRACT_ADDRESS as `0x${string}`, amount],
+      });
+
+      const ethereum = window.ethereum as any;
+      const txHash = await ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: walletAddress,
+          to: USDC_ADDRESS,
+          data,
+        }],
+      }) as string;
+
+      console.log('[USDC] Approval tx submitted:', txHash);
+
+      // Wait for confirmation
+      let receipt: any = null;
+      let attempts = 0;
+      while (!receipt && attempts < 60) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          receipt = await ethereum.request({
+            method: 'eth_getTransactionReceipt',
+            params: [txHash],
+          });
+        } catch { /* continue */ }
+        attempts++;
+      }
+
+      if (!receipt || receipt.status !== '0x1') {
+        return { success: false, txHash, error: 'USDC approval failed' };
+      }
+
+      return { success: true, txHash, error: null };
+    } catch (error: any) {
+      console.error('[USDC] Approval error:', error);
+      if (error?.code === 4001) {
+        return { success: false, txHash: null, error: 'Approval rejected by user' };
+      }
+      return { success: false, txHash: null, error: 'USDC approval failed' };
+    }
+  }, []);
+
+  // ============ SET PAYMENT TOKEN ============
+  const setSelectedPaymentToken = useCallback((token: PaymentToken) => {
+    setMintState(prev => ({ ...prev, selectedPaymentToken: token }));
+  }, []);
 
   // ============ WAIT FOR RECEIPT ============
   const waitForReceipt = useCallback(
@@ -632,7 +810,8 @@ export function useNFTMint() {
       return false;
     }
 
-    setMintState({
+    setMintState(prev => ({
+      ...prev,
       isMinting: true,
       isClaiming: false,
       txHash: null,
@@ -643,7 +822,7 @@ export function useNFTMint() {
       isSponsored: false,
       mintPriceEth: null,
       mintPriceUSDC: null,
-    });
+    }));
 
     try {
       // Issue #1: Read price using getMintPriceETH (oracle-based)
@@ -671,7 +850,8 @@ export function useNFTMint() {
         mintCountSessionRef.current++;
       }
 
-      setMintState({
+      setMintState(prev => ({
+        ...prev,
         isMinting: false,
         isClaiming: false,
         txHash,
@@ -681,8 +861,7 @@ export function useNFTMint() {
         success,
         isSponsored,
         mintPriceEth,
-        mintPriceUSDC: null,
-      });
+      }));
 
       if (success) {
         notifyMinted(walletAddress, tokenIds, txHash);
@@ -743,7 +922,8 @@ export function useNFTMint() {
       return false;
     }
 
-    setMintState({
+    setMintState(prev => ({
+      ...prev,
       isMinting: true,
       isClaiming: false,
       txHash: null,
@@ -754,7 +934,7 @@ export function useNFTMint() {
       isSponsored: false,
       mintPriceEth: null,
       mintPriceUSDC: null,
-    });
+    }));
 
     try {
       // Issue #2: Get batch price from contract (no client-side multiplication)
@@ -782,7 +962,8 @@ export function useNFTMint() {
         mintCountSessionRef.current += quantity;
       }
 
-      setMintState({
+      setMintState(prev => ({
+        ...prev,
         isMinting: false,
         isClaiming: false,
         txHash,
@@ -792,8 +973,7 @@ export function useNFTMint() {
         success,
         isSponsored,
         mintPriceEth,
-        mintPriceUSDC: null,
-      });
+      }));
 
       if (success) {
         notifyMinted(walletAddress, tokenIds, txHash);
@@ -812,14 +992,229 @@ export function useNFTMint() {
     }
   }, [checkRateLimit, getBatchMintPriceETH, mintState.isMinting, notifyMinted, sendMintTransaction, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
 
+  // ============ MINT WITH USDC ============
+  const mintWithUSDC = useCallback(async (
+    tokenURI: string,
+    walletAddress: string
+  ): Promise<boolean> => {
+    if (!window.ethereum) {
+      setMintState(prev => ({ ...prev, error: 'No wallet detected' }));
+      return false;
+    }
+
+    if (!walletAddress) {
+      setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
+      return false;
+    }
+
+    const rateCheck = checkRateLimit();
+    if (!rateCheck.allowed) {
+      setMintState(prev => ({ ...prev, error: rateCheck.message || 'Please wait' }));
+      return false;
+    }
+
+    if (mintState.isMinting || pendingOracleReadRef.current) {
+      return false;
+    }
+
+    lastMintAttemptRef.current = Date.now();
+
+    const isBase = await verifyBaseNetwork();
+    if (!isBase) {
+      setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
+      return false;
+    }
+
+    setMintState(prev => ({
+      ...prev,
+      isMinting: true,
+      error: null,
+      success: false,
+      selectedPaymentToken: 'USDC',
+    }));
+
+    try {
+      // Get USDC price (canonical)
+      const priceUSDC = await getMintPriceUSDC();
+      const formattedUSDC = (Number(priceUSDC) / 1e6).toFixed(2);
+      setMintState(prev => ({ ...prev, mintPriceUSDC: `$${formattedUSDC}` }));
+
+      // Check and request USDC approval if needed
+      const currentAllowance = await checkUSDCAllowance(walletAddress);
+      if (currentAllowance < priceUSDC) {
+        console.log('[MintUSDC] Requesting USDC approval...');
+        const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
+        if (!approved) {
+          setMintState(prev => ({ ...prev, isMinting: false, error: approvalError || 'USDC approval failed' }));
+          return false;
+        }
+      }
+
+      // Encode USDC mint call
+      const data = encodeMintWithUSDCCallData(tokenURI);
+
+      const ethereum = window.ethereum as any;
+      const txHash = await ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: walletAddress,
+          to: NFT_CONTRACT_ADDRESS,
+          data,
+        }],
+      }) as string;
+
+      console.log('[MintUSDC] Transaction submitted:', txHash);
+      setMintState(prev => ({ ...prev, txHash }));
+
+      const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
+      await waitForOneConfirmation(blockNumber);
+
+      if (success) {
+        mintCountSessionRef.current++;
+      }
+
+      setMintState(prev => ({
+        ...prev,
+        isMinting: false,
+        txHash,
+        tokenId: tokenIds[0] || null,
+        tokenIds: tokenIds.length > 0 ? tokenIds : null,
+        error: null,
+        success,
+      }));
+
+      if (success) {
+        notifyMinted(walletAddress, tokenIds, txHash);
+      }
+
+      return success;
+    } catch (error: unknown) {
+      console.error('[MintUSDC] Error:', error);
+      setMintState(prev => ({
+        ...prev,
+        isMinting: false,
+        error: decodeMintError(error),
+      }));
+      return false;
+    }
+  }, [checkRateLimit, getMintPriceUSDC, checkUSDCAllowance, approveUSDC, mintState.isMinting, notifyMinted, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+
+  // ============ BATCH MINT WITH USDC ============
+  const batchMintWithUSDC = useCallback(async (
+    walletAddress: string,
+    quantity: number
+  ): Promise<boolean> => {
+    if (!window.ethereum || !walletAddress) {
+      setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
+      return false;
+    }
+
+    if (quantity < 1 || quantity > 10) {
+      setMintState(prev => ({ ...prev, error: 'Batch size must be 1-10' }));
+      return false;
+    }
+
+    const rateCheck = checkRateLimit();
+    if (!rateCheck.allowed) {
+      setMintState(prev => ({ ...prev, error: rateCheck.message || 'Please wait' }));
+      return false;
+    }
+
+    if (mintState.isMinting || pendingOracleReadRef.current) {
+      return false;
+    }
+
+    lastMintAttemptRef.current = Date.now();
+
+    const isBase = await verifyBaseNetwork();
+    if (!isBase) {
+      setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
+      return false;
+    }
+
+    setMintState(prev => ({
+      ...prev,
+      isMinting: true,
+      error: null,
+      success: false,
+      selectedPaymentToken: 'USDC',
+    }));
+
+    try {
+      const priceUSDC = await getBatchMintPriceUSDC(quantity);
+      const formattedUSDC = (Number(priceUSDC) / 1e6).toFixed(2);
+      setMintState(prev => ({ ...prev, mintPriceUSDC: `$${formattedUSDC}` }));
+
+      // Check and request USDC approval
+      const currentAllowance = await checkUSDCAllowance(walletAddress);
+      if (currentAllowance < priceUSDC) {
+        const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
+        if (!approved) {
+          setMintState(prev => ({ ...prev, isMinting: false, error: approvalError || 'USDC approval failed' }));
+          return false;
+        }
+      }
+
+      const data = encodeBatchMintWithUSDCCallData(quantity);
+
+      const ethereum = window.ethereum as any;
+      const txHash = await ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: walletAddress,
+          to: NFT_CONTRACT_ADDRESS,
+          data,
+        }],
+      }) as string;
+
+      setMintState(prev => ({ ...prev, txHash }));
+
+      const { success, tokenIds, blockNumber } = await waitForReceipt(txHash);
+      await waitForOneConfirmation(blockNumber);
+
+      if (success) {
+        mintCountSessionRef.current += quantity;
+      }
+
+      setMintState(prev => ({
+        ...prev,
+        isMinting: false,
+        txHash,
+        tokenId: tokenIds[0] || null,
+        tokenIds: tokenIds.length > 0 ? tokenIds : null,
+        error: null,
+        success,
+      }));
+
+      if (success) {
+        notifyMinted(walletAddress, tokenIds, txHash);
+      }
+
+      return success;
+    } catch (error: unknown) {
+      console.error('[BatchMintUSDC] Error:', error);
+      setMintState(prev => ({
+        ...prev,
+        isMinting: false,
+        error: decodeMintError(error),
+      }));
+      return false;
+    }
+  }, [checkRateLimit, getBatchMintPriceUSDC, checkUSDCAllowance, approveUSDC, mintState.isMinting, notifyMinted, verifyBaseNetwork, waitForOneConfirmation, waitForReceipt]);
+
   // ============ QUICK MINT (empty tokenURI) ============
   const quickMint = useCallback(async (walletAddress: string): Promise<boolean> => {
     return mintNFT('', walletAddress);
   }, [mintNFT]);
 
+  const quickMintWithUSDC = useCallback(async (walletAddress: string): Promise<boolean> => {
+    return mintWithUSDC('', walletAddress);
+  }, [mintWithUSDC]);
+
   // ============ RESET STATE ============
   const resetMintState = useCallback(() => {
-    setMintState({
+    setMintState(prev => ({
+      ...prev,
       isMinting: false,
       isClaiming: false,
       txHash: null,
@@ -830,7 +1225,7 @@ export function useNFTMint() {
       isSponsored: false,
       mintPriceEth: null,
       mintPriceUSDC: null,
-    });
+    }));
     pendingMintRef.current = null;
   }, []);
 
@@ -884,6 +1279,7 @@ export function useNFTMint() {
         balance: balanceEth.toFixed(6),
         required: requiredEth.toFixed(6),
         shortfall,
+        token: 'ETH' as PaymentToken,
       };
     } catch (error) {
       console.error('[Balance] Check failed:', error);
@@ -1088,6 +1484,76 @@ export function useNFTMint() {
     }
   }, [canClaimBonus, verifyBaseNetwork, waitForReceipt]);
 
+  // ============ CLAIM BONUS AS USDC ============
+  const claimBonusAsUSDC = useCallback(async (
+    walletAddress: string,
+    levelId: bigint,
+    gameLevel: bigint,
+    levelProof: `0x${string}`
+  ): Promise<{ success: boolean; txHash: string | null; error: string | null }> => {
+    if (!window.ethereum) {
+      return { success: false, txHash: null, error: 'No wallet detected' };
+    }
+
+    if (!walletAddress) {
+      return { success: false, txHash: null, error: 'Wallet not connected' };
+    }
+
+    const isBase = await verifyBaseNetwork();
+    if (!isBase) {
+      return { success: false, txHash: null, error: 'Please switch to Base network' };
+    }
+
+    setMintState(prev => ({ ...prev, isClaiming: true, error: null }));
+
+    try {
+      const { canClaim, reason } = await canClaimBonus(walletAddress, levelId);
+      if (!canClaim) {
+        setMintState(prev => ({ ...prev, isClaiming: false, error: reason }));
+        return { success: false, txHash: null, error: reason };
+      }
+
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'claimBonusAsUSDC',
+        args: [levelId, gameLevel, levelProof],
+      });
+
+      const ethereum = window.ethereum as any;
+      const txHash = await ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: walletAddress,
+          to: NFT_CONTRACT_ADDRESS,
+          data,
+        }],
+      }) as string;
+
+      console.log('[ClaimBonusUSDC] Transaction submitted:', txHash);
+
+      const { success } = await waitForReceipt(txHash);
+
+      setMintState(prev => ({
+        ...prev,
+        isClaiming: false,
+        txHash,
+        success,
+        error: success ? null : 'Claim failed',
+      }));
+
+      return { success, txHash, error: success ? null : 'Claim failed' };
+    } catch (error: unknown) {
+      console.error('[ClaimBonusUSDC] Error:', error);
+      const errorMessage = decodeMintError(error);
+      setMintState(prev => ({
+        ...prev,
+        isClaiming: false,
+        error: errorMessage,
+      }));
+      return { success: false, txHash: null, error: errorMessage };
+    }
+  }, [canClaimBonus, verifyBaseNetwork, waitForReceipt]);
+
   // ============ GET BONUS LEVEL INFO (Issue #6: USDC as canonical, ETH from oracle) ============
   // Issue #2: Remove unsafe manual hex slicing, use proper ABI decoding
   const getBonusLevel = useCallback(async (levelId: bigint): Promise<{
@@ -1135,7 +1601,7 @@ export function useNFTMint() {
         });
         
         // Decoded tuple: [amountUSDC, active, claimsRemaining, minScore, requiresNFT]
-        const [amountUSDC, active, claimsRemaining, minScore, requiresNFT] = decoded as [bigint, boolean, bigint, bigint, boolean];
+        const [amountUSDC, active, claimsRemaining, minScore, requiresNFT] = decoded as readonly [bigint, boolean, bigint, bigint, boolean, number];
         
         // Issue #6: Get oracle-derived ETH amount with proper decoding
         const amountETH = decodeUint256Result(ethResult, 'getBonusAmountETH');
@@ -1178,25 +1644,45 @@ export function useNFTMint() {
 
   return {
     ...mintState,
+    // ETH mint functions
     mintNFT,
     batchMintNFT,
     quickMint,
+    // USDC mint functions
+    mintWithUSDC,
+    batchMintWithUSDC,
+    quickMintWithUSDC,
+    // Bonus claim (ETH or USDC payout)
     claimBonus,
+    claimBonusAsUSDC,
     canClaimBonus,
     getBonusLevel,
+    // State management
     resetMintState,
     getMintPriceEstimate,
     getPriceInfo,
     checkBalance,
-    // Issue #1: Expose oracle-based price functions
+    // ETH price functions (oracle-derived)
     getMintPriceETH,
     getBatchMintPriceETH,
     getMintPrice, // Legacy alias
+    // USDC price functions (canonical)
+    getMintPriceUSDC,
+    getBatchMintPriceUSDC,
+    // USDC approval
+    checkUSDCAllowance,
+    approveUSDC,
+    // Payment token selection
+    setSelectedPaymentToken,
+    // Formatting
     formatUSDC,
     getLevelProofMessage,
+    // Constants
     contractAddress: NFT_CONTRACT_ADDRESS,
+    usdcAddress: USDC_ADDRESS,
+    usdcDecimals: USDC_DECIMALS,
     supportsSponsorship: supportsWalletSendCalls(),
-    // Issue #8: Expose anti-bot helpers
+    // Anti-bot helpers
     checkRateLimit,
     canMint: !mintState.isMinting && !pendingOracleReadRef.current,
     canClaim: !mintState.isClaiming,
