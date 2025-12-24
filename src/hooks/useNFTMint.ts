@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult, decodeEventLog, formatEther, formatUnits } from 'viem';
+import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult, decodeEventLog, formatEther, formatUnits, maxUint256 } from 'viem';
 
 // ============ CONFIGURATION ============
 const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
@@ -18,7 +18,7 @@ const RPC_ENDPOINTS = [
   'https://base.meowrpc.com',
 ];
 
-// Coinbase Paymaster URL for Base Mainnet (sponsored transactions)
+// Coinbase Paymaster URL for Base Mainnet
 const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/paymaster';
 
 // Payment token types
@@ -79,7 +79,7 @@ const ERC721_TRANSFER_EVENT = {
   ],
 } as const;
 
-// Custom errors for precise UX messaging
+// Custom errors
 const CONTRACT_ERROR_ABI = parseAbi([
   'error NotOwner()',
   'error ZeroAddress()',
@@ -112,7 +112,7 @@ export interface AdminConfig {
   sponsoredMintEnabled: boolean;
   disabledReason: string | null;
   lastFetched: number;
-  isLoaded: boolean; // Issue #1: Track if config was successfully loaded
+  isLoaded: boolean;
 }
 
 export interface AntiBotConfig {
@@ -159,7 +159,6 @@ export interface BalanceCheck {
 }
 
 // ============ FAIL-CLOSED DEFAULTS ============
-// Issue #1: All admin controls default to DISABLED
 const FAIL_CLOSED_ADMIN_CONFIG: AdminConfig = {
   mintEnabled: false,
   claimEnabled: false,
@@ -171,13 +170,10 @@ const FAIL_CLOSED_ADMIN_CONFIG: AdminConfig = {
 };
 
 // ============ HELPER FUNCTIONS ============
-
-// Issue #9: Safe ETH formatting using formatEther
 function formatWeiToEth(wei: bigint): string {
   return formatEther(wei);
 }
 
-// Issue #9: Safe USDC formatting using formatUnits
 function formatUSDCAmount(amount: bigint): string {
   return `$${formatUnits(amount, USDC_DECIMALS)}`;
 }
@@ -214,9 +210,7 @@ function decodeMintError(error: unknown): string {
         case 'OracleNotSet': return 'Price feed temporarily unavailable. Please try again.';
         default: return `Transaction failed: ${decoded.errorName}`;
       }
-    } catch {
-      // Fall through
-    }
+    } catch { /* fall through */ }
   }
 
   const rawMsg: string | undefined = err?.data?.message || err?.error?.message || err?.message;
@@ -239,35 +233,25 @@ function supportsWalletSendCalls(): boolean {
   return !!(ethereum.isSmartWallet || ethereum.isPasskeyWallet || ethereum.isCoinbaseWallet);
 }
 
-// RPC call helper with fallback
 async function rpcCall(method: string, params: any[]): Promise<any> {
   for (const endpoint of RPC_ENDPOINTS) {
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: Date.now(),
-          method,
-          params,
-        }),
+        body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
       });
-      
       if (!response.ok) continue;
       const data = await response.json();
       if (data.error) continue;
       return data.result;
-    } catch {
-      continue;
-    }
+    } catch { continue; }
   }
   throw new Error('All RPC endpoints failed');
 }
 
 // ============ MAIN HOOK ============
 export function useNFTMint() {
-  // Issue #1: FAIL-CLOSED default state
   const [mintState, setMintState] = useState<MintState>({
     isMinting: false,
     isClaiming: false,
@@ -285,16 +269,19 @@ export function useNFTMint() {
     isLoadingConfig: true,
   });
   
-  // Issue #7: Oracle concurrency - use refs for reliable cleanup
-  const pendingOracleRef = useRef<boolean>(false);
+  // Issue #1: Split oracle locks by token type
+  const pendingEthPriceRef = useRef<boolean>(false);
+  const pendingUsdcPriceRef = useRef<boolean>(false);
   const pendingAdminConfigRef = useRef<boolean>(false);
-  const pendingMintRef = useRef<string | null>(null);
   
-  // Issue #14: Track chain to detect network switches
+  // Issue #8: Simplified boolean lock for pending mint
+  const pendingMintRef = useRef<boolean>(false);
+  
+  // Network switch tracking
   const currentChainRef = useRef<string | null>(null);
   const isNetworkSwitchingRef = useRef<boolean>(false);
 
-  // ============ SAFE RPC WRAPPER (Issue #7) ============
+  // ============ SAFE RPC WRAPPER ============
   const safeRpcCall = useCallback(async <T>(
     call: () => Promise<T>,
     pendingRef: React.MutableRefObject<boolean>,
@@ -311,17 +298,12 @@ export function useNFTMint() {
       if (errorDefault !== undefined) return errorDefault;
       throw error;
     } finally {
-      // Issue #7: ALWAYS reset pending flag
       pendingRef.current = false;
     }
   }, []);
 
-  // ============ ABI DECODE HELPER (Issue #8) ============
-  // Issue #8: FAIL-CLOSED - no fallback to BigInt
-  const decodeUint256Result = useCallback((
-    result: string,
-    functionName: string
-  ): bigint => {
+  // ============ ABI DECODE HELPER ============
+  const decodeUint256Result = useCallback((result: string, functionName: string): bigint => {
     if (!result || result === '0x') {
       throw new Error(`Empty response from ${functionName}`);
     }
@@ -334,15 +316,13 @@ export function useNFTMint() {
       });
       return decoded as bigint;
     } catch (error) {
-      // Issue #8: NO FALLBACK - fail closed
       console.error(`[Decode] Failed to decode ${functionName}:`, error);
       throw new Error(`Failed to decode ${functionName} response`);
     }
   }, []);
 
-  // ============ FETCH ADMIN CONFIG (Issue #1, #11) ============
+  // ============ FETCH ADMIN CONFIG ============
   const fetchAdminConfig = useCallback(async (force = false): Promise<AdminConfig> => {
-    // Issue #11: Always force refresh for critical operations
     return safeRpcCall(async () => {
       const calls = [
         { fn: 'mintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintEnabled', data: r as `0x${string}` }) as boolean },
@@ -360,12 +340,11 @@ export function useNFTMint() {
         })
       );
 
-      // Issue #1: If ANY critical call fails, return FAIL-CLOSED config
       const mintResult = results[0];
       const claimResult = results[1];
       
       if (mintResult.status === 'rejected' || claimResult.status === 'rejected') {
-        console.error('[AdminConfig] Critical config call failed - using fail-closed defaults');
+        console.error('[AdminConfig] Critical config call failed');
         return FAIL_CLOSED_ADMIN_CONFIG;
       }
 
@@ -398,7 +377,7 @@ export function useNFTMint() {
           } catch { /* use default */ }
         }
 
-        const config: AdminConfig = {
+        return {
           mintEnabled,
           claimEnabled,
           activePaymentToken,
@@ -407,9 +386,6 @@ export function useNFTMint() {
           lastFetched: Date.now(),
           isLoaded: true,
         };
-
-        console.log('[AdminConfig] Loaded:', config);
-        return config;
       } catch (error) {
         console.error('[AdminConfig] Decode failed:', error);
         return FAIL_CLOSED_ADMIN_CONFIG;
@@ -417,7 +393,7 @@ export function useNFTMint() {
     }, pendingAdminConfigRef, FAIL_CLOSED_ADMIN_CONFIG);
   }, [safeRpcCall]);
 
-  // ============ FETCH ANTI-BOT CONFIG (Issue #6) ============
+  // ============ FETCH ANTI-BOT CONFIG ============
   const fetchAntiBotConfig = useCallback(async (walletAddress: string): Promise<AntiBotConfig | null> => {
     try {
       const [cooldownData, lastMintData, countData, maxData] = await Promise.all([
@@ -444,7 +420,7 @@ export function useNFTMint() {
     }
   }, [decodeUint256Result]);
 
-  // ============ NETWORK VERIFICATION (Issue #14) ============
+  // ============ NETWORK VERIFICATION ============
   const verifyBaseNetwork = useCallback(async (): Promise<boolean> => {
     if (!window.ethereum) return false;
     if (isNetworkSwitchingRef.current) return false;
@@ -477,9 +453,7 @@ export function useNFTMint() {
               });
               currentChainRef.current = BASE_CHAIN_ID;
               return true;
-            } catch {
-              return false;
-            }
+            } catch { return false; }
           }
           return false;
         } finally {
@@ -487,46 +461,34 @@ export function useNFTMint() {
         }
       }
       return true;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   }, []);
 
-  // ============ PRE-MINT ENFORCEMENT (Issue #2, #3, #4, #6) ============
+  // ============ PRE-MINT ENFORCEMENT ============
   const enforceMintAllowed = useCallback(async (
     walletAddress: string,
     requiredToken: PaymentToken
   ): Promise<{ allowed: boolean; error: string | null; config: AdminConfig }> => {
-    // Issue #14: Block during network switch
     if (isNetworkSwitchingRef.current) {
       return { allowed: false, error: 'Network switch in progress', config: FAIL_CLOSED_ADMIN_CONFIG };
     }
 
-    // Issue #11: ALWAYS force refresh admin config before mint
+    // Issue #3: Always fetch fresh admin config - never rely on cached token
     const config = await fetchAdminConfig(true);
-    
     setMintState(prev => ({ ...prev, adminConfig: config, isLoadingConfig: false }));
 
-    // Issue #1: Fail-closed if config not loaded
     if (!config.isLoaded) {
       return { allowed: false, error: 'Admin configuration unavailable', config };
     }
 
-    // Issue #2: Check mint enabled
     if (!config.mintEnabled) {
       return { allowed: false, error: config.disabledReason || 'Minting is currently disabled', config };
     }
 
-    // Issue #3: Enforce admin-defined payment token
     if (config.activePaymentToken !== requiredToken) {
-      return { 
-        allowed: false, 
-        error: `Only ${config.activePaymentToken} payments are currently accepted`, 
-        config 
-      };
+      return { allowed: false, error: `Only ${config.activePaymentToken} payments are currently accepted`, config };
     }
 
-    // Issue #6: Check anti-bot enforcement
     const antiBot = await fetchAntiBotConfig(walletAddress);
     if (antiBot) {
       setMintState(prev => ({ ...prev, antiBotConfig: antiBot }));
@@ -543,7 +505,7 @@ export function useNFTMint() {
     return { allowed: true, error: null, config };
   }, [fetchAdminConfig, fetchAntiBotConfig]);
 
-  // Issue #4: Pre-claim enforcement
+  // ============ PRE-CLAIM ENFORCEMENT ============
   const enforceClaimAllowed = useCallback(async (): Promise<{ allowed: boolean; error: string | null; config: AdminConfig }> => {
     if (isNetworkSwitchingRef.current) {
       return { allowed: false, error: 'Network switch in progress', config: FAIL_CLOSED_ADMIN_CONFIG };
@@ -563,7 +525,7 @@ export function useNFTMint() {
     return { allowed: true, error: null, config };
   }, [fetchAdminConfig]);
 
-  // ============ CHECK USDC ALLOWANCE (Issue #8) ============
+  // ============ CHECK USDC ALLOWANCE ============
   const checkUSDCAllowance = useCallback(async (walletAddress: string): Promise<bigint> => {
     try {
       const data = encodeFunctionData({
@@ -576,7 +538,6 @@ export function useNFTMint() {
 
       if (!result || result === '0x') return 0n;
       
-      // Issue #8: Proper ABI decoding - no fallback
       const decoded = decodeFunctionResult({
         abi: ERC20_ABI,
         functionName: 'allowance',
@@ -590,15 +551,24 @@ export function useNFTMint() {
   }, []);
 
   // ============ APPROVE USDC ============
+  // Issue #7: Require Base network verification before approval
+  // Issue #4: Use MaxUint256 for approval to avoid price-change failures
   const approveUSDC = useCallback(async (
     walletAddress: string,
-    amount: bigint
+    _amount: bigint // Ignored - we use MaxUint256
   ): Promise<{ success: boolean; error: string | null }> => {
+    // Issue #7: Verify network before approval
+    const isBase = await verifyBaseNetwork();
+    if (!isBase) {
+      return { success: false, error: 'Please switch to Base network before approving USDC' };
+    }
+
     try {
+      // Issue #4: Approve MaxUint256 for stable approvals
       const data = encodeFunctionData({
         abi: ERC20_ABI,
         functionName: 'approve',
-        args: [NFT_CONTRACT_ADDRESS as `0x${string}`, amount],
+        args: [NFT_CONTRACT_ADDRESS as `0x${string}`, maxUint256],
       });
 
       const ethereum = window.ethereum as any;
@@ -607,7 +577,6 @@ export function useNFTMint() {
         params: [{ from: walletAddress, to: USDC_ADDRESS, data }],
       }) as string;
 
-      // Wait for confirmation
       let receipt: any = null;
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 2000));
@@ -631,15 +600,16 @@ export function useNFTMint() {
       }
       return { success: false, error: 'USDC approval failed' };
     }
-  }, []);
+  }, [verifyBaseNetwork]);
 
-  // ============ GET MINT PRICE (Issue #9) ============
+  // ============ GET MINT PRICE ETH ============
+  // Issue #1: Use dedicated ETH price lock
   const getMintPriceETH = useCallback(async (): Promise<bigint> => {
     return safeRpcCall(async () => {
       const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getMintPriceETH', args: [] });
       const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
       return decodeUint256Result(result, 'getMintPriceETH');
-    }, pendingOracleRef);
+    }, pendingEthPriceRef);
   }, [safeRpcCall, decodeUint256Result]);
 
   const getBatchMintPriceETH = useCallback(async (quantity: number): Promise<bigint> => {
@@ -647,15 +617,17 @@ export function useNFTMint() {
       const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getBatchMintPriceETH', args: [BigInt(quantity)] });
       const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
       return decodeUint256Result(result, 'getBatchMintPriceETH');
-    }, pendingOracleRef);
+    }, pendingEthPriceRef);
   }, [safeRpcCall, decodeUint256Result]);
 
+  // ============ GET MINT PRICE USDC ============
+  // Issue #1: Use dedicated USDC price lock
   const getMintPriceUSDC = useCallback(async (): Promise<bigint> => {
     return safeRpcCall(async () => {
       const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPriceUSDC', args: [] });
       const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
       return decodeUint256Result(result, 'mintPriceUSDC');
-    }, pendingOracleRef);
+    }, pendingUsdcPriceRef);
   }, [safeRpcCall, decodeUint256Result]);
 
   const getBatchMintPriceUSDC = useCallback(async (quantity: number): Promise<bigint> => {
@@ -663,10 +635,10 @@ export function useNFTMint() {
       const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getBatchMintPriceUSDC', args: [BigInt(quantity)] });
       const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
       return decodeUint256Result(result, 'getBatchMintPriceUSDC');
-    }, pendingOracleRef);
+    }, pendingUsdcPriceRef);
   }, [safeRpcCall, decodeUint256Result]);
 
-  // ============ WAIT FOR RECEIPT (Issue #10) ============
+  // ============ WAIT FOR RECEIPT ============
   const waitForReceipt = useCallback(async (
     txHash: string,
     expectedRecipient: string
@@ -687,7 +659,6 @@ export function useNFTMint() {
     if (!receipt) throw new Error('Transaction is still pending');
     if (receipt.status !== '0x1') throw new Error('Transaction failed on-chain');
 
-    // Issue #10: Robust token ID extraction using ABI decoding
     const logs = (receipt.logs as Array<{ address: string; topics: string[]; data: string }>) || [];
     const tokenIds: string[] = [];
     const zeroAddress = '0x0000000000000000000000000000000000000000';
@@ -702,7 +673,6 @@ export function useNFTMint() {
           topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
         }) as { eventName: string; args: { from: string; to: string; tokenId: bigint } };
         
-        // Issue #10: Only include mints (from = 0x0) to the expected recipient
         if (
           decoded.eventName === 'Transfer' &&
           decoded.args.from.toLowerCase() === zeroAddress.toLowerCase() &&
@@ -711,9 +681,7 @@ export function useNFTMint() {
         ) {
           tokenIds.push(decoded.args.tokenId.toString());
         }
-      } catch {
-        continue;
-      }
+      } catch { continue; }
     }
 
     return { success: true, tokenIds };
@@ -728,34 +696,35 @@ export function useNFTMint() {
     );
   }, []);
 
-  // ============ INTERNAL MINT EXECUTOR (Issue #12) ============
+  // ============ INTERNAL MINT EXECUTOR ============
+  // Issue #3: executeMint fetches fresh config and determines token internally
   const executeMint = useCallback(async (
     walletAddress: string,
     tokenURI: string | null,
-    quantity: number,
-    paymentToken: PaymentToken
+    quantity: number
   ): Promise<boolean> => {
     if (!window.ethereum || !walletAddress) {
       setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
       return false;
     }
 
-    // Issue #14: Prevent double-minting
-    const mintKey = `${walletAddress}-${Date.now()}`;
+    // Issue #8: Simple boolean lock
     if (pendingMintRef.current) {
       return false;
     }
-    pendingMintRef.current = mintKey;
+    pendingMintRef.current = true;
 
     try {
-      // Issue #2: Unified enforcement for ALL mint paths
+      // Issue #3: Fetch fresh config - token is determined here, not by caller
+      const freshConfig = await fetchAdminConfig(true);
+      const paymentToken = freshConfig.activePaymentToken;
+      
       const { allowed, error, config } = await enforceMintAllowed(walletAddress, paymentToken);
       if (!allowed) {
         setMintState(prev => ({ ...prev, error }));
         return false;
       }
 
-      // Verify network
       const isBase = await verifyBaseNetwork();
       if (!isBase) {
         setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
@@ -774,7 +743,6 @@ export function useNFTMint() {
       let isSponsored = false;
 
       if (paymentToken === 'USDC') {
-        // USDC mint path
         const priceUSDC = quantity === 1 ? await getMintPriceUSDC() : await getBatchMintPriceUSDC(quantity);
         setMintState(prev => ({ ...prev, mintPriceUSDC: formatUSDCAmount(priceUSDC) }));
 
@@ -798,7 +766,6 @@ export function useNFTMint() {
           params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
         });
       } else {
-        // ETH mint path
         const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
         setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
 
@@ -806,7 +773,6 @@ export function useNFTMint() {
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintNFT', args: [tokenURI || ''] })
           : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMint', args: [BigInt(quantity)] });
 
-        // Issue #5: Sponsored tx only if ALL conditions met
         const canSponsor = 
           priceWei === 0n && 
           config.sponsoredMintEnabled && 
@@ -815,6 +781,7 @@ export function useNFTMint() {
           supportsWalletSendCalls();
 
         if (canSponsor) {
+          // Issue #2 & #5: Sponsored mint is all-or-nothing - no fallback
           try {
             const callId = await (window.ethereum as any).request({
               method: 'wallet_sendCalls',
@@ -831,7 +798,8 @@ export function useNFTMint() {
               }],
             });
 
-            // Poll for confirmation
+            // Issue #5: Poll for confirmation - do not continue without confirmed tx
+            let confirmed = false;
             for (let i = 0; i < 60; i++) {
               try {
                 const status = await (window.ethereum as any).request({
@@ -841,28 +809,28 @@ export function useNFTMint() {
                 if (status?.status === 'CONFIRMED' && status?.receipts?.[0]?.transactionHash) {
                   txHash = status.receipts[0].transactionHash;
                   isSponsored = true;
+                  confirmed = true;
                   break;
                 }
-                if (status?.status === 'FAILED') throw new Error('Sponsored transaction failed');
-              } catch { /* continue */ }
+                if (status?.status === 'FAILED') {
+                  throw new Error('Sponsored transaction failed');
+                }
+              } catch (statusErr: any) {
+                if (statusErr?.message?.includes('Sponsored transaction failed')) {
+                  throw statusErr;
+                }
+              }
               await new Promise(r => setTimeout(r, 2000));
             }
             
-            if (!txHash!) {
-              txHash = callId;
-              isSponsored = true;
+            // Issue #5: If not confirmed, throw error - do NOT fabricate txHash
+            if (!confirmed) {
+              throw new Error('Sponsored transaction was not confirmed. Please try again.');
             }
-          } catch {
-            // Fallback to regular tx
-            txHash = await (window.ethereum as any).request({
-              method: 'eth_sendTransaction',
-              params: [{
-                from: walletAddress,
-                to: NFT_CONTRACT_ADDRESS,
-                data,
-                value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
-              }],
-            });
+          } catch (sponsorErr: any) {
+            // Issue #2: Do NOT fallback to paid transaction - abort entirely
+            console.error('[Mint] Sponsored transaction failed:', sponsorErr);
+            throw new Error(sponsorErr?.message || 'Sponsored mint failed. Please try again.');
           }
         } else {
           txHash = await (window.ethereum as any).request({
@@ -898,48 +866,49 @@ export function useNFTMint() {
       setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error) }));
       return false;
     } finally {
-      pendingMintRef.current = null;
+      // Issue #8: Always release lock
+      pendingMintRef.current = false;
     }
-  }, [enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, getBatchMintPriceETH, getMintPriceUSDC, getBatchMintPriceUSDC, checkUSDCAllowance, approveUSDC, waitForReceipt, notifyMinted]);
+  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, getBatchMintPriceETH, getMintPriceUSDC, getBatchMintPriceUSDC, checkUSDCAllowance, approveUSDC, waitForReceipt, notifyMinted]);
 
-  // ============ PUBLIC MINT FUNCTIONS (Issue #12: All go through executeMint) ============
+  // ============ PUBLIC MINT FUNCTIONS ============
+  // Issue #3: Do not pass token - executeMint determines it from fresh config
   const mintNFT = useCallback(async (tokenURI: string, walletAddress: string): Promise<boolean> => {
-    return executeMint(walletAddress, tokenURI, 1, mintState.adminConfig.activePaymentToken);
-  }, [executeMint, mintState.adminConfig.activePaymentToken]);
+    return executeMint(walletAddress, tokenURI, 1);
+  }, [executeMint]);
 
   const batchMintNFT = useCallback(async (walletAddress: string, quantity: number): Promise<boolean> => {
     if (quantity < 1 || quantity > 10) {
       setMintState(prev => ({ ...prev, error: 'Batch size must be 1-10' }));
       return false;
     }
-    return executeMint(walletAddress, null, quantity, mintState.adminConfig.activePaymentToken);
-  }, [executeMint, mintState.adminConfig.activePaymentToken]);
+    return executeMint(walletAddress, null, quantity);
+  }, [executeMint]);
 
   const quickMint = useCallback(async (walletAddress: string): Promise<boolean> => {
-    return executeMint(walletAddress, '', 1, mintState.adminConfig.activePaymentToken);
-  }, [executeMint, mintState.adminConfig.activePaymentToken]);
+    return executeMint(walletAddress, '', 1);
+  }, [executeMint]);
 
-  // Issue #13: Signature expiry pre-check
   const mintWithSignature = useCallback(async (
     tokenURI: string,
     walletAddress: string,
     expiration: bigint,
     signature: `0x${string}`
   ): Promise<boolean> => {
-    // Issue #13: Validate expiration before wallet prompt
     const now = BigInt(Math.floor(Date.now() / 1000));
     if (expiration <= now) {
       setMintState(prev => ({ ...prev, error: 'Signature has expired' }));
       return false;
     }
 
-    const { allowed, error, config } = await enforceMintAllowed(walletAddress, 'ETH');
+    // Issue #3: Fetch fresh config
+    const freshConfig = await fetchAdminConfig(true);
+    const { allowed, error } = await enforceMintAllowed(walletAddress, 'ETH');
     if (!allowed) {
       setMintState(prev => ({ ...prev, error }));
       return false;
     }
 
-    // Continue with signature mint...
     const isBase = await verifyBaseNetwork();
     if (!isBase) {
       setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
@@ -983,9 +952,41 @@ export function useNFTMint() {
       setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error) }));
       return false;
     }
-  }, [enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, waitForReceipt, notifyMinted]);
+  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, waitForReceipt, notifyMinted]);
 
-  // ============ BONUS CLAIM (Issue #4) ============
+  // ============ BONUS CLAIM PRE-ELIGIBILITY CHECK ============
+  // Issue #6: Check eligibility before wallet prompt
+  const checkBonusEligibility = useCallback(async (
+    walletAddress: string,
+    levelId: bigint
+  ): Promise<{ eligible: boolean; reason: string }> => {
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'canClaimBonus',
+        args: [walletAddress as `0x${string}`, levelId],
+      });
+
+      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+
+      if (!result || result === '0x') {
+        return { eligible: false, reason: 'Unable to check eligibility' };
+      }
+
+      const decoded = decodeFunctionResult({
+        abi: CONTRACT_ABI,
+        functionName: 'canClaimBonus',
+        data: result as `0x${string}`,
+      }) as [boolean, string];
+
+      return { eligible: decoded[0], reason: decoded[1] || (decoded[0] ? 'Eligible' : 'Not eligible') };
+    } catch (error) {
+      console.error('[ClaimBonus] Eligibility check failed:', error);
+      return { eligible: false, reason: 'Error checking eligibility' };
+    }
+  }, []);
+
+  // ============ BONUS CLAIM ============
   const claimBonus = useCallback(async (
     walletAddress: string,
     levelId: bigint,
@@ -996,7 +997,12 @@ export function useNFTMint() {
       return { success: false, txHash: null, error: 'Wallet not connected' };
     }
 
-    // Issue #4: ALWAYS check claim allowed before wallet prompt
+    // Issue #6: Check eligibility BEFORE wallet prompt
+    const eligibility = await checkBonusEligibility(walletAddress, levelId);
+    if (!eligibility.eligible) {
+      return { success: false, txHash: null, error: eligibility.reason };
+    }
+
     const { allowed, error, config } = await enforceClaimAllowed();
     if (!allowed) {
       return { success: false, txHash: null, error };
@@ -1010,7 +1016,6 @@ export function useNFTMint() {
     setMintState(prev => ({ ...prev, isClaiming: true, error: null }));
 
     try {
-      // Use admin-defined payout token
       const functionName = config.activePaymentToken === 'USDC' ? 'claimBonusAsUSDC' : 'claimBonus';
       
       const data = encodeFunctionData({
@@ -1024,7 +1029,6 @@ export function useNFTMint() {
         params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
       }) as string;
 
-      // Wait for confirmation
       let receipt: any = null;
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 2000));
@@ -1053,7 +1057,7 @@ export function useNFTMint() {
       setMintState(prev => ({ ...prev, isClaiming: false, error: errorMessage }));
       return { success: false, txHash: null, error: errorMessage };
     }
-  }, [enforceClaimAllowed, verifyBaseNetwork]);
+  }, [checkBonusEligibility, enforceClaimAllowed, verifyBaseNetwork]);
 
   // ============ RESET STATE ============
   const resetMintState = useCallback(() => {
@@ -1070,8 +1074,9 @@ export function useNFTMint() {
       mintPriceEth: null,
       mintPriceUSDC: null,
     }));
-    pendingMintRef.current = null;
-    pendingOracleRef.current = false;
+    pendingMintRef.current = false;
+    pendingEthPriceRef.current = false;
+    pendingUsdcPriceRef.current = false;
   }, []);
 
   // ============ REFRESH ADMIN CONFIG ============
@@ -1082,11 +1087,25 @@ export function useNFTMint() {
     return config;
   }, [fetchAdminConfig]);
 
+  // ============ BACKWARD COMPATIBILITY HELPERS ============
+  const getMintPriceEstimate = useCallback(async (quantity = 1) => {
+    const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
+    return { priceWei, priceEth: formatWeiToEth(priceWei), isFree: priceWei === 0n };
+  }, [getMintPriceETH, getBatchMintPriceETH]);
+
+  const checkBalance = useCallback(async (walletAddress: string, quantity = 1) => {
+    const balanceHex = await window.ethereum?.request({ method: 'eth_getBalance', params: [walletAddress, 'latest'] }) as string;
+    const balance = BigInt(balanceHex || '0');
+    const required = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
+    const hasEnough = balance >= required;
+    const shortfall = hasEnough ? null : formatWeiToEth(required - balance);
+    return { hasEnough, balance: formatWeiToEth(balance), required: formatWeiToEth(required), shortfall, token: 'ETH' as PaymentToken };
+  }, [getMintPriceETH, getBatchMintPriceETH]);
+
   // ============ INIT ============
   useEffect(() => {
     refreshAdminConfig();
     
-    // Issue #14: Listen for chain changes
     const handleChainChanged = () => {
       isNetworkSwitchingRef.current = true;
       resetMintState();
@@ -1107,45 +1126,25 @@ export function useNFTMint() {
     };
   }, [refreshAdminConfig, resetMintState]);
 
-  // Backward compatibility helpers
-  const getMintPriceEstimate = useCallback(async (quantity = 1) => {
-    const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
-    return { priceWei, priceEth: formatWeiToEth(priceWei), isFree: priceWei === 0n };
-  }, [getMintPriceETH, getBatchMintPriceETH]);
-
-  const checkBalance = useCallback(async (walletAddress: string, quantity = 1) => {
-    const balanceHex = await window.ethereum?.request({ method: 'eth_getBalance', params: [walletAddress, 'latest'] }) as string;
-    const balance = BigInt(balanceHex || '0');
-    const required = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
-    const hasEnough = balance >= required;
-    const shortfall = hasEnough ? null : formatWeiToEth(required - balance);
-    return { hasEnough, balance: formatWeiToEth(balance), required: formatWeiToEth(required), shortfall, token: 'ETH' as PaymentToken };
-  }, [getMintPriceETH, getBatchMintPriceETH]);
-
   return {
     ...mintState,
-    // Mint functions
     mintNFT,
     batchMintNFT,
     quickMint,
     mintWithSignature,
-    // Claim function
     claimBonus,
-    // State management
+    checkBonusEligibility,
     resetMintState,
     refreshAdminConfig,
-    // Price getters
     getMintPriceETH,
     getBatchMintPriceETH,
     getMintPriceUSDC,
+    getBatchMintPriceUSDC,
     getMintPriceEstimate,
     checkBalance,
-    getBatchMintPriceUSDC,
-    // Utilities
     checkUSDCAllowance,
     approveUSDC,
     fetchAntiBotConfig,
-    // Constants
     NFT_CONTRACT_ADDRESS,
     USDC_ADDRESS,
     BASE_CHAIN_ID,
