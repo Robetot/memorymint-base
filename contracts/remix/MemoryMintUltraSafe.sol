@@ -3,11 +3,32 @@ pragma solidity ^0.8.20;
 
 /**
  * @title MemoryMintUltraSafe
- * @notice Ultra-safe, anti-bot, production-grade ERC-721 NFT contract with configurable claim bonus system
- * @dev Optimized for Base Mainnet, OpenSea, Farcaster, BaseApp, and Coinbase Smart Wallet compatibility
+ * @notice Ultra-safe, anti-bot, production-grade ERC-721 NFT contract with dual-currency support (ETH/USDC)
+ * @dev Optimized for Base Mainnet ONLY, OpenSea, Farcaster, BaseApp, and Coinbase Smart Wallet compatibility
  * @author MemoryMint Team
  * 
- * PRODUCTION FIXES APPLIED (v2):
+ * DUAL-CURRENCY UPDATE (v3):
+ * 
+ * FEATURE #1: ETH and USDC support for mint fees and bonus claims
+ *             → Admin can enable/disable each currency independently
+ *             → Admin can select active payment currency for minting
+ *             → Admin can select payout currency for bonus claims
+ * 
+ * FEATURE #2: Fully configurable pricing with no hard-coded values
+ *             → mintPriceUSDC and mintPriceETH both admin-adjustable
+ *             → Zero values allowed (free mints)
+ *             → No redeployment required for price changes
+ * 
+ * FEATURE #3: Secure USDC handling with IERC20 safe transfers
+ *             → Requires user approval before USDC usage
+ *             → Validates balances and transfers
+ *             → Prevents partial or failed payments
+ * 
+ * FEATURE #4: Base Mainnet only (chain ID 8453)
+ *             → Uses Base USDC: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+ *             → Hard-locked to Base Mainnet
+ * 
+ * PREVIOUS PRODUCTION FIXES (v2):
  * 
  * FIX #1: tx.origin disabled by default - only enforced in STRICT mode
  *         → Base App, Coinbase Smart Wallet, and Farcaster Frames now work out of the box
@@ -44,6 +65,14 @@ interface IERC721Receiver {
     ) external returns (bytes4);
 }
 
+interface IERC20 {
+    function balanceOf(address account) external view returns (uint256);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function allowance(address owner, address spender) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+
 // ============ CUSTOM ERRORS (Gas Optimized) ============
 
 error NotContractOwner();
@@ -76,6 +105,12 @@ error InsufficientBonusBalance();
 error ClaimCapReached();
 error LevelClaimCapReached(uint256 level);
 error InvalidLevelProof();
+error WrongChain(uint256 required, uint256 actual);
+error CurrencyNotEnabled();
+error USDCTransferFailed();
+error InsufficientUSDCBalance(uint256 required, uint256 available);
+error InsufficientUSDCAllowance(uint256 required, uint256 available);
+error InvalidCurrencySelection();
 
 // ============ MAIN CONTRACT ============
 
@@ -94,7 +129,7 @@ contract MemoryMintUltraSafe {
     
     // Admin Events
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event MintPriceUpdated(uint256 oldPrice, uint256 newPrice);
+    event MintPriceUpdated(PaymentCurrency currency, uint256 oldPrice, uint256 newPrice);
     event MintingPausedUpdated(bool paused);
     event EmergencyMintDisabledUpdated(bool disabled);
     event BaseURIUpdated(string newBaseURI);
@@ -110,15 +145,20 @@ contract MemoryMintUltraSafe {
     event SignatureExpirationUpdated(uint256 newExpiration);
     
     // Claim Bonus Events
-    event BonusLevelConfigured(uint256 indexed level, uint256 amount, uint256 claimsRemaining);
+    event BonusLevelConfigured(uint256 indexed level, uint256 amountETH, uint256 amountUSDC, uint256 claimsRemaining);
     event BonusLevelDeactivated(uint256 indexed level);
     event BonusLevelRemoved(uint256 indexed level);
-    event BonusClaimed(address indexed claimer, uint256 indexed level, uint256 amount);
+    event BonusClaimed(address indexed claimer, uint256 indexed level, uint256 amount, PaymentCurrency currency);
     event ClaimModeUpdated(ClaimMode mode);
     event ClaimCapUpdated(uint256 cap);
     event EligibilityRulesUpdated();
-    event BonusFundsDeposited(uint256 amount);
-    event BonusFundsWithdrawn(uint256 amount);
+    event BonusFundsDeposited(uint256 amount, PaymentCurrency currency);
+    event BonusFundsWithdrawn(uint256 amount, PaymentCurrency currency);
+    
+    // Currency Events
+    event CurrencyEnabledUpdated(PaymentCurrency currency, bool enabled);
+    event ActiveMintCurrencyUpdated(PaymentCurrency currency);
+    event ActiveBonusCurrencyUpdated(PaymentCurrency currency);
     
     // ============ ENUMS ============
     
@@ -138,10 +178,16 @@ contract MemoryMintUltraSafe {
         CUSTOM             // 4: Custom configuration
     }
     
+    enum PaymentCurrency {
+        ETH,               // 0: Native ETH
+        USDC               // 1: Base USDC (ERC-20)
+    }
+    
     // ============ STRUCTS ============
     
     struct BonusConfig {
-        uint256 amount;           // Bonus amount in wei
+        uint256 amountETH;        // Bonus amount in ETH (wei)
+        uint256 amountUSDC;       // Bonus amount in USDC (6 decimals)
         bool active;              // Is this level active
         uint256 claimsRemaining;  // For FCFS mode (0 = exhausted in FCFS)
         uint256 minScore;         // Minimum score required (0 = no requirement)
@@ -152,7 +198,8 @@ contract MemoryMintUltraSafe {
         uint256 mintCount;        // Total mints by this wallet
         uint256 lastMintBlock;    // Block number of last mint
         mapping(uint256 => bool) claimedLevels;  // Levels already claimed
-        uint256 totalClaimed;     // Total bonus amount claimed
+        uint256 totalClaimedETH;  // Total bonus amount claimed in ETH
+        uint256 totalClaimedUSDC; // Total bonus amount claimed in USDC
     }
     
     struct EligibilityRules {
@@ -160,6 +207,13 @@ contract MemoryMintUltraSafe {
         bool checkScore;          // Check score requirement
         bool checkNFTOwnership;   // Check NFT ownership
         bool useAndLogic;         // true = AND, false = OR
+    }
+    
+    struct CurrencyConfig {
+        bool ethEnabled;          // ETH payments enabled
+        bool usdcEnabled;         // USDC payments enabled
+        PaymentCurrency activeMintCurrency;   // Current mint payment currency
+        PaymentCurrency activeBonusCurrency;  // Current bonus payout currency
     }
     
     // ============ CONSTANTS ============
@@ -172,6 +226,12 @@ contract MemoryMintUltraSafe {
     
     // EIP-2 signature malleability bound
     uint256 private constant MAX_S_VALUE = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+    
+    // Base Mainnet chain ID
+    uint256 private constant BASE_MAINNET_CHAIN_ID = 8453;
+    
+    // Base USDC contract address (official)
+    address private constant BASE_USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     
     // ============ STORAGE ============
     
@@ -192,10 +252,14 @@ contract MemoryMintUltraSafe {
     mapping(address => mapping(address => bool)) private _operatorApprovals;
     mapping(uint256 => string) private _tokenURIs;
     
-    // Minting Configuration
-    uint256 public mintPrice;
+    // Minting Configuration - Dual Currency
+    uint256 public mintPriceETH;          // Mint price in ETH (wei)
+    uint256 public mintPriceUSDC;         // Mint price in USDC (6 decimals)
     bool public mintingPaused;
     bool public emergencyMintDisabled;
+    
+    // Currency Configuration
+    CurrencyConfig public currencyConfig;
     
     // Anti-Bot Configuration
     AntiBotMode public antiBotMode;
@@ -216,11 +280,12 @@ contract MemoryMintUltraSafe {
     uint256 public signatureExpirationSeconds;  // 0 = no expiration
     mapping(bytes32 => uint256) private _signatureUsedAt;  // messageHash => timestamp used
     
-    // Claim Bonus System
+    // Claim Bonus System - Dual Currency
     ClaimMode public claimMode;
     uint256 public totalClaimCap;          // 0 = unlimited
     uint256 public totalClaimsMade;
-    uint256 public bonusPoolBalance;
+    uint256 public bonusPoolBalanceETH;    // ETH bonus pool
+    uint256 public bonusPoolBalanceUSDC;   // USDC bonus pool
     EligibilityRules public eligibilityRules;
     
     mapping(uint256 => BonusConfig) public bonusLevels;
@@ -251,10 +316,17 @@ contract MemoryMintUltraSafe {
         _;
     }
     
+    modifier onlyBaseMainnet() {
+        if (block.chainid != BASE_MAINNET_CHAIN_ID) {
+            revert WrongChain(BASE_MAINNET_CHAIN_ID, block.chainid);
+        }
+        _;
+    }
+    
     // ============ CONSTRUCTOR ============
     
     /**
-     * @notice Deploy with production-safe defaults
+     * @notice Deploy with production-safe defaults on Base Mainnet
      * @dev FIX #5: Safe defaults for Base App / Smart Wallet / Farcaster compatibility
      */
     constructor(
@@ -285,6 +357,18 @@ contract MemoryMintUltraSafe {
         
         // Set owner as default signer
         signatureSigner = msg.sender;
+        
+        // Dual currency defaults - ETH enabled, USDC disabled by default
+        currencyConfig = CurrencyConfig({
+            ethEnabled: true,
+            usdcEnabled: false,
+            activeMintCurrency: PaymentCurrency.ETH,
+            activeBonusCurrency: PaymentCurrency.ETH
+        });
+        
+        // Default prices: 0 (free mints - admin can change)
+        mintPriceETH = 0;
+        mintPriceUSDC = 0;
         
         emit OwnershipTransferred(address(0), msg.sender);
     }
@@ -373,26 +457,130 @@ contract MemoryMintUltraSafe {
         _safeTransfer(from, to, tokenId, data);
     }
     
-    // ============ MINTING ============
+    // ============ MINTING - ETH ============
     
     /**
-     * @notice Mint without signature (only works if signatureRequired is false)
+     * @notice Mint with ETH without signature (only works if signatureRequired is false)
      */
     function mintNFT(string calldata metadataURI) 
         external 
         payable 
         nonReentrant 
         whenNotPaused 
+        onlyBaseMainnet
         returns (uint256) 
     {
         if (signatureRequired) revert InvalidSignature();
+        if (currencyConfig.activeMintCurrency != PaymentCurrency.ETH) revert CurrencyNotEnabled();
+        if (!currencyConfig.ethEnabled) revert CurrencyNotEnabled();
         
         _performAntiBotChecks(msg.sender);
         
-        if (msg.value < mintPrice) {
-            revert InsufficientPayment(mintPrice, msg.value);
+        if (msg.value < mintPriceETH) {
+            revert InsufficientPayment(mintPriceETH, msg.value);
         }
         
+        return _executeMint(msg.sender, metadataURI);
+    }
+    
+    /**
+     * @notice Mint with ETH and signature verification (recommended)
+     * @dev FIX #4: Signatures now include expiration timestamp
+     */
+    function mintWithSignature(
+        string calldata metadataURI,
+        uint256 expiration,
+        bytes calldata signature
+    ) 
+        external 
+        payable 
+        nonReentrant 
+        whenNotPaused 
+        onlyBaseMainnet
+        returns (uint256) 
+    {
+        if (currencyConfig.activeMintCurrency != PaymentCurrency.ETH) revert CurrencyNotEnabled();
+        if (!currencyConfig.ethEnabled) revert CurrencyNotEnabled();
+        
+        // Denylist check first
+        if (denylistEnabled && denylist[msg.sender]) {
+            revert AddressDenylisted();
+        }
+        
+        // Verify signature with expiration
+        _verifyMintSignature(msg.sender, expiration, signature);
+        
+        // Standard anti-bot checks (except denylist, already done)
+        _performAntiBotChecksForSignedMint(msg.sender);
+        
+        if (msg.value < mintPriceETH) {
+            revert InsufficientPayment(mintPriceETH, msg.value);
+        }
+        
+        return _executeMint(msg.sender, metadataURI);
+    }
+    
+    // ============ MINTING - USDC ============
+    
+    /**
+     * @notice Mint with USDC without signature (only works if signatureRequired is false)
+     * @dev Requires prior USDC approval to this contract
+     */
+    function mintWithUSDC(string calldata metadataURI) 
+        external 
+        nonReentrant 
+        whenNotPaused 
+        onlyBaseMainnet
+        returns (uint256) 
+    {
+        if (signatureRequired) revert InvalidSignature();
+        if (currencyConfig.activeMintCurrency != PaymentCurrency.USDC) revert CurrencyNotEnabled();
+        if (!currencyConfig.usdcEnabled) revert CurrencyNotEnabled();
+        
+        _performAntiBotChecks(msg.sender);
+        _processUSDCPayment(msg.sender, mintPriceUSDC);
+        
+        return _executeMint(msg.sender, metadataURI);
+    }
+    
+    /**
+     * @notice Mint with USDC and signature verification (recommended)
+     * @dev Requires prior USDC approval to this contract
+     */
+    function mintWithUSDCAndSignature(
+        string calldata metadataURI,
+        uint256 expiration,
+        bytes calldata signature
+    ) 
+        external 
+        nonReentrant 
+        whenNotPaused 
+        onlyBaseMainnet
+        returns (uint256) 
+    {
+        if (currencyConfig.activeMintCurrency != PaymentCurrency.USDC) revert CurrencyNotEnabled();
+        if (!currencyConfig.usdcEnabled) revert CurrencyNotEnabled();
+        
+        // Denylist check first
+        if (denylistEnabled && denylist[msg.sender]) {
+            revert AddressDenylisted();
+        }
+        
+        // Verify signature with expiration
+        _verifyMintSignature(msg.sender, expiration, signature);
+        
+        // Standard anti-bot checks (except denylist, already done)
+        _performAntiBotChecksForSignedMint(msg.sender);
+        
+        _processUSDCPayment(msg.sender, mintPriceUSDC);
+        
+        return _executeMint(msg.sender, metadataURI);
+    }
+    
+    /**
+     * @notice Internal mint execution (shared by ETH and USDC mints)
+     */
+    function _executeMint(address minter, string calldata metadataURI) internal returns (uint256) {
         // FCFS cap check
         uint256 totalMinted = _totalMinted;
         uint256 mintCap = fcfsMintCap;
@@ -409,14 +597,14 @@ contract MemoryMintUltraSafe {
         }
         
         // Update wallet data
-        WalletData storage walletData = _walletData[msg.sender];
+        WalletData storage walletData = _walletData[minter];
         unchecked {
             walletData.mintCount++;
         }
         walletData.lastMintBlock = block.number;
         
         // Mint
-        _mint(msg.sender, tokenId);
+        _mint(minter, tokenId);
         
         // Set custom URI if provided
         if (bytes(metadataURI).length > 0) {
@@ -428,73 +616,34 @@ contract MemoryMintUltraSafe {
     }
     
     /**
-     * @notice Mint with signature verification (recommended)
-     * @dev FIX #4: Signatures now include expiration timestamp
-     * @param metadataURI Token metadata URI
-     * @param expiration Signature expiration timestamp (0 = no expiration)
-     * @param signature Backend-signed approval
+     * @notice Process USDC payment with safety checks
      */
-    function mintWithSignature(
-        string calldata metadataURI,
-        uint256 expiration,
-        bytes calldata signature
-    ) 
-        external 
-        payable 
-        nonReentrant 
-        whenNotPaused 
-        returns (uint256) 
-    {
-        // Denylist check first
-        if (denylistEnabled && denylist[msg.sender]) {
-            revert AddressDenylisted();
+    function _processUSDCPayment(address payer, uint256 amount) internal {
+        if (amount == 0) return; // Free mint, no payment needed
+        
+        IERC20 usdc = IERC20(BASE_USDC);
+        
+        // Check balance
+        uint256 balance = usdc.balanceOf(payer);
+        if (balance < amount) {
+            revert InsufficientUSDCBalance(amount, balance);
         }
         
-        // Verify signature with expiration
-        _verifyMintSignature(msg.sender, expiration, signature);
-        
-        // Standard anti-bot checks (except denylist, already done)
-        _performAntiBotChecksForSignedMint(msg.sender);
-        
-        if (msg.value < mintPrice) {
-            revert InsufficientPayment(mintPrice, msg.value);
+        // Check allowance
+        uint256 allowed = usdc.allowance(payer, address(this));
+        if (allowed < amount) {
+            revert InsufficientUSDCAllowance(amount, allowed);
         }
         
-        // FCFS cap check
-        uint256 totalMinted = _totalMinted;
-        uint256 mintCap = fcfsMintCap;
-        if (mintCap > 0 && totalMinted >= mintCap) {
-            revert FCFSCapReached(mintCap);
-        }
-        
-        uint256 tokenId = _nextTokenId;
-        
-        // Update state
-        unchecked {
-            _nextTokenId = tokenId + 1;
-            _totalMinted = totalMinted + 1;
-        }
-        
-        WalletData storage walletData = _walletData[msg.sender];
-        unchecked {
-            walletData.mintCount++;
-        }
-        walletData.lastMintBlock = block.number;
-        
-        _mint(msg.sender, tokenId);
-        
-        if (bytes(metadataURI).length > 0) {
-            _tokenURIs[tokenId] = metadataURI;
-            emit MetadataUpdate(tokenId);
-        }
-        
-        return tokenId;
+        // Transfer USDC
+        bool success = usdc.transferFrom(payer, address(this), amount);
+        if (!success) revert USDCTransferFailed();
     }
     
     // ============ CLAIM BONUS SYSTEM ============
     
     /**
-     * @notice Claim bonus for completing a level
+     * @notice Claim bonus for completing a level (pays in admin-selected currency)
      * @dev FIX #2: Requires signed levelProof when eligibilityRules.checkLevel is enabled
      * @param level The bonus level ID to claim
      * @param gameLevel The game level completed (for verification)
@@ -509,19 +658,28 @@ contract MemoryMintUltraSafe {
     ) 
         external 
         nonReentrant 
+        onlyBaseMainnet
         returns (uint256) 
     {
         ClaimMode currentMode = claimMode;
         if (currentMode == ClaimMode.DISABLED) revert ClaimNotActive();
         
+        PaymentCurrency payoutCurrency = currencyConfig.activeBonusCurrency;
+        
+        // Validate payout currency is enabled
+        if (payoutCurrency == PaymentCurrency.ETH && !currencyConfig.ethEnabled) revert CurrencyNotEnabled();
+        if (payoutCurrency == PaymentCurrency.USDC && !currencyConfig.usdcEnabled) revert CurrencyNotEnabled();
+        
         // Cache storage reads
         BonusConfig storage config = bonusLevels[level];
         if (!config.active) revert InvalidBonusLevel();
         
-        uint256 bonusAmount = config.amount;
+        // Get bonus amount based on active payout currency
+        uint256 bonusAmount = payoutCurrency == PaymentCurrency.ETH ? config.amountETH : config.amountUSDC;
         if (bonusAmount == 0) revert InvalidBonusLevel();
         
-        uint256 currentPool = bonusPoolBalance;
+        // Check pool balance
+        uint256 currentPool = payoutCurrency == PaymentCurrency.ETH ? bonusPoolBalanceETH : bonusPoolBalanceUSDC;
         if (bonusAmount > currentPool) revert InsufficientBonusBalance();
         
         // Check total claim cap
@@ -555,8 +713,14 @@ contract MemoryMintUltraSafe {
         // ============ CEI PATTERN - ALL STATE UPDATES BEFORE EXTERNAL CALL ============
         
         // Update bonus pool
-        unchecked {
-            bonusPoolBalance = currentPool - bonusAmount;
+        if (payoutCurrency == PaymentCurrency.ETH) {
+            unchecked {
+                bonusPoolBalanceETH = currentPool - bonusAmount;
+            }
+        } else {
+            unchecked {
+                bonusPoolBalanceUSDC = currentPool - bonusAmount;
+            }
         }
         
         // Update total claims
@@ -568,8 +732,14 @@ contract MemoryMintUltraSafe {
         walletData.claimedLevels[level] = true;
         
         // Update wallet total claimed
-        unchecked {
-            walletData.totalClaimed += bonusAmount;
+        if (payoutCurrency == PaymentCurrency.ETH) {
+            unchecked {
+                walletData.totalClaimedETH += bonusAmount;
+            }
+        } else {
+            unchecked {
+                walletData.totalClaimedUSDC += bonusAmount;
+            }
         }
         
         // Decrement FCFS remaining
@@ -579,12 +749,18 @@ contract MemoryMintUltraSafe {
             }
         }
         
-        emit BonusClaimed(msg.sender, level, bonusAmount);
+        emit BonusClaimed(msg.sender, level, bonusAmount, payoutCurrency);
         
         // ============ EXTERNAL CALL LAST ============
         
-        (bool success, ) = payable(msg.sender).call{value: bonusAmount}("");
-        if (!success) revert WithdrawFailed();
+        if (payoutCurrency == PaymentCurrency.ETH) {
+            (bool success, ) = payable(msg.sender).call{value: bonusAmount}("");
+            if (!success) revert WithdrawFailed();
+        } else {
+            IERC20 usdc = IERC20(BASE_USDC);
+            bool success = usdc.transfer(msg.sender, bonusAmount);
+            if (!success) revert USDCTransferFailed();
+        }
         
         return bonusAmount;
     }
@@ -596,19 +772,25 @@ contract MemoryMintUltraSafe {
     function claimBonus(uint256 level, uint256 userScore) 
         external 
         nonReentrant 
+        onlyBaseMainnet
         returns (uint256) 
     {
         // For backwards compatibility when checkLevel is disabled
         ClaimMode currentMode = claimMode;
         if (currentMode == ClaimMode.DISABLED) revert ClaimNotActive();
         
+        PaymentCurrency payoutCurrency = currencyConfig.activeBonusCurrency;
+        
+        if (payoutCurrency == PaymentCurrency.ETH && !currencyConfig.ethEnabled) revert CurrencyNotEnabled();
+        if (payoutCurrency == PaymentCurrency.USDC && !currencyConfig.usdcEnabled) revert CurrencyNotEnabled();
+        
         BonusConfig storage config = bonusLevels[level];
         if (!config.active) revert InvalidBonusLevel();
         
-        uint256 bonusAmount = config.amount;
+        uint256 bonusAmount = payoutCurrency == PaymentCurrency.ETH ? config.amountETH : config.amountUSDC;
         if (bonusAmount == 0) revert InvalidBonusLevel();
         
-        uint256 currentPool = bonusPoolBalance;
+        uint256 currentPool = payoutCurrency == PaymentCurrency.ETH ? bonusPoolBalanceETH : bonusPoolBalanceUSDC;
         if (bonusAmount > currentPool) revert InsufficientBonusBalance();
         
         uint256 claimCap = totalClaimCap;
@@ -634,15 +816,30 @@ contract MemoryMintUltraSafe {
             revert NotEligible();
         }
         
+        if (payoutCurrency == PaymentCurrency.ETH) {
+            unchecked {
+                bonusPoolBalanceETH = currentPool - bonusAmount;
+            }
+        } else {
+            unchecked {
+                bonusPoolBalanceUSDC = currentPool - bonusAmount;
+            }
+        }
+        
         unchecked {
-            bonusPoolBalance = currentPool - bonusAmount;
             totalClaimsMade++;
         }
         
         walletData.claimedLevels[level] = true;
         
-        unchecked {
-            walletData.totalClaimed += bonusAmount;
+        if (payoutCurrency == PaymentCurrency.ETH) {
+            unchecked {
+                walletData.totalClaimedETH += bonusAmount;
+            }
+        } else {
+            unchecked {
+                walletData.totalClaimedUSDC += bonusAmount;
+            }
         }
         
         if (currentMode == ClaimMode.FCFS && remaining > 0) {
@@ -651,10 +848,16 @@ contract MemoryMintUltraSafe {
             }
         }
         
-        emit BonusClaimed(msg.sender, level, bonusAmount);
+        emit BonusClaimed(msg.sender, level, bonusAmount, payoutCurrency);
         
-        (bool success, ) = payable(msg.sender).call{value: bonusAmount}("");
-        if (!success) revert WithdrawFailed();
+        if (payoutCurrency == PaymentCurrency.ETH) {
+            (bool success, ) = payable(msg.sender).call{value: bonusAmount}("");
+            if (!success) revert WithdrawFailed();
+        } else {
+            IERC20 usdc = IERC20(BASE_USDC);
+            bool success = usdc.transfer(msg.sender, bonusAmount);
+            if (!success) revert USDCTransferFailed();
+        }
         
         return bonusAmount;
     }
@@ -662,18 +865,6 @@ contract MemoryMintUltraSafe {
     /**
      * @notice Check eligibility for bonus claim
      * @dev FIX #2: Enforces level verification via signed proof when checkLevel is enabled
-     * 
-     * SECURITY FIX #1 - SIGNATURE BOUND TO BONUS LEVEL:
-     * The level proof now includes both gameLevel AND bonus level (parameter 'level')
-     * This prevents cross-level replay attacks where a proof for one bonus level
-     * could be reused to claim a different bonus level.
-     * 
-     * Signed message includes:
-     * - wallet address
-     * - game level completed
-     * - bonus level ID (the level being claimed)
-     * - contract address
-     * - chain ID
      */
     function _checkEligibility(
         address wallet,
@@ -696,18 +887,6 @@ contract MemoryMintUltraSafe {
                 return false;  // No proof provided but required
             }
             
-            /**
-             * SECURITY FIX #1: Proof message now includes BONUS LEVEL ID
-             * 
-             * The signed hash includes:
-             * - wallet: The address claiming the bonus
-             * - gameLevel: The game level the player completed
-             * - level: The BONUS LEVEL ID being claimed (CRITICAL for cross-level replay prevention)
-             * - address(this): The contract address
-             * - block.chainid: The chain ID
-             * 
-             * This ensures a signature for (gameLevel=5, bonusLevel=1) cannot be used to claim bonusLevel=2
-             */
             bytes32 levelHash = keccak256(
                 abi.encodePacked(
                     wallet, 
@@ -778,7 +957,6 @@ contract MemoryMintUltraSafe {
         uint256 lastBlock = walletData.lastMintBlock;
         
         // FIX #1: tx.origin check ONLY in STRICT mode
-        // MODERATE mode does NOT use tx.origin (smart wallet compatible)
         if (mode == AntiBotMode.STRICT && txOriginCheck) {
             if (tx.origin != wallet) {
                 revert BotDetected();
@@ -849,36 +1027,15 @@ contract MemoryMintUltraSafe {
     /**
      * @notice Verify mint signature with expiration
      * @dev FIX #4: Signatures include expiration timestamp and are tracked for replay prevention
-     * 
-     * SECURITY FIX #2 - SIGNATURE EXPIRATION SEMANTICS:
-     * 
-     * The expiration parameter behavior is EXPLICITLY defined as follows:
-     * 
-     * - expiration == 0: NO EXPIRATION - signature is valid forever (until used)
-     *   This is intentional for backwards compatibility and cases where
-     *   time-limited signatures are not needed.
-     * 
-     * - expiration > 0: The signature expires at this Unix timestamp.
-     *   If block.timestamp > expiration, the signature is rejected.
-     * 
-     * NOTE: signatureExpirationSeconds is a HINT for backend signature generation,
-     * not enforced on-chain when expiration == 0.
      */
     function _verifyMintSignature(
         address wallet,
         uint256 expiration,
         bytes calldata signature
     ) internal {
-        /**
-         * SECURITY FIX #2: Explicit expiration semantics
-         * 
-         * expiration == 0: No expiration (valid forever until used)
-         * expiration > 0: Expires at this timestamp
-         */
         if (expiration > 0 && block.timestamp > expiration) {
             revert SignatureExpired();
         }
-        // Note: expiration == 0 intentionally allows signature to be valid forever
         
         // Build message hash with wallet binding
         bytes32 messageHash = keccak256(
@@ -934,12 +1091,66 @@ contract MemoryMintUltraSafe {
         return ecrecover(hash, v, r, s);
     }
     
+    // ============ ADMIN: CURRENCY CONFIGURATION ============
+    
+    /**
+     * @notice Enable or disable ETH payments
+     */
+    function setETHEnabled(bool enabled) external onlyOwner {
+        currencyConfig.ethEnabled = enabled;
+        emit CurrencyEnabledUpdated(PaymentCurrency.ETH, enabled);
+    }
+    
+    /**
+     * @notice Enable or disable USDC payments
+     */
+    function setUSDCEnabled(bool enabled) external onlyOwner {
+        currencyConfig.usdcEnabled = enabled;
+        emit CurrencyEnabledUpdated(PaymentCurrency.USDC, enabled);
+    }
+    
+    /**
+     * @notice Set active mint payment currency
+     * @dev Currency must be enabled before setting as active
+     */
+    function setActiveMintCurrency(PaymentCurrency currency) external onlyOwner {
+        if (currency == PaymentCurrency.ETH && !currencyConfig.ethEnabled) revert CurrencyNotEnabled();
+        if (currency == PaymentCurrency.USDC && !currencyConfig.usdcEnabled) revert CurrencyNotEnabled();
+        
+        currencyConfig.activeMintCurrency = currency;
+        emit ActiveMintCurrencyUpdated(currency);
+    }
+    
+    /**
+     * @notice Set active bonus payout currency
+     * @dev Currency must be enabled before setting as active
+     */
+    function setActiveBonusCurrency(PaymentCurrency currency) external onlyOwner {
+        if (currency == PaymentCurrency.ETH && !currencyConfig.ethEnabled) revert CurrencyNotEnabled();
+        if (currency == PaymentCurrency.USDC && !currencyConfig.usdcEnabled) revert CurrencyNotEnabled();
+        
+        currencyConfig.activeBonusCurrency = currency;
+        emit ActiveBonusCurrencyUpdated(currency);
+    }
+    
     // ============ ADMIN: MINTING ============
     
-    function setMintPrice(uint256 newPrice) external onlyOwner {
-        uint256 oldPrice = mintPrice;
-        mintPrice = newPrice;
-        emit MintPriceUpdated(oldPrice, newPrice);
+    /**
+     * @notice Set mint price in ETH (wei)
+     */
+    function setMintPriceETH(uint256 newPrice) external onlyOwner {
+        uint256 oldPrice = mintPriceETH;
+        mintPriceETH = newPrice;
+        emit MintPriceUpdated(PaymentCurrency.ETH, oldPrice, newPrice);
+    }
+    
+    /**
+     * @notice Set mint price in USDC (6 decimals)
+     */
+    function setMintPriceUSDC(uint256 newPrice) external onlyOwner {
+        uint256 oldPrice = mintPriceUSDC;
+        mintPriceUSDC = newPrice;
+        emit MintPriceUpdated(PaymentCurrency.USDC, oldPrice, newPrice);
     }
     
     function setBaseURI(string calldata newBaseURI) external onlyOwner {
@@ -1067,12 +1278,13 @@ contract MemoryMintUltraSafe {
     }
     
     /**
-     * @notice Configure a bonus level
+     * @notice Configure a bonus level with dual-currency amounts
      * @dev FIX #3: Now properly manages activeLevelIds array
      */
     function configureBonusLevel(
         uint256 level,
-        uint256 amount,
+        uint256 amountETH,
+        uint256 amountUSDC,
         bool active,
         uint256 claimsRemaining,
         uint256 minScore,
@@ -1081,7 +1293,8 @@ contract MemoryMintUltraSafe {
         BonusConfig storage config = bonusLevels[level];
         bool wasActive = config.active;
         
-        config.amount = amount;
+        config.amountETH = amountETH;
+        config.amountUSDC = amountUSDC;
         config.active = active;
         config.claimsRemaining = claimsRemaining;
         config.minScore = minScore;
@@ -1107,7 +1320,7 @@ contract MemoryMintUltraSafe {
             _removeFromActiveLevels(level);
         }
         
-        emit BonusLevelConfigured(level, amount, claimsRemaining);
+        emit BonusLevelConfigured(level, amountETH, amountUSDC, claimsRemaining);
     }
     
     /**
@@ -1156,23 +1369,66 @@ contract MemoryMintUltraSafe {
         emit EligibilityRulesUpdated();
     }
     
-    function depositBonusFunds() external payable onlyOwner {
-        bonusPoolBalance += msg.value;
-        emit BonusFundsDeposited(msg.value);
+    /**
+     * @notice Deposit ETH bonus funds
+     */
+    function depositBonusFundsETH() external payable onlyOwner {
+        bonusPoolBalanceETH += msg.value;
+        emit BonusFundsDeposited(msg.value, PaymentCurrency.ETH);
     }
     
-    function withdrawBonusFunds(uint256 amount) external onlyOwner nonReentrant {
-        uint256 currentPool = bonusPoolBalance;
+    /**
+     * @notice Deposit USDC bonus funds
+     * @dev Requires prior USDC approval
+     */
+    function depositBonusFundsUSDC(uint256 amount) external onlyOwner {
+        IERC20 usdc = IERC20(BASE_USDC);
+        
+        uint256 allowed = usdc.allowance(msg.sender, address(this));
+        if (allowed < amount) {
+            revert InsufficientUSDCAllowance(amount, allowed);
+        }
+        
+        bool success = usdc.transferFrom(msg.sender, address(this), amount);
+        if (!success) revert USDCTransferFailed();
+        
+        bonusPoolBalanceUSDC += amount;
+        emit BonusFundsDeposited(amount, PaymentCurrency.USDC);
+    }
+    
+    /**
+     * @notice Withdraw ETH bonus funds
+     */
+    function withdrawBonusFundsETH(uint256 amount) external onlyOwner nonReentrant {
+        uint256 currentPool = bonusPoolBalanceETH;
         if (amount > currentPool) revert InsufficientBonusBalance();
         
         unchecked {
-            bonusPoolBalance = currentPool - amount;
+            bonusPoolBalanceETH = currentPool - amount;
         }
         
         (bool success, ) = payable(_contractOwner).call{value: amount}("");
         if (!success) revert WithdrawFailed();
         
-        emit BonusFundsWithdrawn(amount);
+        emit BonusFundsWithdrawn(amount, PaymentCurrency.ETH);
+    }
+    
+    /**
+     * @notice Withdraw USDC bonus funds
+     */
+    function withdrawBonusFundsUSDC(uint256 amount) external onlyOwner nonReentrant {
+        uint256 currentPool = bonusPoolBalanceUSDC;
+        if (amount > currentPool) revert InsufficientBonusBalance();
+        
+        unchecked {
+            bonusPoolBalanceUSDC = currentPool - amount;
+        }
+        
+        IERC20 usdc = IERC20(BASE_USDC);
+        bool success = usdc.transfer(_contractOwner, amount);
+        if (!success) revert USDCTransferFailed();
+        
+        emit BonusFundsWithdrawn(amount, PaymentCurrency.USDC);
     }
     
     // ============ ADMIN: OWNERSHIP & FUNDS ============
@@ -1184,9 +1440,12 @@ contract MemoryMintUltraSafe {
         emit OwnershipTransferred(oldOwner, newOwner);
     }
     
-    function withdraw() external onlyOwner nonReentrant {
+    /**
+     * @notice Withdraw ETH (excluding bonus pool)
+     */
+    function withdrawETH() external onlyOwner nonReentrant {
         uint256 contractBalance = address(this).balance;
-        uint256 reserved = bonusPoolBalance;
+        uint256 reserved = bonusPoolBalanceETH;
         
         if (contractBalance <= reserved) revert WithdrawFailed();
         
@@ -1199,14 +1458,50 @@ contract MemoryMintUltraSafe {
         if (!success) revert WithdrawFailed();
     }
     
-    function emergencyWithdrawAll() external onlyOwner nonReentrant {
+    /**
+     * @notice Withdraw USDC (excluding bonus pool)
+     */
+    function withdrawUSDC() external onlyOwner nonReentrant {
+        IERC20 usdc = IERC20(BASE_USDC);
+        uint256 contractBalance = usdc.balanceOf(address(this));
+        uint256 reserved = bonusPoolBalanceUSDC;
+        
+        if (contractBalance <= reserved) revert WithdrawFailed();
+        
+        uint256 withdrawable;
+        unchecked {
+            withdrawable = contractBalance - reserved;
+        }
+        
+        bool success = usdc.transfer(_contractOwner, withdrawable);
+        if (!success) revert USDCTransferFailed();
+    }
+    
+    /**
+     * @notice Emergency withdraw all ETH
+     */
+    function emergencyWithdrawAllETH() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         if (balance == 0) revert WithdrawFailed();
         
-        bonusPoolBalance = 0;
+        bonusPoolBalanceETH = 0;
         
         (bool success, ) = payable(_contractOwner).call{value: balance}("");
         if (!success) revert WithdrawFailed();
+    }
+    
+    /**
+     * @notice Emergency withdraw all USDC
+     */
+    function emergencyWithdrawAllUSDC() external onlyOwner nonReentrant {
+        IERC20 usdc = IERC20(BASE_USDC);
+        uint256 balance = usdc.balanceOf(address(this));
+        if (balance == 0) revert WithdrawFailed();
+        
+        bonusPoolBalanceUSDC = 0;
+        
+        bool success = usdc.transfer(_contractOwner, balance);
+        if (!success) revert USDCTransferFailed();
     }
     
     // ============ VIEW FUNCTIONS ============
@@ -1243,19 +1538,72 @@ contract MemoryMintUltraSafe {
         return _walletData[wallet].claimedLevels[level];
     }
     
-    function getTotalClaimed(address wallet) external view returns (uint256) {
-        return _walletData[wallet].totalClaimed;
+    function getTotalClaimedETH(address wallet) external view returns (uint256) {
+        return _walletData[wallet].totalClaimedETH;
+    }
+    
+    function getTotalClaimedUSDC(address wallet) external view returns (uint256) {
+        return _walletData[wallet].totalClaimedUSDC;
     }
     
     function getActiveLevelIds() external view returns (uint256[] memory) {
         return activeLevelIds;
     }
     
+    /**
+     * @notice Get current mint price in active currency
+     */
+    function getCurrentMintPrice() external view returns (uint256 price, PaymentCurrency currency) {
+        currency = currencyConfig.activeMintCurrency;
+        price = currency == PaymentCurrency.ETH ? mintPriceETH : mintPriceUSDC;
+    }
+    
+    /**
+     * @notice Get bonus level config
+     */
+    function getBonusLevelConfig(uint256 level) external view returns (
+        uint256 amountETH,
+        uint256 amountUSDC,
+        bool active,
+        uint256 claimsRemaining,
+        uint256 minScore,
+        bool requiresNFT
+    ) {
+        BonusConfig storage config = bonusLevels[level];
+        return (
+            config.amountETH,
+            config.amountUSDC,
+            config.active,
+            config.claimsRemaining,
+            config.minScore,
+            config.requiresNFT
+        );
+    }
+    
+    /**
+     * @notice Get USDC contract address (Base Mainnet)
+     */
+    function getUSDCAddress() external pure returns (address) {
+        return BASE_USDC;
+    }
+    
+    /**
+     * @notice Check if on correct chain
+     */
+    function isBaseMainnet() external view returns (bool) {
+        return block.chainid == BASE_MAINNET_CHAIN_ID;
+    }
+    
     function canMint(address wallet) external view returns (bool canMintResult, string memory reason) {
+        if (block.chainid != BASE_MAINNET_CHAIN_ID) return (false, "Wrong chain - Base Mainnet only");
         if (mintingPaused) return (false, "Minting is paused");
         if (emergencyMintDisabled) return (false, "Emergency: minting disabled");
         if (denylistEnabled && denylist[wallet]) return (false, "Address is denylisted");
         if (allowlistEnabled && !allowlist[wallet]) return (false, "Address not allowlisted");
+        
+        PaymentCurrency currency = currencyConfig.activeMintCurrency;
+        if (currency == PaymentCurrency.ETH && !currencyConfig.ethEnabled) return (false, "ETH payments disabled");
+        if (currency == PaymentCurrency.USDC && !currencyConfig.usdcEnabled) return (false, "USDC payments disabled");
         
         WalletData storage walletData = _walletData[wallet];
         
@@ -1278,13 +1626,24 @@ contract MemoryMintUltraSafe {
     }
     
     function canClaim(address wallet, uint256 level, uint256 userScore) external view returns (bool canClaimResult, string memory reason) {
+        if (block.chainid != BASE_MAINNET_CHAIN_ID) return (false, "Wrong chain - Base Mainnet only");
+        
         ClaimMode currentMode = claimMode;
         if (currentMode == ClaimMode.DISABLED) return (false, "Claims are disabled");
         
+        PaymentCurrency payoutCurrency = currencyConfig.activeBonusCurrency;
+        if (payoutCurrency == PaymentCurrency.ETH && !currencyConfig.ethEnabled) return (false, "ETH payouts disabled");
+        if (payoutCurrency == PaymentCurrency.USDC && !currencyConfig.usdcEnabled) return (false, "USDC payouts disabled");
+        
         BonusConfig storage config = bonusLevels[level];
         if (!config.active) return (false, "Invalid bonus level");
-        if (config.amount == 0) return (false, "No bonus configured for level");
-        if (config.amount > bonusPoolBalance) return (false, "Insufficient bonus pool");
+        
+        uint256 bonusAmount = payoutCurrency == PaymentCurrency.ETH ? config.amountETH : config.amountUSDC;
+        if (bonusAmount == 0) return (false, "No bonus configured for level");
+        
+        uint256 poolBalance = payoutCurrency == PaymentCurrency.ETH ? bonusPoolBalanceETH : bonusPoolBalanceUSDC;
+        if (bonusAmount > poolBalance) return (false, "Insufficient bonus pool");
+        
         if (totalClaimCap > 0 && totalClaimsMade >= totalClaimCap) return (false, "Total claim cap reached");
         
         if (currentMode == ClaimMode.FCFS && config.claimsRemaining == 0) {
@@ -1418,26 +1777,10 @@ contract MemoryMintUltraSafe {
     // ============ RECEIVE ETH ============
     
     /**
-     * SECURITY FIX #3 - BONUS POOL FUNDING CLARITY:
-     * 
-     * Direct ETH transfers to this contract via receive() are EXPLICITLY
-     * added to the bonusPoolBalance. This is intentional behavior.
-     * 
-     * WHY THIS DESIGN:
-     * - Allows easy funding from any address (admin, multisig, external contracts)
-     * - Simplifies deposit workflow for non-technical users
-     * - Maintains compatibility with standard ETH transfers
-     * 
-     * AUDITABLE BEHAVIOR:
-     * - Every deposit emits BonusFundsDeposited(amount) event
-     * - bonusPoolBalance is publicly readable
-     * - All bonus pool changes are tracked via events
-     * 
-     * ALTERNATIVE:
-     * For admin-only funding, use depositBonusFunds() which requires onlyOwner
+     * @notice Direct ETH transfers go to the bonus pool
      */
     receive() external payable {
-        bonusPoolBalance += msg.value;
-        emit BonusFundsDeposited(msg.value);
+        bonusPoolBalanceETH += msg.value;
+        emit BonusFundsDeposited(msg.value, PaymentCurrency.ETH);
     }
 }
