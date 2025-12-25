@@ -81,17 +81,39 @@ export function useAuthenticatedMint() {
     );
   }, [authenticateAndMint, nftMint.quickMint]);
 
+  /**
+   * @notice Mint with ETH and signature verification
+   * @dev v4: Now requires nonce parameter for replay protection
+   */
   const mintWithSignature = useCallback(async (
     tokenURI: string,
     walletAddress: string,
+    nonce: bigint,
     expiration: bigint,
     signature: `0x${string}`
   ): Promise<boolean> => {
     return authenticateAndMint(
       walletAddress,
-      () => nftMint.mintWithSignature(tokenURI, walletAddress, expiration, signature)
+      () => nftMint.mintWithSignature(tokenURI, walletAddress, nonce, expiration, signature)
     );
   }, [authenticateAndMint, nftMint.mintWithSignature]);
+
+  /**
+   * @notice Mint with USDC and signature verification
+   * @dev v4: Now requires nonce parameter for replay protection
+   */
+  const mintWithUSDCAndSignature = useCallback(async (
+    tokenURI: string,
+    walletAddress: string,
+    nonce: bigint,
+    expiration: bigint,
+    signature: `0x${string}`
+  ): Promise<boolean> => {
+    return authenticateAndMint(
+      walletAddress,
+      () => nftMint.mintWithUSDCAndSignature(tokenURI, walletAddress, nonce, expiration, signature)
+    );
+  }, [authenticateAndMint, nftMint.mintWithUSDCAndSignature]);
 
   const claimBonus = useCallback(async (
     walletAddress: string,
@@ -129,6 +151,7 @@ export function useAuthenticatedMint() {
     batchMintNFT,
     quickMint,
     mintWithSignature,
+    mintWithUSDCAndSignature,
     claimBonus,
     
     // SIWE auth state

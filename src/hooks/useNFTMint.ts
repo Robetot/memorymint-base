@@ -31,11 +31,13 @@ export type DetectedWalletType = 'metamask' | 'coinbase' | 'baseapp' | 'farcaste
 const CONTRACT_ABI = parseAbi([
   // ETH payment functions
   'function mintNFT(string tokenURI) payable returns (uint256)',
-  'function mintWithSignature(string tokenURI, uint256 expiration, bytes signature) payable returns (uint256)',
+  // v4: Signature functions now require nonce for replay protection
+  'function mintWithSignature(string tokenURI, uint256 nonce, uint256 expiration, bytes signature) payable returns (uint256)',
   'function batchMint(uint256 quantity) payable returns (uint256)',
   // USDC payment functions
   'function mintWithUSDC(string tokenURI) returns (uint256)',
-  'function mintWithUSDCAndSignature(string tokenURI, uint256 expiration, bytes signature) returns (uint256)',
+  // v4: Signature functions now require nonce for replay protection
+  'function mintWithUSDCAndSignature(string tokenURI, uint256 nonce, uint256 expiration, bytes signature) returns (uint256)',
   'function batchMintWithUSDC(uint256 quantity) returns (uint256)',
   // Bonus claim functions
   'function claimBonus(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
@@ -67,6 +69,8 @@ const CONTRACT_ABI = parseAbi([
   'function lastMintTime(address) view returns (uint256)',
   'function walletMintCount(address) view returns (uint256)',
   'function maxMintsPerWallet() view returns (uint256)',
+  // v4: Nonce for replay protection
+  'function getNonce(address wallet) view returns (uint256)',
 ]);
 
 // ERC20 ABI for USDC
@@ -902,6 +906,27 @@ export function useNFTMint() {
     }, pendingUsdcPriceRef);
   }, [safeRpcCall, decodeUint256Result]);
 
+  // ============ GET NONCE (v4) ============
+  /**
+   * @notice Get current nonce for wallet address
+   * @dev v4: Required for signature-based minting replay protection
+   *      Frontend must call this before requesting signatures
+   */
+  const getNonce = useCallback(async (walletAddress: string): Promise<bigint> => {
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getNonce',
+        args: [walletAddress as `0x${string}`],
+      });
+      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+      return decodeUint256Result(result, 'getNonce');
+    } catch (error) {
+      console.error('[getNonce] Failed to fetch nonce:', error);
+      return 0n; // Default to 0 on error
+    }
+  }, [decodeUint256Result]);
+
   // ============ WAIT FOR RECEIPT (HARDENED) ============
   const waitForReceipt = useCallback(async (
     txHash: string,
@@ -1394,11 +1419,13 @@ export function useNFTMint() {
 
   /**
    * @notice Mint with USDC and signature verification
-   * @dev Requires prior USDC approval - will auto-approve if needed
+   * @dev v4: Now requires nonce parameter for replay protection
+   *      Requires prior USDC approval - will auto-approve if needed
    */
   const mintWithUSDCAndSignature = useCallback(async (
     tokenURI: string,
     walletAddress: string,
+    nonce: bigint,
     expiration: bigint,
     signature: `0x${string}`
   ): Promise<boolean> => {
@@ -1467,10 +1494,11 @@ export function useNFTMint() {
 
           setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
 
+          // v4: Include nonce in function call
           const data = encodeFunctionData({
             abi: CONTRACT_ABI,
             functionName: 'mintWithUSDCAndSignature',
-            args: [tokenURI, expiration, signature],
+            args: [tokenURI, nonce, expiration, signature],
           });
 
           const txHash = await (window.ethereum as any).request({
@@ -1510,10 +1538,14 @@ export function useNFTMint() {
     });
   }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceUSDC, checkUSDCAllowance, approveUSDC, waitForReceipt, notifyMinted, processNextInQueue]);
 
-  // mintWithSignature now uses the same queue system
+  /**
+   * @notice Mint with ETH and signature verification
+   * @dev v4: Now requires nonce parameter for replay protection
+   */
   const mintWithSignature = useCallback(async (
     tokenURI: string,
     walletAddress: string,
+    nonce: bigint,
     expiration: bigint,
     signature: `0x${string}`
   ): Promise<boolean> => {
@@ -1569,11 +1601,11 @@ export function useNFTMint() {
           const priceWei = await getMintPriceETH();
           setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei), pollingMessage: 'Waiting for signature...' }));
 
-          // No sponsored mint for signature-based mints
+          // v4: Include nonce in function call
           const data = encodeFunctionData({
             abi: CONTRACT_ABI,
             functionName: 'mintWithSignature',
-            args: [tokenURI, expiration, signature],
+            args: [tokenURI, nonce, expiration, signature],
           });
 
           const txHash = await (window.ethereum as any).request({
@@ -1844,6 +1876,8 @@ export function useNFTMint() {
     checkBalance,
     checkUSDCAllowance,
     approveUSDC,
+    // v4: Nonce for replay protection
+    getNonce,
     // Anti-bot
     fetchAntiBotConfig,
     // SIWE
