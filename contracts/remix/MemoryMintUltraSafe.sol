@@ -617,6 +617,7 @@ contract MemoryMintUltraSafe {
     
     /**
      * @notice Process USDC payment with safety checks
+     * @dev HARDENED: Uses low-level call to handle non-standard ERC20 returns (SafeERC20 pattern)
      */
     function _processUSDCPayment(address payer, uint256 amount) internal {
         if (amount == 0) return; // Free mint, no payment needed
@@ -635,9 +636,30 @@ contract MemoryMintUltraSafe {
             revert InsufficientUSDCAllowance(amount, allowed);
         }
         
-        // Transfer USDC
-        bool success = usdc.transferFrom(payer, address(this), amount);
-        if (!success) revert USDCTransferFailed();
+        // HARDENED: Safe transferFrom using low-level call to handle non-standard ERC20 returns
+        // Base USDC is standard, but this protects against edge cases
+        (bool callSuccess, bytes memory returnData) = BASE_USDC.call(
+            abi.encodeWithSelector(IERC20.transferFrom.selector, payer, address(this), amount)
+        );
+        
+        // Check call succeeded and either returned true or returned nothing (non-standard ERC20)
+        if (!callSuccess || (returnData.length > 0 && !abi.decode(returnData, (bool)))) {
+            revert USDCTransferFailed();
+        }
+    }
+    
+    /**
+     * @notice Safe USDC transfer with non-standard ERC20 handling
+     * @dev HARDENED: Uses low-level call pattern for maximum compatibility
+     */
+    function _safeUSDCTransfer(address to, uint256 amount) internal {
+        (bool callSuccess, bytes memory returnData) = BASE_USDC.call(
+            abi.encodeWithSelector(IERC20.transfer.selector, to, amount)
+        );
+        
+        if (!callSuccess || (returnData.length > 0 && !abi.decode(returnData, (bool)))) {
+            revert USDCTransferFailed();
+        }
     }
     
     // ============ CLAIM BONUS SYSTEM ============
@@ -757,9 +779,8 @@ contract MemoryMintUltraSafe {
             (bool success, ) = payable(msg.sender).call{value: bonusAmount}("");
             if (!success) revert WithdrawFailed();
         } else {
-            IERC20 usdc = IERC20(BASE_USDC);
-            bool success = usdc.transfer(msg.sender, bonusAmount);
-            if (!success) revert USDCTransferFailed();
+            // HARDENED: Use safe USDC transfer
+            _safeUSDCTransfer(msg.sender, bonusAmount);
         }
         
         return bonusAmount;
@@ -854,9 +875,8 @@ contract MemoryMintUltraSafe {
             (bool success, ) = payable(msg.sender).call{value: bonusAmount}("");
             if (!success) revert WithdrawFailed();
         } else {
-            IERC20 usdc = IERC20(BASE_USDC);
-            bool success = usdc.transfer(msg.sender, bonusAmount);
-            if (!success) revert USDCTransferFailed();
+            // HARDENED: Use safe USDC transfer
+            _safeUSDCTransfer(msg.sender, bonusAmount);
         }
         
         return bonusAmount;
@@ -1027,12 +1047,27 @@ contract MemoryMintUltraSafe {
     /**
      * @notice Verify mint signature with expiration
      * @dev FIX #4: Signatures include expiration timestamp and are tracked for replay prevention
+     *      HARDENED: signatureExpirationSeconds now enforced - signatures must have expiration within allowed window
      */
     function _verifyMintSignature(
         address wallet,
         uint256 expiration,
         bytes calldata signature
     ) internal {
+        // HARDENED: Enforce signature expiration strictly
+        // If expiration is 0 and signatureExpirationSeconds > 0, reject (no perpetual signatures)
+        if (signatureExpirationSeconds > 0) {
+            if (expiration == 0) {
+                revert SignatureExpired(); // Perpetual signatures not allowed when expiration is configured
+            }
+            // Check signature was created within allowed window
+            // expiration must be between now and now + signatureExpirationSeconds
+            if (expiration > block.timestamp + signatureExpirationSeconds) {
+                revert SignatureExpired(); // Expiration too far in future (reject backdated signatures with long expiry)
+            }
+        }
+        
+        // Check if signature has already expired
         if (expiration > 0 && block.timestamp > expiration) {
             revert SignatureExpired();
         }
@@ -1415,6 +1450,7 @@ contract MemoryMintUltraSafe {
     
     /**
      * @notice Withdraw USDC bonus funds
+     * @dev HARDENED: Uses safe USDC transfer
      */
     function withdrawBonusFundsUSDC(uint256 amount) external onlyOwner nonReentrant {
         uint256 currentPool = bonusPoolBalanceUSDC;
@@ -1424,11 +1460,10 @@ contract MemoryMintUltraSafe {
             bonusPoolBalanceUSDC = currentPool - amount;
         }
         
-        IERC20 usdc = IERC20(BASE_USDC);
-        bool success = usdc.transfer(_contractOwner, amount);
-        if (!success) revert USDCTransferFailed();
-        
         emit BonusFundsWithdrawn(amount, PaymentCurrency.USDC);
+        
+        // HARDENED: Use safe USDC transfer
+        _safeUSDCTransfer(_contractOwner, amount);
     }
     
     // ============ ADMIN: OWNERSHIP & FUNDS ============
@@ -1460,6 +1495,7 @@ contract MemoryMintUltraSafe {
     
     /**
      * @notice Withdraw USDC (excluding bonus pool)
+     * @dev HARDENED: Uses safe USDC transfer
      */
     function withdrawUSDC() external onlyOwner nonReentrant {
         IERC20 usdc = IERC20(BASE_USDC);
@@ -1473,8 +1509,8 @@ contract MemoryMintUltraSafe {
             withdrawable = contractBalance - reserved;
         }
         
-        bool success = usdc.transfer(_contractOwner, withdrawable);
-        if (!success) revert USDCTransferFailed();
+        // HARDENED: Use safe USDC transfer
+        _safeUSDCTransfer(_contractOwner, withdrawable);
     }
     
     /**
@@ -1492,6 +1528,7 @@ contract MemoryMintUltraSafe {
     
     /**
      * @notice Emergency withdraw all USDC
+     * @dev HARDENED: Uses safe USDC transfer
      */
     function emergencyWithdrawAllUSDC() external onlyOwner nonReentrant {
         IERC20 usdc = IERC20(BASE_USDC);
@@ -1500,8 +1537,8 @@ contract MemoryMintUltraSafe {
         
         bonusPoolBalanceUSDC = 0;
         
-        bool success = usdc.transfer(_contractOwner, balance);
-        if (!success) revert USDCTransferFailed();
+        // HARDENED: Use safe USDC transfer
+        _safeUSDCTransfer(_contractOwner, balance);
     }
     
     // ============ VIEW FUNCTIONS ============
@@ -1777,10 +1814,26 @@ contract MemoryMintUltraSafe {
     // ============ RECEIVE ETH ============
     
     /**
-     * @notice Direct ETH transfers go to the bonus pool
+     * @notice Direct ETH transfers go to the bonus pool (owner only to prevent accidental deposits)
+     * @dev HARDENED: Only contract owner can fund bonus pool via direct ETH transfer
+     *      This prevents accidental ETH deposits from users that would be unrecoverable
+     *      Users should interact via mint functions only
      */
     receive() external payable {
+        // HARDENED: Only owner can directly fund the bonus pool
+        // This prevents accidental ETH deposits from regular users
+        if (msg.sender != _contractOwner) {
+            revert NotContractOwner();
+        }
         bonusPoolBalanceETH += msg.value;
         emit BonusFundsDeposited(msg.value, PaymentCurrency.ETH);
+    }
+    
+    /**
+     * @notice Fallback to reject calls with data that don't match any function
+     * @dev Prevents accidental calls with wrong function selectors
+     */
+    fallback() external payable {
+        revert(); // Reject all unrecognized calls
     }
 }
