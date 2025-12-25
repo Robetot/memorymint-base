@@ -35,12 +35,14 @@ const CONTRACT_ABI = parseAbi([
   'function batchMint(uint256 quantity) payable returns (uint256)',
   // USDC payment functions
   'function mintWithUSDC(string tokenURI) returns (uint256)',
+  'function mintWithUSDCAndSignature(string tokenURI, uint256 expiration, bytes signature) returns (uint256)',
   'function batchMintWithUSDC(uint256 quantity) returns (uint256)',
   // Bonus claim functions
   'function claimBonus(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
   'function claimBonusAsUSDC(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
   // Price getters
   'function mintPriceUSDC() view returns (uint256)',
+  'function mintPriceETH() view returns (uint256)',
   'function getMintPriceETH() view returns (uint256)',
   'function getBatchMintPriceETH(uint256 quantity) view returns (uint256)',
   'function getBatchMintPriceUSDC(uint256 quantity) view returns (uint256)',
@@ -58,6 +60,8 @@ const CONTRACT_ABI = parseAbi([
   'function activePaymentToken() view returns (uint8)',
   'function getDisabledReason() view returns (string)',
   'function sponsoredMintEnabled() view returns (bool)',
+  // Currency config
+  'function currencyConfig() view returns (bool ethEnabled, bool usdcEnabled, uint8 activeMintCurrency, uint8 activeBonusCurrency)',
   // Anti-bot
   'function mintCooldown() view returns (uint256)',
   'function lastMintTime(address) view returns (uint256)',
@@ -1278,6 +1282,234 @@ export function useNFTMint() {
     return executeMint(walletAddress, '', 1);
   }, [executeMint]);
 
+  // ============ USDC-SPECIFIC MINT FUNCTIONS ============
+  
+  /**
+   * @notice Mint with USDC (direct, no signature)
+   * @dev Requires prior USDC approval - will auto-approve if needed
+   */
+  const mintWithUSDC = useCallback(async (
+    tokenURI: string,
+    walletAddress: string
+  ): Promise<boolean> => {
+    if (!window.ethereum || !walletAddress) {
+      setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
+      return false;
+    }
+
+    return new Promise((resolve) => {
+      const mintTask = async () => {
+        try {
+          // Enforce USDC is active
+          const freshConfig = await fetchAdminConfig(true);
+          if (freshConfig.activePaymentToken !== 'USDC') {
+            setMintState(prev => ({ ...prev, error: 'USDC minting is not currently active' }));
+            resolve(false);
+            return false;
+          }
+
+          const { allowed, error } = await enforceMintAllowed(walletAddress, 'USDC');
+          if (!allowed) {
+            setMintState(prev => ({ ...prev, error }));
+            resolve(false);
+            return false;
+          }
+
+          const isBase = await verifyBaseNetwork();
+          if (!isBase) {
+            setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
+            resolve(false);
+            return false;
+          }
+
+          setMintState(prev => ({
+            ...prev,
+            isMinting: true,
+            error: null,
+            success: false,
+            selectedPaymentToken: 'USDC',
+            pollingMessage: 'Fetching USDC price...',
+          }));
+
+          const priceUSDC = await getMintPriceUSDC();
+          setMintState(prev => ({ ...prev, mintPriceUSDC: formatUSDCAmount(priceUSDC) }));
+
+          // Check and approve USDC if needed
+          if (priceUSDC > 0n) {
+            const allowance = await checkUSDCAllowance(walletAddress);
+            if (allowance < priceUSDC) {
+              const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
+              if (!approved) {
+                setMintState(prev => ({ ...prev, isMinting: false, error: approvalError, pollingMessage: null }));
+                resolve(false);
+                return false;
+              }
+            }
+          }
+
+          setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+
+          const data = encodeFunctionData({
+            abi: CONTRACT_ABI,
+            functionName: 'mintWithUSDC',
+            args: [tokenURI],
+          });
+
+          const txHash = await (window.ethereum as any).request({
+            method: 'eth_sendTransaction',
+            params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+          }) as string;
+
+          setMintState(prev => ({ ...prev, txHash, isSponsored: false }));
+
+          const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
+
+          setMintState(prev => ({
+            ...prev,
+            isMinting: false,
+            txHash,
+            tokenId: tokenIds[0] || null,
+            tokenIds: tokenIds.length > 0 ? tokenIds : null,
+            success,
+            isSponsored: false,
+            pollingMessage: null,
+          }));
+
+          if (success) notifyMinted(walletAddress, tokenIds, txHash);
+          resolve(success);
+          return success;
+        } catch (error: unknown) {
+          console.error('[MintWithUSDC] Error:', error);
+          setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error), pollingMessage: null }));
+          resolve(false);
+          return false;
+        }
+      };
+
+      mintQueueRef.current.push(mintTask);
+      setMintState(prev => ({ ...prev, mintQueuePosition: mintQueueRef.current.length }));
+      processNextInQueue();
+    });
+  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceUSDC, checkUSDCAllowance, approveUSDC, waitForReceipt, notifyMinted, processNextInQueue]);
+
+  /**
+   * @notice Mint with USDC and signature verification
+   * @dev Requires prior USDC approval - will auto-approve if needed
+   */
+  const mintWithUSDCAndSignature = useCallback(async (
+    tokenURI: string,
+    walletAddress: string,
+    expiration: bigint,
+    signature: `0x${string}`
+  ): Promise<boolean> => {
+    if (!window.ethereum || !walletAddress) {
+      setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
+      return false;
+    }
+
+    return new Promise((resolve) => {
+      const mintTask = async () => {
+        try {
+          // Check signature expiration
+          const now = BigInt(Math.floor(Date.now() / 1000));
+          if (expiration <= now) {
+            setMintState(prev => ({ ...prev, error: 'Signature has expired' }));
+            resolve(false);
+            return false;
+          }
+
+          // Enforce USDC is active
+          const freshConfig = await fetchAdminConfig(true);
+          if (freshConfig.activePaymentToken !== 'USDC') {
+            setMintState(prev => ({ ...prev, error: 'USDC minting is not currently active' }));
+            resolve(false);
+            return false;
+          }
+
+          const { allowed, error } = await enforceMintAllowed(walletAddress, 'USDC');
+          if (!allowed) {
+            setMintState(prev => ({ ...prev, error }));
+            resolve(false);
+            return false;
+          }
+
+          const isBase = await verifyBaseNetwork();
+          if (!isBase) {
+            setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
+            resolve(false);
+            return false;
+          }
+
+          setMintState(prev => ({
+            ...prev,
+            isMinting: true,
+            error: null,
+            success: false,
+            selectedPaymentToken: 'USDC',
+            pollingMessage: 'Fetching USDC price...',
+          }));
+
+          const priceUSDC = await getMintPriceUSDC();
+          setMintState(prev => ({ ...prev, mintPriceUSDC: formatUSDCAmount(priceUSDC) }));
+
+          // Check and approve USDC if needed
+          if (priceUSDC > 0n) {
+            const allowance = await checkUSDCAllowance(walletAddress);
+            if (allowance < priceUSDC) {
+              const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
+              if (!approved) {
+                setMintState(prev => ({ ...prev, isMinting: false, error: approvalError, pollingMessage: null }));
+                resolve(false);
+                return false;
+              }
+            }
+          }
+
+          setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+
+          const data = encodeFunctionData({
+            abi: CONTRACT_ABI,
+            functionName: 'mintWithUSDCAndSignature',
+            args: [tokenURI, expiration, signature],
+          });
+
+          const txHash = await (window.ethereum as any).request({
+            method: 'eth_sendTransaction',
+            params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+          }) as string;
+
+          setMintState(prev => ({ ...prev, txHash, isSponsored: false }));
+
+          const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
+
+          setMintState(prev => ({
+            ...prev,
+            isMinting: false,
+            txHash,
+            tokenId: tokenIds[0] || null,
+            tokenIds: tokenIds.length > 0 ? tokenIds : null,
+            success,
+            isSponsored: false,
+            pollingMessage: null,
+          }));
+
+          if (success) notifyMinted(walletAddress, tokenIds, txHash);
+          resolve(success);
+          return success;
+        } catch (error: unknown) {
+          console.error('[MintWithUSDCAndSignature] Error:', error);
+          setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error), pollingMessage: null }));
+          resolve(false);
+          return false;
+        }
+      };
+
+      mintQueueRef.current.push(mintTask);
+      setMintState(prev => ({ ...prev, mintQueuePosition: mintQueueRef.current.length }));
+      processNextInQueue();
+    });
+  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceUSDC, checkUSDCAllowance, approveUSDC, waitForReceipt, notifyMinted, processNextInQueue]);
+
   // mintWithSignature now uses the same queue system
   const mintWithSignature = useCallback(async (
     tokenURI: string,
@@ -1588,25 +1820,36 @@ export function useNFTMint() {
 
   return {
     ...mintState,
+    // ETH mint functions
     mintNFT,
     batchMintNFT,
     quickMint,
     mintWithSignature,
+    // USDC mint functions
+    mintWithUSDC,
+    mintWithUSDCAndSignature,
+    // Claim functions
     claimBonus,
     checkBonusEligibility,
+    // State management
     resetMintState,
     refreshAdminConfig,
+    // Price getters
     getMintPriceETH,
     getBatchMintPriceETH,
     getMintPriceUSDC,
     getBatchMintPriceUSDC,
     getMintPriceEstimate,
+    // Balance checks
     checkBalance,
     checkUSDCAllowance,
     approveUSDC,
+    // Anti-bot
     fetchAntiBotConfig,
+    // SIWE
     setRequireSIWE,
     setSIWEAuthenticated,
+    // Constants
     NFT_CONTRACT_ADDRESS,
     USDC_ADDRESS,
     BASE_CHAIN_ID,
