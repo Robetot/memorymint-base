@@ -6,6 +6,7 @@ import "./6_Minting.sol";
 /**
  * @title MemoryMintUltraSafe_Claim
  * @notice Bonus claim system with level verification
+ * @dev claimBonus signature matches mini game hook: (uint256, uint256, bytes)
  */
 abstract contract MemoryMintUltraSafe_Claim is MemoryMintUltraSafe_Minting {
     
@@ -13,12 +14,12 @@ abstract contract MemoryMintUltraSafe_Claim is MemoryMintUltraSafe_Minting {
     
     /**
      * @notice Claim bonus for completing a game level
+     * @dev Signature matches mini game hook: claimBonus(uint256, uint256, bytes)
      * @param level Bonus level ID
      * @param gameLevel Actual game level completed
-     * @param userScore User's score
      * @param levelProof Signed proof of level completion
      */
-    function claimBonus(uint256 level, uint256 gameLevel, uint256 userScore, bytes calldata levelProof) 
+    function claimBonus(uint256 level, uint256 gameLevel, bytes calldata levelProof) 
         external nonReentrant onlyBaseMainnet returns (uint256) 
     {
         ClaimMode currentMode = claimMode;
@@ -47,7 +48,7 @@ abstract contract MemoryMintUltraSafe_Claim is MemoryMintUltraSafe_Minting {
             revert AlreadyClaimed();
         }
         
-        if (!_checkEligibility(msg.sender, level, gameLevel, userScore, levelProof)) revert NotEligible();
+        if (!_checkEligibility(msg.sender, level, gameLevel, levelProof)) revert NotEligible();
         
         // CEI: Effects before interactions
         if (payoutCurrency == PaymentCurrency.ETH) {
@@ -84,16 +85,23 @@ abstract contract MemoryMintUltraSafe_Claim is MemoryMintUltraSafe_Minting {
     
     // ============ ELIGIBILITY CHECK ============
     
+    /**
+     * @dev Eligibility check - score removed (not passed from mini game)
+     * @param wallet Wallet address to check
+     * @param level Bonus level ID
+     * @param gameLevel Game level completed
+     * @param levelProof Signed proof from backend
+     */
     function _checkEligibility(
-        address wallet, uint256 level, uint256 gameLevel, uint256 userScore, bytes calldata levelProof
+        address wallet, uint256 level, uint256 gameLevel, bytes calldata levelProof
     ) internal view returns (bool) {
         BonusConfig storage config = bonusLevels[level];
         EligibilityRules memory rules = eligibilityRules;
         
         bool levelCheck = true;
-        bool scoreCheck = true;
         bool nftCheck = true;
         
+        // Level proof verification via signature
         if (rules.checkLevel) {
             if (levelProof.length == 0) return false;
             
@@ -104,19 +112,17 @@ abstract contract MemoryMintUltraSafe_Claim is MemoryMintUltraSafe_Minting {
             if (recovered != signatureSigner || recovered == address(0)) return false;
         }
         
-        if (rules.checkScore && config.minScore > 0) {
-            scoreCheck = userScore >= config.minScore;
-        }
-        
+        // NFT ownership check
         if (rules.checkNFTOwnership && config.requiresNFT) {
             nftCheck = _balances[wallet] > 0;
         }
         
+        // Logic evaluation
         if (rules.useAndLogic) {
-            return levelCheck && scoreCheck && nftCheck;
+            return levelCheck && nftCheck;
         } else {
-            if (!rules.checkLevel && !rules.checkScore && !rules.checkNFTOwnership) return true;
-            return levelCheck || scoreCheck || nftCheck;
+            if (!rules.checkLevel && !rules.checkNFTOwnership) return true;
+            return levelCheck || nftCheck;
         }
     }
     
