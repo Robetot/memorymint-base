@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut, Settings } from 'lucide-react';
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
 import { useFarcaster } from '@/contexts/FarcasterContext';
 import { useBaseApp } from '@/contexts/BaseAppContext';
 import { FarcasterSignIn, FarcasterIcon } from './FarcasterSignIn';
 import { cn } from '@/lib/utils';
+import { useContractReads } from '@/hooks/useContractReads';
+import { AdminPanel } from './AdminPanel';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -126,6 +128,24 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   } = useBaseApp();
 
   const { nfts, isLoading: isLoadingNFTs, error: nftError, chainError, balance, debug, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
+
+  const { isOwner } = useContractReads();
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [isContractOwner, setIsContractOwner] = useState(false);
+  
+  // Check if current wallet is contract owner
+  const currentAddress = address || baseAppAddress;
+  useEffect(() => {
+    const checkOwner = async () => {
+      if (currentAddress) {
+        const ownerStatus = await isOwner(currentAddress);
+        setIsContractOwner(ownerStatus);
+      } else {
+        setIsContractOwner(false);
+      }
+    };
+    checkOwner();
+  }, [currentAddress, isOwner]);
 
   const handleDisconnectClick = (type: 'wallet' | 'farcaster' | 'baseapp') => {
     setDisconnectType(type);
@@ -518,6 +538,36 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               </details>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Admin Panel - Owner Only */}
+      {isContractOwner && currentAddress && (
+        <div className="w-full max-w-2xl mb-8">
+          <Card className="border-amber-500/50 bg-amber-500/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <div className="flex items-center gap-3">
+                <Settings className="w-5 h-5 text-amber-500" />
+                <div>
+                  <CardTitle className="text-lg text-amber-600 dark:text-amber-400">Contract Admin</CardTitle>
+                  <CardDescription>Owner controls for bonus pool and settings</CardDescription>
+                </div>
+              </div>
+              <Button 
+                variant={showAdminPanel ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => setShowAdminPanel(!showAdminPanel)}
+                className="border-amber-500/50"
+              >
+                {showAdminPanel ? 'Hide Panel' : 'Open Panel'}
+              </Button>
+            </CardHeader>
+            {showAdminPanel && (
+              <CardContent className="pt-0">
+                <AdminPanel walletAddress={currentAddress} />
+              </CardContent>
+            )}
+          </Card>
         </div>
       )}
 
