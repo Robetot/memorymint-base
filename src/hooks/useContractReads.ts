@@ -124,11 +124,10 @@ async function batchReadContract(calls: Array<{ functionName: string; args?: unk
   const results = await Promise.allSettled(
     calls.map(async ({ functionName, args = [] }) => {
       // Use type assertion to avoid deep type instantiation
-      const abi = CONTRACT_ABI as readonly unknown[];
       const data = encodeFunctionData({
-        abi: abi as any,
-        functionName: functionName as string,
-        args: args as readonly unknown[],
+        abi: CONTRACT_ABI as any,
+        functionName: functionName,
+        args: args as any[],
       });
       
       const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
@@ -136,8 +135,8 @@ async function batchReadContract(calls: Array<{ functionName: string; args?: unk
       if (!result || result === '0x') return null;
       
       return decodeFunctionResult({
-        abi: abi as any,
-        functionName: functionName as string,
+        abi: CONTRACT_ABI as any,
+        functionName: functionName,
         data: result as `0x${string}`,
       });
     })

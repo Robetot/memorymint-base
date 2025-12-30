@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Must match the contract address in useNFTMint.ts
-const NFT_CONTRACT_ADDRESS = "0xBf44A549C390923fD00B17E867804355E93Bf4c0";
+// Deployed MemoryMintUltraSafe_Bonus contract on Base Mainnet
+const NFT_CONTRACT_ADDRESS = "0x9B84d4e689000ab050e9754c5b123fC87E55A9f6";
 
 // Base Mainnet chain ID
 const BASE_CHAIN_ID = "0x2105"; // 8453
