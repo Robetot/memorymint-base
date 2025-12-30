@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut, Shield } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut, Shield, Crown, ChevronRight } from 'lucide-react';
+
+// Admin owner address
+const ADMIN_OWNER_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
 import { useContractReads } from '@/hooks/useContractReads';
@@ -130,23 +133,31 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
 
   const { nfts, isLoading: isLoadingNFTs, error: nftError, chainError, balance, debug, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
   
-  const { isOwner: checkIsOwner } = useContractReads();
+  const { isOwner: checkIsOwner, fetchContractConfig, config } = useContractReads();
   
   // Wallet address for admin checks
   const walletAddress = address || baseAppAddress;
   
+  // Fetch contract config on mount to get owner
+  useEffect(() => {
+    fetchContractConfig();
+  }, [fetchContractConfig]);
+  
   // Check if current wallet is contract owner
   useEffect(() => {
-    const checkOwnership = async () => {
-      if (walletAddress) {
-        const ownerStatus = await checkIsOwner(walletAddress);
-        setIsOwner(ownerStatus);
-      } else {
-        setIsOwner(false);
-      }
-    };
-    checkOwnership();
-  }, [walletAddress, checkIsOwner]);
+    if (walletAddress && config?.owner) {
+      // Check against both contract owner and hardcoded admin address
+      const isContractOwner = config.owner.toLowerCase() === walletAddress.toLowerCase();
+      const isAdminAddress = walletAddress.toLowerCase() === ADMIN_OWNER_ADDRESS.toLowerCase();
+      setIsOwner(isContractOwner || isAdminAddress);
+    } else if (walletAddress) {
+      // Fallback: check against hardcoded admin address if config not loaded
+      const isAdminAddress = walletAddress.toLowerCase() === ADMIN_OWNER_ADDRESS.toLowerCase();
+      setIsOwner(isAdminAddress);
+    } else {
+      setIsOwner(false);
+    }
+  }, [walletAddress, config?.owner]);
 
   const handleDisconnectClick = (type: 'wallet' | 'farcaster' | 'baseapp') => {
     setDisconnectType(type);
@@ -542,25 +553,57 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
         </div>
       )}
 
-      {/* Admin Panel - Owner Only */}
+      {/* Admin Panel Entry Card - Owner Only */}
       {isOwner && walletAddress && (
         <div className="w-full max-w-2xl mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-display font-bold text-foreground">Admin Panel</h2>
-            </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setShowAdminPanel(!showAdminPanel)}
+          {!showAdminPanel ? (
+            <Card 
+              className="cursor-pointer border-amber-500/50 bg-gradient-to-br from-amber-500/10 via-yellow-500/5 to-orange-500/10 hover:border-amber-400 transition-all hover:scale-[1.01] group"
+              onClick={() => setShowAdminPanel(true)}
             >
-              {showAdminPanel ? 'Hide' : 'Show'} Admin Controls
-            </Button>
-          </div>
-          
-          {showAdminPanel && (
-            <AdminPanel walletAddress={walletAddress} />
+              <CardHeader className="flex flex-row items-center gap-4 pb-2">
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500/30 to-yellow-500/20 flex items-center justify-center border border-amber-500/30">
+                  <Crown className="w-7 h-7 text-amber-500" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-lg group-hover:text-amber-500 transition-colors">
+                      Admin Panel
+                    </CardTitle>
+                    <span className="text-xs bg-amber-500/20 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/30 font-medium">
+                      Owner Only
+                    </span>
+                  </div>
+                  <CardDescription className="font-body mt-1">
+                    Configure rewards, mint rules, and system status
+                  </CardDescription>
+                </div>
+                <ChevronRight className="w-5 h-5 text-amber-500/50 group-hover:text-amber-500 transition-colors" />
+              </CardHeader>
+            </Card>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500/30 to-yellow-500/20 flex items-center justify-center border border-amber-500/30">
+                    <Crown className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-display font-bold text-foreground">Admin Panel</h2>
+                    <p className="text-xs text-muted-foreground">Owner controls for MemoryMint</p>
+                  </div>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowAdminPanel(false)}
+                  className="border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10"
+                >
+                  Close
+                </Button>
+              </div>
+              <AdminPanel walletAddress={walletAddress} />
+            </div>
           )}
         </div>
       )}
