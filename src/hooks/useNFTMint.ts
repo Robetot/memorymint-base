@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult, decodeEventLog, formatEther, formatUnits, maxUint256 } from 'viem';
 
 // ============ CONFIGURATION ============
-const NFT_CONTRACT_ADDRESS = '0xBf44A549C390923fD00B17E867804355E93Bf4c0';
+// Deployed MemoryMintUltraSafe_Bonus contract on Base Mainnet
+const NFT_CONTRACT_ADDRESS = '0x9B84d4e689000ab050e9754c5b123fC87E55A9f6';
 
 // Base Mainnet USDC address
 const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
