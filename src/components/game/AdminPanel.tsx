@@ -1,39 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
-import { encodeFunctionData, formatEther, formatUnits, parseEther, parseUnits, maxUint256 } from 'viem';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { encodeFunctionData, parseEther, parseUnits } from 'viem';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { 
-  Shield, 
-  Coins, 
-  Settings2, 
-  Users, 
-  Gift, 
-  AlertTriangle,
-  Loader2,
-  RefreshCw,
-  Wallet,
-  DollarSign,
-} from 'lucide-react';
+import { Shield, RefreshCw, Crown } from 'lucide-react';
 import { useContractReads } from '@/hooks/useContractReads';
 import {
   NFT_CONTRACT_ADDRESS,
   BASE_CHAIN_ID,
-  BASE_USDC_ADDRESS,
   CONTRACT_ABI,
-  ERC20_ABI,
   USDC_DECIMALS,
   ClaimModeEnum,
-  AntiBotModeEnum,
-  PaymentCurrencyEnum,
 } from '@/contracts/MemoryMintContract';
+import {
+  AdminSystemStatus,
+  AdminRewardTiers,
+  AdminClaimSettings,
+  AdminMintControls,
+  AdminEmergencyControls,
+  AdminPreviewMode,
+  AdminFooter,
+} from './admin';
 
 interface AdminPanelProps {
   walletAddress: string;
@@ -41,31 +29,21 @@ interface AdminPanelProps {
 }
 
 export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
-  const { config, fetchContractConfig, isOwner, invalidateConfigCache } = useContractReads();
+  const { config, fetchContractConfig, fetchBonusLevels, bonusLevels, isOwner, invalidateConfigCache, isLoading } = useContractReads();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
-  
-  // Form states
-  const [mintPriceETH, setMintPriceETH] = useState('');
-  const [mintPriceUSDC, setMintPriceUSDC] = useState('');
-  const [depositETH, setDepositETH] = useState('');
-  const [depositUSDC, setDepositUSDC] = useState('');
-  const [withdrawETH, setWithdrawETH] = useState('');
-  const [withdrawUSDC, setWithdrawUSDC] = useState('');
-  const [bonusLevel, setBonusLevel] = useState('1');
-  const [bonusAmountETH, setBonusAmountETH] = useState('');
-  const [bonusAmountUSDC, setBonusAmountUSDC] = useState('');
-  const [bonusClaims, setBonusClaims] = useState('100');
-  
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [lastActionTimestamp, setLastActionTimestamp] = useState<number>();
+
   // Load config on mount
   useEffect(() => {
     fetchContractConfig(true);
-  }, [fetchContractConfig]);
+    fetchBonusLevels(walletAddress);
+  }, [fetchContractConfig, fetchBonusLevels, walletAddress]);
 
   // Check if user is owner
   const userIsOwner = isOwner(walletAddress);
 
-  // ============ SEND TRANSACTION HELPER ============
+  // Send transaction helper with gas-aware UX
   const sendAdminTx = useCallback(async (
     functionName: string,
     args: unknown[],
@@ -73,6 +51,11 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   ): Promise<boolean> => {
     if (!window.ethereum) {
       toast.error('Wallet not connected');
+      return false;
+    }
+
+    if (isPreviewMode) {
+      toast.info('Preview mode active - no transactions allowed');
       return false;
     }
     
@@ -126,16 +109,18 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       
       if (receipt?.status === '0x1') {
         toast.success('Transaction confirmed');
+        setLastActionTimestamp(Date.now());
         invalidateConfigCache();
         await fetchContractConfig(true);
+        await fetchBonusLevels(walletAddress);
         return true;
       } else {
-        toast.error('Transaction failed');
+        toast.error('Transaction failed', { description: 'Check BaseScan for details' });
         return false;
       }
     } catch (error: any) {
       if (error?.code === 4001) {
-        toast.error('Transaction rejected');
+        toast.error('Transaction rejected by user');
       } else {
         toast.error(error?.message?.slice(0, 100) || 'Transaction failed');
       }
@@ -143,470 +128,143 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [walletAddress, invalidateConfigCache, fetchContractConfig]);
+  }, [walletAddress, isPreviewMode, invalidateConfigCache, fetchContractConfig, fetchBonusLevels]);
 
-  // ============ APPROVE USDC FOR DEPOSIT ============
-  const approveUSDCDeposit = useCallback(async (amount: bigint): Promise<boolean> => {
-    if (!window.ethereum) return false;
+  // Handler functions for each section
+  const handleConfigureTier = async (
+    level: number,
+    amountETH: string,
+    amountUSDC: string,
+    active: boolean,
+    maxClaims: string
+  ) => {
+    return sendAdminTx('configureBonusLevel', [
+      BigInt(level),
+      parseEther(amountETH || '0'),
+      parseUnits(amountUSDC || '0', USDC_DECIMALS),
+      active,
+      BigInt(maxClaims),
+      false,
+    ]);
+  };
+
+  const handleSaveClaimSettings = async (settings: any) => {
+    return sendAdminTx('setClaimMode', [
+      settings.claimsEnabled ? ClaimModeEnum.UNLIMITED : ClaimModeEnum.DISABLED
+    ]);
+  };
+
+  const handleSaveMintSettings = async (settings: any) => {
+    // Send multiple transactions if needed (inform user)
+    let success = true;
     
-    try {
-      const ethereum = window.ethereum as any;
-      
-      const data = encodeFunctionData({
-        abi: ERC20_ABI,
-        functionName: 'approve',
-        args: [NFT_CONTRACT_ADDRESS, maxUint256],
-      });
-      
-      const txHash = await ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [{
-          from: walletAddress,
-          to: BASE_USDC_ADDRESS,
-          data,
-        }],
-      });
-      
-      // Wait for confirmation
-      let receipt = null;
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 2000));
-        receipt = await ethereum.request({
-          method: 'eth_getTransactionReceipt',
-          params: [txHash],
-        });
-        if (receipt) break;
-      }
-      
-      return receipt?.status === '0x1';
-    } catch {
-      return false;
+    if (settings.mintEnabled !== config?.mintEnabled) {
+      success = await sendAdminTx('pauseMinting', [!settings.mintEnabled]);
+      if (!success) return false;
     }
-  }, [walletAddress]);
 
+    if (settings.mintPriceETH !== String(config?.mintPriceETH)) {
+      success = await sendAdminTx('setMintPriceETH', [parseEther(settings.mintPriceETH)]);
+      if (!success) return false;
+    }
+    
+    return success;
+  };
+
+  const handlePauseMinting = async () => {
+    return sendAdminTx('pauseMinting', [true]);
+  };
+
+  const handlePauseClaims = async () => {
+    return sendAdminTx('setClaimMode', [ClaimModeEnum.DISABLED]);
+  };
+
+  // Don't render if not owner (production security)
   if (!userIsOwner) {
-    return (
-      <Card className="border-destructive">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive">
-            <AlertTriangle className="h-5 w-5" />
-            Access Denied
-          </CardTitle>
-          <CardDescription>
-            Only the contract owner can access admin functions.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
+    return null;
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold flex items-center gap-2">
-          <Shield className="h-6 w-6 text-primary" />
-          Admin Panel
-        </h2>
-        <Button variant="outline" size="sm" onClick={() => fetchContractConfig(true)}>
-          <RefreshCw className="h-4 w-4 mr-2" />
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+            <Crown className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              Admin Panel
+            </h2>
+            <p className="text-sm text-muted-foreground">Owner controls for MemoryMint</p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => fetchContractConfig(true)} disabled={isLoading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>
-      
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="minting">Minting</TabsTrigger>
-          <TabsTrigger value="bonus">Bonus Pool</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
-        </TabsList>
-        
-        {/* ============ OVERVIEW TAB ============ */}
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Total Supply</CardDescription>
-                <CardTitle>{config?.totalSupply?.toString() || '0'}</CardTitle>
-              </CardHeader>
-            </Card>
-            
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Minting</CardDescription>
-                <CardTitle>
-                  <Badge variant={config?.mintEnabled ? 'default' : 'destructive'}>
-                    {config?.mintEnabled ? 'Enabled' : 'Paused'}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-            </Card>
-            
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Claiming</CardDescription>
-                <CardTitle>
-                  <Badge variant={config?.claimEnabled ? 'default' : 'destructive'}>
-                    {config?.claimEnabled ? 'Enabled' : 'Disabled'}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-            </Card>
-            
-            <Card>
-              <CardHeader className="pb-2">
-                <CardDescription>Active Currency</CardDescription>
-                <CardTitle>{config?.activeMintCurrency || 'ETH'}</CardTitle>
-              </CardHeader>
-            </Card>
-          </div>
-          
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wallet className="h-5 w-5" />
-                Bonus Pool Balances
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>ETH Balance</Label>
-                <p className="text-2xl font-bold">
-                  {config ? formatEther(config.bonusPoolETH) : '0'} ETH
-                </p>
-              </div>
-              <div>
-                <Label>USDC Balance</Label>
-                <p className="text-2xl font-bold">
-                  ${config ? formatUnits(config.bonusPoolUSDC, USDC_DECIMALS) : '0'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* ============ MINTING TAB ============ */}
-        <TabsContent value="minting" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Minting Controls</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label>Minting Enabled</Label>
-                <Switch
-                  checked={config?.mintEnabled}
-                  disabled={isSubmitting}
-                  onCheckedChange={(checked) => sendAdminTx('pauseMinting', [!checked])}
-                />
-              </div>
-              
-              <Separator />
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>ETH Mint Price</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder={config ? formatEther(config.mintPriceETH) : '0'}
-                      value={mintPriceETH}
-                      onChange={(e) => setMintPriceETH(e.target.value)}
-                    />
-                    <Button
-                      disabled={isSubmitting || !mintPriceETH}
-                      onClick={() => sendAdminTx('setMintPriceETH', [parseEther(mintPriceETH)])}
-                    >
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Set'}
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>USDC Mint Price</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder={config ? formatUnits(config.mintPriceUSDC, USDC_DECIMALS) : '0'}
-                      value={mintPriceUSDC}
-                      onChange={(e) => setMintPriceUSDC(e.target.value)}
-                    />
-                    <Button
-                      disabled={isSubmitting || !mintPriceUSDC}
-                      onClick={() => sendAdminTx('setMintPriceUSDC', [parseUnits(mintPriceUSDC, USDC_DECIMALS)])}
-                    >
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Set'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              <div className="space-y-2">
-                <Label>Active Mint Currency</Label>
-                <Select
-                  value={config?.activeMintCurrency || 'ETH'}
-                  onValueChange={(value) => sendAdminTx('setActiveMintCurrency', [value === 'USDC' ? 1 : 0])}
-                  disabled={isSubmitting}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ETH">ETH</SelectItem>
-                    <SelectItem value="USDC">USDC</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* ============ BONUS POOL TAB ============ */}
-        <TabsContent value="bonus" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Gift className="h-5 w-5" />
-                Deposit Bonus Funds
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Deposit ETH</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="0.1"
-                      value={depositETH}
-                      onChange={(e) => setDepositETH(e.target.value)}
-                    />
-                    <Button
-                      disabled={isSubmitting || !depositETH}
-                      onClick={() => sendAdminTx('depositBonusFundsETH', [], parseEther(depositETH))}
-                    >
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Deposit'}
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Deposit USDC</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="100"
-                      value={depositUSDC}
-                      onChange={(e) => setDepositUSDC(e.target.value)}
-                    />
-                    <Button
-                      disabled={isSubmitting || !depositUSDC}
-                      onClick={async () => {
-                        const amount = parseUnits(depositUSDC, USDC_DECIMALS);
-                        toast.info('Approving USDC...');
-                        const approved = await approveUSDCDeposit(amount);
-                        if (approved) {
-                          await sendAdminTx('depositBonusFundsUSDC', [amount]);
-                        } else {
-                          toast.error('USDC approval failed');
-                        }
-                      }}
-                    >
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Deposit'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Withdraw ETH</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="0.1"
-                      value={withdrawETH}
-                      onChange={(e) => setWithdrawETH(e.target.value)}
-                    />
-                    <Button
-                      variant="outline"
-                      disabled={isSubmitting || !withdrawETH}
-                      onClick={() => sendAdminTx('withdrawBonusFundsETH', [parseEther(withdrawETH)])}
-                    >
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Withdraw'}
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Withdraw USDC</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="100"
-                      value={withdrawUSDC}
-                      onChange={(e) => setWithdrawUSDC(e.target.value)}
-                    />
-                    <Button
-                      variant="outline"
-                      disabled={isSubmitting || !withdrawUSDC}
-                      onClick={() => sendAdminTx('withdrawBonusFundsUSDC', [parseUnits(withdrawUSDC, USDC_DECIMALS)])}
-                    >
-                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Withdraw'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader>
-              <CardTitle>Configure Bonus Level</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="space-y-2">
-                  <Label>Level</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={bonusLevel}
-                    onChange={(e) => setBonusLevel(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>ETH Amount</Label>
-                  <Input
-                    placeholder="0.01"
-                    value={bonusAmountETH}
-                    onChange={(e) => setBonusAmountETH(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>USDC Amount</Label>
-                  <Input
-                    placeholder="10"
-                    value={bonusAmountUSDC}
-                    onChange={(e) => setBonusAmountUSDC(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Claims Available</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={bonusClaims}
-                    onChange={(e) => setBonusClaims(e.target.value)}
-                  />
-                </div>
-              </div>
-              
-              <Button
-                className="w-full"
-                disabled={isSubmitting || !bonusAmountETH || !bonusAmountUSDC}
-                onClick={() => sendAdminTx('configureBonusLevel', [
-                  BigInt(bonusLevel),
-                  parseEther(bonusAmountETH || '0'),
-                  parseUnits(bonusAmountUSDC || '0', USDC_DECIMALS),
-                  true, // active
-                  BigInt(bonusClaims),
-                  false, // requiresNFT
-                ])}
-              >
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Configure Level {bonusLevel}
-              </Button>
-              
-              <Separator />
-              
-              <div className="flex items-center justify-between">
-                <Label>Claiming Enabled</Label>
-                <Switch
-                  checked={config?.claimEnabled}
-                  disabled={isSubmitting}
-                  onCheckedChange={(checked) => sendAdminTx('setClaimMode', [checked ? ClaimModeEnum.UNLIMITED : ClaimModeEnum.DISABLED])}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* ============ SECURITY TAB ============ */}
-        <TabsContent value="security" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Anti-Bot Settings
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Anti-Bot Mode</Label>
-                <Select
-                  value={config?.antiBotMode?.toString() || '2'}
-                  onValueChange={(value) => sendAdminTx('setAntiBotMode', [parseInt(value)])}
-                  disabled={isSubmitting}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">Disabled</SelectItem>
-                    <SelectItem value="1">Soft</SelectItem>
-                    <SelectItem value="2">Moderate</SelectItem>
-                    <SelectItem value="3">Strict</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <Label>Signature Required</Label>
-                <Switch
-                  checked={config?.signatureRequired}
-                  disabled={isSubmitting}
-                  onCheckedChange={(checked) => sendAdminTx('setSignatureRequired', [checked])}
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-muted-foreground">Wallet Mint Limit</Label>
-                  <p className="font-mono">{config?.walletMintLimit?.toString() || '10'}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Cooldown Blocks</Label>
-                  <p className="font-mono">{config?.mintCooldownBlocks?.toString() || '2'}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="border-destructive/50">
-            <CardHeader>
-              <CardTitle className="text-destructive flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5" />
-                Emergency Actions
-              </CardTitle>
-              <CardDescription>
-                These actions are irreversible. Use with caution.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Button
-                variant="destructive"
-                disabled={isSubmitting}
-                onClick={() => {
-                  if (window.confirm('Are you sure you want to withdraw ALL contract funds?')) {
-                    sendAdminTx('emergencyWithdrawAll', []);
-                  }
-                }}
-              >
-                Emergency Withdraw All
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+
+      {/* Preview Mode Banner */}
+      {isPreviewMode && (
+        <div className="bg-secondary/20 border border-secondary/50 rounded-lg p-3 text-center text-sm">
+          <strong>Preview mode</strong> — no on-chain transactions allowed
+        </div>
+      )}
+
+      {/* Section 1: System Status */}
+      <AdminSystemStatus config={config} isLoading={isLoading} />
+
+      <Separator />
+
+      {/* Section 2: Reward Tiers */}
+      <AdminRewardTiers
+        bonusLevels={bonusLevels}
+        isPreviewMode={isPreviewMode}
+        onConfigureTier={handleConfigureTier}
+        isPending={isSubmitting}
+      />
+
+      <Separator />
+
+      {/* Section 3: Claim Settings */}
+      <AdminClaimSettings
+        config={config}
+        isPreviewMode={isPreviewMode}
+        onSaveChanges={handleSaveClaimSettings}
+        isPending={isSubmitting}
+      />
+
+      <Separator />
+
+      {/* Section 4: Mint Controls */}
+      <AdminMintControls
+        config={config}
+        isPreviewMode={isPreviewMode}
+        onSaveChanges={handleSaveMintSettings}
+        isPending={isSubmitting}
+      />
+
+      <Separator />
+
+      {/* Section 5: Emergency Controls */}
+      <AdminEmergencyControls
+        walletAddress={walletAddress}
+        isPreviewMode={isPreviewMode}
+        onPauseMinting={handlePauseMinting}
+        onPauseClaims={handlePauseClaims}
+        isPending={isSubmitting}
+      />
+
+      <Separator />
+
+      {/* Section 6: Preview Mode */}
+      <AdminPreviewMode isEnabled={isPreviewMode} onToggle={setIsPreviewMode} />
+
+      <Separator />
+
+      {/* Footer */}
+      <AdminFooter lastActionTimestamp={lastActionTimestamp} />
     </div>
   );
 }

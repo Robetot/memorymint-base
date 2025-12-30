@@ -89,18 +89,11 @@ function BaseAppIcon({ className }: { className?: string }) {
   );
 }
 
-// Test mode address for development
-const TEST_OWNER_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
-
 export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
   const [disconnectType, setDisconnectType] = useState<'wallet' | 'farcaster' | 'baseapp'>('wallet');
   const [isOwner, setIsOwner] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [testMode, setTestMode] = useState(false);
-  
-  // Development test mode check
-  const isDev = import.meta.env.DEV;
   const { 
     isConnected, 
     isConnecting, 
