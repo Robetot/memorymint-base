@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut, Shield } from 'lucide-react';
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
+import { useContractReads } from '@/hooks/useContractReads';
 import { useFarcaster } from '@/contexts/FarcasterContext';
 import { useBaseApp } from '@/contexts/BaseAppContext';
 import { FarcasterSignIn, FarcasterIcon } from './FarcasterSignIn';
+import { AdminPanel } from './AdminPanel';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -90,7 +92,8 @@ function BaseAppIcon({ className }: { className?: string }) {
 export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
   const [disconnectType, setDisconnectType] = useState<'wallet' | 'farcaster' | 'baseapp'>('wallet');
-
+  const [isOwner, setIsOwner] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const { 
     isConnected, 
     isConnecting, 
@@ -126,6 +129,22 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   } = useBaseApp();
 
   const { nfts, isLoading: isLoadingNFTs, error: nftError, chainError, balance, debug, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
+  
+  const { isOwner: checkIsOwner } = useContractReads();
+  
+  // Check if current wallet is contract owner
+  const walletAddress = address || baseAppAddress;
+  useEffect(() => {
+    const checkOwnership = async () => {
+      if (walletAddress) {
+        const ownerStatus = await checkIsOwner(walletAddress);
+        setIsOwner(ownerStatus);
+      } else {
+        setIsOwner(false);
+      }
+    };
+    checkOwnership();
+  }, [walletAddress, checkIsOwner]);
 
   const handleDisconnectClick = (type: 'wallet' | 'farcaster' | 'baseapp') => {
     setDisconnectType(type);
@@ -521,7 +540,30 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
         </div>
       )}
 
-      {/* Connection Options (only show if not connected) */}
+      {/* Admin Panel - Owner Only */}
+      {isOwner && walletAddress && (
+        <div className="w-full max-w-2xl mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-primary" />
+              <h2 className="text-xl font-display font-bold text-foreground">Admin Panel</h2>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowAdminPanel(!showAdminPanel)}
+            >
+              {showAdminPanel ? 'Hide' : 'Show'} Admin Controls
+            </Button>
+          </div>
+          
+          {showAdminPanel && (
+            <AdminPanel walletAddress={walletAddress} />
+          )}
+        </div>
+      )}
+
+
       {!isFullyConnected && (
         <div className="grid gap-4 w-full max-w-md">
           {/* Base App - Featured for Base App users */}
