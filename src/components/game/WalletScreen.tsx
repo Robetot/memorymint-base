@@ -132,25 +132,21 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   
   const { isOwner: checkIsOwner } = useContractReads();
   
-  // Effective wallet address (real or test mode)
-  const realWalletAddress = address || baseAppAddress;
-  const effectiveWalletAddress = testMode ? TEST_OWNER_ADDRESS : realWalletAddress;
+  // Wallet address for admin checks
+  const walletAddress = address || baseAppAddress;
   
   // Check if current wallet is contract owner
   useEffect(() => {
     const checkOwnership = async () => {
-      if (testMode) {
-        // In test mode, simulate owner status
-        setIsOwner(true);
-      } else if (realWalletAddress) {
-        const ownerStatus = await checkIsOwner(realWalletAddress);
+      if (walletAddress) {
+        const ownerStatus = await checkIsOwner(walletAddress);
         setIsOwner(ownerStatus);
       } else {
         setIsOwner(false);
       }
     };
     checkOwnership();
-  }, [realWalletAddress, checkIsOwner, testMode]);
+  }, [walletAddress, checkIsOwner]);
 
   const handleDisconnectClick = (type: 'wallet' | 'farcaster' | 'baseapp') => {
     setDisconnectType(type);
@@ -546,39 +542,13 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
         </div>
       )}
 
-      {/* Dev Test Mode Toggle */}
-      {isDev && (
-        <div className="w-full max-w-2xl mb-4">
-          <Card className="border-amber-500/50 bg-amber-500/10">
-            <CardContent className="py-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-500" />
-                <span className="text-sm font-medium text-amber-700 dark:text-amber-400">Dev Test Mode</span>
-                <span className="text-xs text-muted-foreground">(Simulates owner wallet)</span>
-              </div>
-              <Button 
-                variant={testMode ? "default" : "outline"}
-                size="sm"
-                onClick={() => setTestMode(!testMode)}
-                className={testMode ? "bg-amber-500 hover:bg-amber-600" : ""}
-              >
-                {testMode ? 'Enabled' : 'Enable'}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Admin Panel - Owner Only (or Test Mode) */}
-      {(isOwner || testMode) && effectiveWalletAddress && (
+      {/* Admin Panel - Owner Only */}
+      {isOwner && walletAddress && (
         <div className="w-full max-w-2xl mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Shield className="w-5 h-5 text-primary" />
               <h2 className="text-xl font-display font-bold text-foreground">Admin Panel</h2>
-              {testMode && (
-                <span className="text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full">Test Mode</span>
-              )}
             </div>
             <Button 
               variant="outline" 
@@ -590,7 +560,7 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
           </div>
           
           {showAdminPanel && (
-            <AdminPanel walletAddress={effectiveWalletAddress} />
+            <AdminPanel walletAddress={walletAddress} />
           )}
         </div>
       )}
