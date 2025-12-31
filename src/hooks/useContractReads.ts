@@ -361,10 +361,15 @@ export function useContractReads() {
   }, []);
 
   // ============ CHECK IF OWNER ============
+  // HARDCODED ADMIN ADDRESS - This is the sole gate for admin access
+  // Do NOT rely on contract.owner() for authorization to prevent false negatives
+  const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
+  
   const isOwner = useCallback((address: string): boolean => {
-    if (!config?.owner || !address) return false;
-    return config.owner.toLowerCase() === address.toLowerCase();
-  }, [config?.owner]);
+    if (!address) return false;
+    // Case-insensitive comparison against hardcoded admin address
+    return address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
+  }, []);
 
   // ============ INVALIDATE CACHE ============
   const invalidateWalletCache = useCallback((address?: string) => {
