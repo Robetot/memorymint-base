@@ -73,6 +73,16 @@ export function useAdminState(walletAddress: string) {
     }
   }, []);
 
+  // ============ HARDCODED ADMIN ADDRESS ============
+  // This is the SOLE gate for admin access - do NOT rely on contract.owner()
+  const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
+  
+  // ============ CHECK ADMIN (LOCAL, NO CONTRACT CALL) ============
+  const checkIsAdmin = useCallback((address: string): boolean => {
+    if (!address) return false;
+    return address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
+  }, []);
+
   // ============ INITIALIZE ADMIN PANEL ============
   const initialize = useCallback(async () => {
     if (initRef.current) return;
@@ -82,7 +92,7 @@ export function useAdminState(walletAddress: string) {
     const startTime = Date.now();
     
     try {
-      // Step 1: Check wallet
+      // Step 1: Check wallet connection
       setInitState('checking-wallet');
       if (!walletAddress) {
         setError('Wallet not connected');
@@ -92,7 +102,7 @@ export function useAdminState(walletAddress: string) {
       }
       setHealthStatus(prev => ({ ...prev, walletConnected: true }));
 
-      // Step 2: Check network
+      // Step 2: Check network BEFORE admin check
       setInitState('checking-network');
       const isCorrectNetwork = await checkNetwork();
       if (!isCorrectNetwork) {
@@ -103,25 +113,10 @@ export function useAdminState(walletAddress: string) {
       }
       setHealthStatus(prev => ({ ...prev, networkCorrect: true }));
 
-      // Step 3: Load config first (to check admin status)
-      setInitState('loading-config');
-      const configResult = await fetchContractConfig(true);
-      
-      if (!configResult) {
-        setError('Failed to load contract configuration');
-        setInitState('error');
-        setHealthStatus(prev => ({ ...prev, contractReachable: false, lastCheck: startTime }));
-        return;
-      }
-      setHealthStatus(prev => ({ 
-        ...prev, 
-        contractReachable: true, 
-        configLoaded: true,
-      }));
-
-      // Step 4: Check admin status
+      // Step 3: Check admin status (LOCAL, NO CONTRACT CALL)
+      // This must happen AFTER wallet and network are confirmed
       setInitState('checking-admin');
-      const userIsAdmin = isOwner(walletAddress);
+      const userIsAdmin = checkIsAdmin(walletAddress);
       if (!userIsAdmin) {
         setError('Not authorized - owner access required');
         setInitState('error');
@@ -129,6 +124,30 @@ export function useAdminState(walletAddress: string) {
         return;
       }
       setHealthStatus(prev => ({ ...prev, isAdmin: true }));
+
+      // Step 4: Load contract config (now that we know user is admin)
+      setInitState('loading-config');
+      const configResult = await fetchContractConfig(true);
+      
+      if (!configResult) {
+        // Config load failed but user IS admin - show warning but allow access
+        console.warn('[AdminState] Config load failed, allowing admin access with limited data');
+        setHealthStatus(prev => ({ 
+          ...prev, 
+          contractReachable: false, 
+          configLoaded: false,
+          lastCheck: startTime,
+        }));
+        // Still proceed to ready state - admin access is based on address, not contract
+        setInitState('ready');
+        return;
+      }
+      
+      setHealthStatus(prev => ({ 
+        ...prev, 
+        contractReachable: true, 
+        configLoaded: true,
+      }));
 
       // Step 5: Load bonus levels
       await fetchBonusLevels(walletAddress);
@@ -145,7 +164,7 @@ export function useAdminState(walletAddress: string) {
     } finally {
       initRef.current = false;
     }
-  }, [walletAddress, checkNetwork, fetchContractConfig, fetchBonusLevels, isOwner]);
+  }, [walletAddress, checkNetwork, fetchContractConfig, fetchBonusLevels, checkIsAdmin]);
 
   // ============ REFRESH CONFIG ============
   const refreshConfig = useCallback(async () => {
@@ -209,7 +228,7 @@ export function useAdminState(walletAddress: string) {
     const status: AdminHealthStatus = {
       walletConnected: !!walletAddress,
       networkCorrect: await checkNetwork(),
-      isAdmin: false,
+      isAdmin: checkIsAdmin(walletAddress), // Use local check, not contract
       contractReachable: false,
       configLoaded: false,
       abiFunctionsPresent: true,
@@ -221,7 +240,6 @@ export function useAdminState(walletAddress: string) {
         const configResult = await fetchContractConfig(true);
         status.contractReachable = !!configResult;
         status.configLoaded = !!configResult?.isLoaded;
-        status.isAdmin = isOwner(walletAddress);
       } catch {
         status.contractReachable = false;
       }
@@ -229,7 +247,7 @@ export function useAdminState(walletAddress: string) {
 
     setHealthStatus(status);
     return status;
-  }, [walletAddress, checkNetwork, fetchContractConfig, isOwner]);
+  }, [walletAddress, checkNetwork, fetchContractConfig, checkIsAdmin]);
 
   // ============ RETRY INITIALIZATION ============
   const retry = useCallback(() => {
