@@ -58,9 +58,10 @@ export function AIImageGenerator({
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [showBatchMode, setShowBatchMode] = useState(false);
   const [balanceCheck, setBalanceCheck] = useState<{ hasEnough: boolean; balance: string; required: string; shortfall: string | null } | null>(null);
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
-  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getMintPriceEstimate, checkBalance } = useNFTMint();
+  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getMintPriceEstimate, checkBalance, antiBotConfig } = useNFTMint();
   
   // Estimated gas fee for display
   const estimatedGasEth = '0.0002';
@@ -77,6 +78,35 @@ export function AIImageGenerator({
       setBalanceCheck(null);
     }
   }, [isConnected, address, checkBalance]);
+  
+  // Real-time cooldown countdown
+  useEffect(() => {
+    if (antiBotConfig && antiBotConfig.cooldownRemaining > 0n) {
+      setCooldownRemaining(Number(antiBotConfig.cooldownRemaining));
+    } else {
+      setCooldownRemaining(0);
+    }
+  }, [antiBotConfig]);
+  
+  useEffect(() => {
+    if (cooldownRemaining <= 0) return;
+    
+    const timer = setInterval(() => {
+      setCooldownRemaining(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [cooldownRemaining]);
+  
+  // Determine if cooldown is the actual error (only show if no higher priority errors)
+  const isCooldownError = mintError?.includes('wait') && mintError?.includes('seconds');
+  const shouldShowCooldown = cooldownRemaining > 0 && isConnected && !isMinting;
 
   // Calculate rarity based on game performance using level
   const levelConfig = getLevel(level);
@@ -477,7 +507,18 @@ export function AIImageGenerator({
               </div>
             )}
 
-            {(mintError || uploadError) && (
+            {/* Cooldown Countdown - Real-time display */}
+            {shouldShowCooldown && (
+              <div className="mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-amber-500" />
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  Mint available in <span className="font-mono font-bold">{cooldownRemaining}s</span>
+                </p>
+              </div>
+            )}
+
+            {/* Errors - Only show non-cooldown errors, or cooldown if no live countdown */}
+            {((mintError && !isCooldownError) || (!shouldShowCooldown && isCooldownError) || uploadError) && (
               <div className="mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-destructive" />
                 <p className="text-sm text-destructive">{mintError || uploadError}</p>
@@ -568,12 +609,17 @@ export function AIImageGenerator({
                   onClick={handleMint}
                   size="lg"
                   className="w-full text-lg font-display bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90"
-                  disabled={!isConnected || isMinting || isUploading || (balanceCheck && !balanceCheck.hasEnough)}
+                  disabled={!isConnected || isMinting || isUploading || (balanceCheck && !balanceCheck.hasEnough) || shouldShowCooldown}
                 >
                   {isMinting || isUploading ? (
                     <>
                       <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                       {isUploading ? 'Uploading...' : 'Minting...'}
+                    </>
+                  ) : shouldShowCooldown ? (
+                    <>
+                      <AlertCircle className="w-5 h-5 mr-2" />
+                      Wait {cooldownRemaining}s
                     </>
                   ) : (
                     <>
