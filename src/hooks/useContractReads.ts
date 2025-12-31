@@ -119,7 +119,7 @@ async function rpcCall(method: string, params: unknown[], timeout = 10000): Prom
   throw new Error(`All RPCs failed: ${errors.join(', ')}`);
 }
 
-// ============ BATCH READ HELPER ============
+// ============ BATCH READ HELPER (with graceful error handling) ============
 async function batchReadContract(calls: Array<{ functionName: string; args?: unknown[] }>): Promise<unknown[]> {
   const results = await Promise.allSettled(
     calls.map(async ({ functionName, args = [] }) => {
@@ -132,13 +132,21 @@ async function batchReadContract(calls: Array<{ functionName: string; args?: unk
       
       const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
       
-      if (!result || result === '0x') return null;
+      // Graceful handling: treat empty/null/undefined as null
+      if (!result || result === '0x' || result === '' || result === null) {
+        return null;
+      }
       
-      return decodeFunctionResult({
-        abi: CONTRACT_ABI as any,
-        functionName: functionName,
-        data: result as `0x${string}`,
-      });
+      try {
+        return decodeFunctionResult({
+          abi: CONTRACT_ABI as any,
+          functionName: functionName,
+          data: result as `0x${string}`,
+        });
+      } catch {
+        // Decoding failed - return null instead of throwing
+        return null;
+      }
     })
   );
   

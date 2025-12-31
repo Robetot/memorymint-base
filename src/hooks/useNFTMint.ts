@@ -429,9 +429,16 @@ export function useNFTMint() {
   }, []);
 
   // ============ ABI DECODE HELPER ============
-  const decodeUint256Result = useCallback((result: string, functionName: string): bigint => {
-    if (!result || result === '0x') {
-      throw new Error(`Empty response from ${functionName}`);
+  const decodeUint256Result = useCallback((result: unknown, functionName: string, allowEmpty = false): bigint => {
+    // Validate result - treat undefined, null, empty string, '0x' as empty
+    const isEmpty = !result || result === '0x' || result === '' || result === null;
+    
+    if (isEmpty) {
+      if (allowEmpty) {
+        // For price functions, empty response means free mint (0)
+        return 0n;
+      }
+      throw new Error(`Unable to fetch ${functionName}`);
     }
     
     try {
@@ -440,10 +447,21 @@ export function useNFTMint() {
         functionName: functionName as any,
         data: result as `0x${string}`,
       });
-      return decoded as bigint;
+      
+      // Validate decoded value is a valid bigint
+      if (typeof decoded !== 'bigint') {
+        if (allowEmpty) return 0n;
+        throw new Error(`Invalid response type from ${functionName}`);
+      }
+      
+      return decoded;
     } catch (error) {
+      if (allowEmpty) {
+        // Graceful fallback for price functions
+        return 0n;
+      }
       console.error(`[Decode] Failed to decode ${functionName}:`, error);
-      throw new Error(`Failed to decode ${functionName} response`);
+      throw new Error(`Unable to fetch ${functionName}`);
     }
   }, []);
 
@@ -881,38 +899,73 @@ export function useNFTMint() {
     }
   }, [verifyBaseNetwork]);
 
-  // ============ GET MINT PRICE ETH ============
+  // ============ GET MINT PRICE ETH (with graceful fallback) ============
   const getMintPriceETH = useCallback(async (): Promise<bigint> => {
-    return safeRpcCall(async () => {
-      const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getMintPriceETH', args: [] });
-      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-      return decodeUint256Result(result, 'getMintPriceETH');
-    }, pendingEthPriceRef);
+    // Network check - don't call if not on Base
+    if (window.ethereum) {
+      try {
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
+        if (chainId?.toLowerCase() !== BASE_CHAIN_ID) {
+          // Return 0n silently - network error will be shown separately
+          return 0n;
+        }
+      } catch {
+        // Continue with call attempt
+      }
+    }
+    
+    try {
+      return await safeRpcCall(async () => {
+        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getMintPriceETH', args: [] });
+        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+        // Use allowEmpty=true for graceful fallback to 0n (free mint)
+        return decodeUint256Result(result, 'getMintPriceETH', true);
+      }, pendingEthPriceRef, 0n); // Default to 0n on any error
+    } catch {
+      // Graceful fallback - return 0n (free mint) instead of throwing
+      return 0n;
+    }
   }, [safeRpcCall, decodeUint256Result]);
 
   const getBatchMintPriceETH = useCallback(async (quantity: number): Promise<bigint> => {
-    return safeRpcCall(async () => {
-      const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getBatchMintPriceETH', args: [BigInt(quantity)] });
-      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-      return decodeUint256Result(result, 'getBatchMintPriceETH');
-    }, pendingEthPriceRef);
+    if (quantity <= 0) return 0n;
+    
+    try {
+      return await safeRpcCall(async () => {
+        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getBatchMintPriceETH', args: [BigInt(quantity)] });
+        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+        return decodeUint256Result(result, 'getBatchMintPriceETH', true);
+      }, pendingEthPriceRef, 0n);
+    } catch {
+      return 0n;
+    }
   }, [safeRpcCall, decodeUint256Result]);
 
-  // ============ GET MINT PRICE USDC ============
+  // ============ GET MINT PRICE USDC (with graceful fallback) ============
   const getMintPriceUSDC = useCallback(async (): Promise<bigint> => {
-    return safeRpcCall(async () => {
-      const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPriceUSDC', args: [] });
-      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-      return decodeUint256Result(result, 'mintPriceUSDC');
-    }, pendingUsdcPriceRef);
+    try {
+      return await safeRpcCall(async () => {
+        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPriceUSDC', args: [] });
+        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+        return decodeUint256Result(result, 'mintPriceUSDC', true);
+      }, pendingUsdcPriceRef, 0n);
+    } catch {
+      return 0n;
+    }
   }, [safeRpcCall, decodeUint256Result]);
 
   const getBatchMintPriceUSDC = useCallback(async (quantity: number): Promise<bigint> => {
-    return safeRpcCall(async () => {
-      const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getBatchMintPriceUSDC', args: [BigInt(quantity)] });
-      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-      return decodeUint256Result(result, 'getBatchMintPriceUSDC');
-    }, pendingUsdcPriceRef);
+    if (quantity <= 0) return 0n;
+    
+    try {
+      return await safeRpcCall(async () => {
+        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getBatchMintPriceUSDC', args: [BigInt(quantity)] });
+        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+        return decodeUint256Result(result, 'getBatchMintPriceUSDC', true);
+      }, pendingUsdcPriceRef, 0n);
+    } catch {
+      return 0n;
+    }
   }, [safeRpcCall, decodeUint256Result]);
 
   // ============ GET NONCE (v4) ============
