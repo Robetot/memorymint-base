@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,13 +24,20 @@ interface AdminMintControlsProps {
   isPending: boolean;
 }
 
-interface MintSettingsData {
+export interface MintSettingsData {
   mintEnabled: boolean;
   freeMint: boolean;
   antiBotEnabled: boolean;
   mintPriceETH: string;
   mintPriceUSDC: string;
   maxMintsPerWallet: number;
+}
+
+// Helper to normalize ETH values for comparison (remove trailing zeros)
+function normalizeEthValue(value: string): string {
+  const num = parseFloat(value);
+  if (isNaN(num)) return '0';
+  return num.toString();
 }
 
 export function AdminMintControls({ 
@@ -48,9 +55,20 @@ export function AdminMintControls({
     maxMintsPerWallet: Number(config?.walletMintLimit ?? 10n),
   });
 
-  const [isDirty, setIsDirty] = useState(false);
+  // Store the on-chain state as source of truth for comparison
+  const onChainState = useMemo(() => {
+    if (!config) return null;
+    return {
+      mintEnabled: config.mintEnabled,
+      freeMint: config.mintPriceETH === 0n && config.mintPriceUSDC === 0n,
+      antiBotEnabled: config.antiBotMode > 0,
+      mintPriceETH: normalizeEthValue(formatEther(config.mintPriceETH)),
+      mintPriceUSDC: normalizeEthValue(formatUnits(config.mintPriceUSDC, USDC_DECIMALS)),
+      maxMintsPerWallet: Number(config.walletMintLimit),
+    };
+  }, [config]);
 
-  // Sync with config when it changes
+  // Sync local settings when on-chain config changes (after tx confirmation)
   useEffect(() => {
     if (config) {
       setLocalSettings({
@@ -61,7 +79,6 @@ export function AdminMintControls({
         mintPriceUSDC: formatUnits(config.mintPriceUSDC, USDC_DECIMALS),
         maxMintsPerWallet: Number(config.walletMintLimit),
       });
-      setIsDirty(false);
     }
   }, [config]);
 
@@ -70,23 +87,37 @@ export function AdminMintControls({
     value: MintSettingsData[K]
   ) => {
     setLocalSettings(prev => ({ ...prev, [key]: value }));
-    setIsDirty(true);
   };
+
+  // Compare local settings against ON-CHAIN state (not UI-to-UI)
+  const hasChanges = useMemo(() => {
+    if (!onChainState) return false;
+    
+    const localMintEnabled = localSettings.mintEnabled;
+    const localFreeMint = localSettings.freeMint;
+    const localAntiBotEnabled = localSettings.antiBotEnabled;
+    const localPriceETH = normalizeEthValue(localSettings.mintPriceETH);
+    const localPriceUSDC = normalizeEthValue(localSettings.mintPriceUSDC);
+    const localMaxMints = localSettings.maxMintsPerWallet;
+
+    return (
+      localMintEnabled !== onChainState.mintEnabled ||
+      localAntiBotEnabled !== onChainState.antiBotEnabled ||
+      localMaxMints !== onChainState.maxMintsPerWallet ||
+      // Only compare prices if not free mint
+      (!localFreeMint && (
+        localPriceETH !== onChainState.mintPriceETH ||
+        localPriceUSDC !== onChainState.mintPriceUSDC
+      )) ||
+      // Free mint state changed
+      localFreeMint !== onChainState.freeMint
+    );
+  }, [localSettings, onChainState]);
 
   const handleSave = async () => {
-    const success = await onSaveChanges(localSettings);
-    if (success) {
-      setIsDirty(false);
-    }
+    await onSaveChanges(localSettings);
+    // Config will be refetched after tx confirmation, which will update onChainState
   };
-
-  const hasChanges = isDirty && (
-    localSettings.mintEnabled !== config?.mintEnabled ||
-    localSettings.mintPriceETH !== formatEther(config?.mintPriceETH ?? 0n) ||
-    localSettings.mintPriceUSDC !== formatUnits(config?.mintPriceUSDC ?? 0n, USDC_DECIMALS) ||
-    localSettings.maxMintsPerWallet !== Number(config?.walletMintLimit ?? 10n) ||
-    localSettings.antiBotEnabled !== ((config?.antiBotMode ?? 0) > 0)
-  );
 
   return (
     <div className="space-y-4">
@@ -238,9 +269,9 @@ export function AdminMintControls({
         )}
       </Button>
 
-      {!hasChanges && (
+      {!hasChanges && !isPending && (
         <p className="text-center text-sm text-muted-foreground">
-          No on-chain changes detected
+          Settings match on-chain values
         </p>
       )}
     </div>
