@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { useState, useEffect, useMemo } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,7 +23,7 @@ interface AdminClaimSettingsProps {
   isPending: boolean;
 }
 
-interface ClaimSettingsData {
+export interface ClaimSettingsData {
   claimsEnabled: boolean;
   cooldownEnabled: boolean;
   cooldownHours: number;
@@ -37,7 +37,7 @@ export function AdminClaimSettings({
   onSaveChanges,
   isPending,
 }: AdminClaimSettingsProps) {
-  // Local state for form (dirty tracking)
+  // Local state for form
   const [localSettings, setLocalSettings] = useState<ClaimSettingsData>({
     claimsEnabled: config?.claimEnabled ?? false,
     cooldownEnabled: false,
@@ -46,9 +46,16 @@ export function AdminClaimSettings({
     claimMode: config?.claimMode ?? ClaimModeEnum.DISABLED,
   });
 
-  const [isDirty, setIsDirty] = useState(false);
+  // Store the on-chain state as source of truth for comparison
+  const onChainState = useMemo(() => {
+    if (!config) return null;
+    return {
+      claimsEnabled: config.claimEnabled,
+      claimMode: config.claimMode,
+    };
+  }, [config]);
 
-  // Sync with config when it changes
+  // Sync with config when it changes (after tx confirmation)
   useEffect(() => {
     if (config) {
       setLocalSettings(prev => ({
@@ -56,7 +63,6 @@ export function AdminClaimSettings({
         claimsEnabled: config.claimEnabled,
         claimMode: config.claimMode,
       }));
-      setIsDirty(false);
     }
   }, [config]);
 
@@ -65,20 +71,21 @@ export function AdminClaimSettings({
     value: ClaimSettingsData[K]
   ) => {
     setLocalSettings(prev => ({ ...prev, [key]: value }));
-    setIsDirty(true);
   };
 
   const handleSave = async () => {
-    const success = await onSaveChanges(localSettings);
-    if (success) {
-      setIsDirty(false);
-    }
+    await onSaveChanges(localSettings);
+    // Config will be refetched after tx confirmation, which will update onChainState
   };
 
-  const hasChanges = isDirty && (
-    localSettings.claimsEnabled !== config?.claimEnabled ||
-    localSettings.claimMode !== config?.claimMode
-  );
+  // Compare local settings against ON-CHAIN state (not UI-to-UI)
+  const hasChanges = useMemo(() => {
+    if (!onChainState) return false;
+    return (
+      localSettings.claimsEnabled !== onChainState.claimsEnabled ||
+      localSettings.claimMode !== onChainState.claimMode
+    );
+  }, [localSettings, onChainState]);
 
   return (
     <div className="space-y-4">
@@ -217,9 +224,9 @@ export function AdminClaimSettings({
         )}
       </Button>
 
-      {!hasChanges && (
+      {!hasChanges && !isPending && (
         <p className="text-center text-sm text-muted-foreground">
-          No on-chain changes detected
+          Settings match on-chain values
         </p>
       )}
     </div>

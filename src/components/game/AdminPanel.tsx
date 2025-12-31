@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { encodeFunctionData, parseEther, parseUnits } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Shield, RefreshCw, Crown } from 'lucide-react';
-import { useContractReads } from '@/hooks/useContractReads';
+import { RefreshCw, Crown } from 'lucide-react';
+import { useAdminState } from '@/hooks/useAdminState';
 import {
   NFT_CONTRACT_ADDRESS,
   BASE_CHAIN_ID,
@@ -21,6 +21,8 @@ import {
   AdminEmergencyControls,
   AdminPreviewMode,
   AdminFooter,
+  AdminHealthCheck,
+  AdminLoadingState,
 } from './admin';
 
 interface AdminPanelProps {
@@ -29,19 +31,23 @@ interface AdminPanelProps {
 }
 
 export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
-  const { config, fetchContractConfig, fetchBonusLevels, bonusLevels, isOwner, invalidateConfigCache, isLoading } = useContractReads();
+  const {
+    initState,
+    healthStatus,
+    config,
+    bonusLevels,
+    isLoading,
+    error,
+    isReady,
+    refreshConfig,
+    runHealthCheck,
+    retry,
+    invalidateConfigCache,
+  } = useAdminState(walletAddress);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [lastActionTimestamp, setLastActionTimestamp] = useState<number>();
-
-  // Load config on mount
-  useEffect(() => {
-    fetchContractConfig(true);
-    fetchBonusLevels(walletAddress);
-  }, [fetchContractConfig, fetchBonusLevels, walletAddress]);
-
-  // Check if user is owner
-  const userIsOwner = isOwner(walletAddress);
 
   // Send transaction helper with gas-aware UX
   const sendAdminTx = useCallback(async (
@@ -110,9 +116,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       if (receipt?.status === '0x1') {
         toast.success('Transaction confirmed');
         setLastActionTimestamp(Date.now());
-        invalidateConfigCache();
-        await fetchContractConfig(true);
-        await fetchBonusLevels(walletAddress);
+        // Refresh config after successful tx
+        await refreshConfig();
         return true;
       } else {
         toast.error('Transaction failed', { description: 'Check BaseScan for details' });
@@ -128,7 +133,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [walletAddress, isPreviewMode, invalidateConfigCache, fetchContractConfig, fetchBonusLevels]);
+  }, [walletAddress, isPreviewMode, refreshConfig]);
 
   // Handler functions for each section
   const handleConfigureTier = async (
@@ -216,9 +221,16 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     return sendAdminTx('setClaimMode', [ClaimModeEnum.DISABLED]);
   };
 
-  // Don't render if not owner (production security)
-  if (!userIsOwner) {
-    return null;
+  // Show loading/error state if not ready
+  if (!isReady) {
+    return (
+      <AdminLoadingState 
+        initState={initState}
+        error={error}
+        onRetry={retry}
+        onClose={onClose}
+      />
+    );
   }
 
   return (
@@ -243,7 +255,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={() => fetchContractConfig(true)} 
+            onClick={() => refreshConfig()} 
             disabled={isLoading}
             className="border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10"
           >
@@ -271,6 +283,15 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           <strong>Preview mode</strong> — no on-chain transactions allowed
         </div>
       )}
+
+      {/* Section 0: Health Check (Collapsible) */}
+      <AdminHealthCheck 
+        healthStatus={healthStatus}
+        onRunCheck={runHealthCheck}
+        isLoading={isLoading}
+      />
+
+      <Separator />
 
       {/* Section 1: System Status */}
       <AdminSystemStatus config={config} isLoading={isLoading} />
