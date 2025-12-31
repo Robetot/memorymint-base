@@ -1,10 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { encodeFunctionData, parseEther, parseUnits } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { RefreshCw, Crown } from 'lucide-react';
+import { RefreshCw, Crown, CheckCircle2, Copy } from 'lucide-react';
 import { useAdminState } from '@/hooks/useAdminState';
 import {
   NFT_CONTRACT_ADDRESS,
@@ -24,6 +24,9 @@ import {
   AdminHealthCheck,
   AdminLoadingState,
 } from './admin';
+
+// Hardcoded admin address for display verification
+const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
 
 interface AdminPanelProps {
   walletAddress: string;
@@ -233,6 +236,18 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     );
   }
 
+  // Check if connected wallet matches admin address
+  const isVerifiedAdmin = useMemo(() => {
+    return walletAddress.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
+  }, [walletAddress]);
+
+  const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+
+  const copyAddress = () => {
+    navigator.clipboard.writeText(walletAddress);
+    toast.success('Address copied');
+  };
+
   return (
     <div className="min-h-screen flex flex-col p-6 bg-gradient-to-br from-background via-amber-950/5 to-background overflow-y-auto pb-24">
       {/* Header with amber/gold styling */}
@@ -273,6 +288,37 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
             </Button>
           )}
         </div>
+      </div>
+
+      {/* Admin Wallet Verification Banner */}
+      <div className={`mb-4 p-3 rounded-lg border flex items-center justify-between ${
+        isVerifiedAdmin 
+          ? 'bg-emerald-500/10 border-emerald-500/30' 
+          : 'bg-destructive/10 border-destructive/30'
+      }`}>
+        <div className="flex items-center gap-2">
+          {isVerifiedAdmin ? (
+            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          ) : (
+            <Crown className="h-5 w-5 text-destructive" />
+          )}
+          <div>
+            <p className={`text-sm font-medium ${isVerifiedAdmin ? 'text-emerald-500' : 'text-destructive'}`}>
+              {isVerifiedAdmin ? 'Verified Admin Wallet' : 'Wallet Mismatch'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Connected: {formatAddress(walletAddress)}
+            </p>
+          </div>
+        </div>
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          onClick={copyAddress}
+          className="h-8 px-2"
+        >
+          <Copy className="h-4 w-4" />
+        </Button>
       </div>
 
       <div className="space-y-6 max-w-4xl mx-auto w-full">

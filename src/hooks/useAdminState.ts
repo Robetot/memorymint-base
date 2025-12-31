@@ -91,47 +91,62 @@ export function useAdminState(walletAddress: string) {
     setError(null);
     const startTime = Date.now();
     
+    console.log('[AdminInit] Starting initialization...');
+    console.log('[AdminInit] Wallet address:', walletAddress);
+    console.log('[AdminInit] Admin address:', ADMIN_ADDRESS);
+    
     try {
       // Step 1: Check wallet connection
       setInitState('checking-wallet');
+      console.log('[AdminInit] Step 1: Checking wallet connection...');
       if (!walletAddress) {
+        console.log('[AdminInit] ❌ Wallet not connected');
         setError('Wallet not connected');
         setInitState('error');
         setHealthStatus(prev => ({ ...prev, walletConnected: false, lastCheck: startTime }));
         return;
       }
+      console.log('[AdminInit] ✓ Wallet connected:', walletAddress.slice(0, 10) + '...');
       setHealthStatus(prev => ({ ...prev, walletConnected: true }));
 
       // Step 2: Check network BEFORE admin check
       setInitState('checking-network');
+      console.log('[AdminInit] Step 2: Checking network...');
       const isCorrectNetwork = await checkNetwork();
       if (!isCorrectNetwork) {
+        console.log('[AdminInit] ❌ Wrong network');
         setError('Please connect to Base network');
         setInitState('error');
         setHealthStatus(prev => ({ ...prev, networkCorrect: false, lastCheck: startTime }));
         return;
       }
+      console.log('[AdminInit] ✓ Network is Base');
       setHealthStatus(prev => ({ ...prev, networkCorrect: true }));
 
       // Step 3: Check admin status (LOCAL, NO CONTRACT CALL)
       // This must happen AFTER wallet and network are confirmed
       setInitState('checking-admin');
+      console.log('[AdminInit] Step 3: Checking admin status...');
+      console.log('[AdminInit] Comparing:', walletAddress.toLowerCase(), '===', ADMIN_ADDRESS.toLowerCase());
       const userIsAdmin = checkIsAdmin(walletAddress);
       if (!userIsAdmin) {
+        console.log('[AdminInit] ❌ Not admin - address mismatch');
         setError('Not authorized - owner access required');
         setInitState('error');
         setHealthStatus(prev => ({ ...prev, isAdmin: false, lastCheck: startTime }));
         return;
       }
+      console.log('[AdminInit] ✓ Admin verified');
       setHealthStatus(prev => ({ ...prev, isAdmin: true }));
 
       // Step 4: Load contract config (now that we know user is admin)
       setInitState('loading-config');
+      console.log('[AdminInit] Step 4: Loading contract config...');
       const configResult = await fetchContractConfig(true);
       
       if (!configResult) {
         // Config load failed but user IS admin - show warning but allow access
-        console.warn('[AdminState] Config load failed, allowing admin access with limited data');
+        console.warn('[AdminInit] ⚠ Config load failed, allowing admin access with limited data');
         setHealthStatus(prev => ({ 
           ...prev, 
           contractReachable: false, 
@@ -142,6 +157,7 @@ export function useAdminState(walletAddress: string) {
         setInitState('ready');
         return;
       }
+      console.log('[AdminInit] ✓ Config loaded');
       
       setHealthStatus(prev => ({ 
         ...prev, 
@@ -150,14 +166,18 @@ export function useAdminState(walletAddress: string) {
       }));
 
       // Step 5: Load bonus levels
+      console.log('[AdminInit] Step 5: Loading bonus levels...');
       await fetchBonusLevels(walletAddress);
+      console.log('[AdminInit] ✓ Bonus levels loaded');
 
       // All checks passed
       setHealthStatus(prev => ({ ...prev, lastCheck: startTime }));
       setInitState('ready');
+      console.log('[AdminInit] ✓ Initialization complete - ready');
       
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Initialization failed';
+      console.error('[AdminInit] ❌ Error:', msg);
       setError(msg);
       setInitState('error');
       setHealthStatus(prev => ({ ...prev, lastCheck: startTime }));
