@@ -651,6 +651,12 @@ export function useNFTMint() {
         console.warn(`[AntiBot] Timestamp discrepancy: client=${clientTimestamp}, block=${blockTimestamp}, diff=${discrepancy}s`);
       }
       
+      // FIRST-TIME MINTER: If lastMintTime is 0, user has never minted - allow immediately
+      if (lastMintTime === 0n) {
+        const canMintNow = maxMints === 0n || mintCount < maxMints;
+        return { cooldown, lastMintTime, mintCount, maxMints, canMintNow, cooldownRemaining: 0n };
+      }
+      
       const cooldownEnd = lastMintTime + cooldown;
       const cooldownRemaining = cooldownEnd > blockTimestamp ? cooldownEnd - blockTimestamp : 0n;
       const canMintNow = blockTimestamp >= cooldownEnd && (maxMints === 0n || mintCount < maxMints);
@@ -658,14 +664,16 @@ export function useNFTMint() {
       return { cooldown, lastMintTime, mintCount, maxMints, canMintNow, cooldownRemaining };
     } catch (error) {
       console.error('[AntiBot] Failed to fetch config:', error);
-      // Fail-closed: if we can't verify anti-bot state, return restrictive config
+      // FAIL-OPEN for anti-bot: If we can't verify on-chain state, allow minting
+      // The smart contract will enforce the real cooldown if one exists
+      // This prevents false blocking of legitimate users due to RPC issues
       return {
-        cooldown: BigInt(60), // Default 60s cooldown assumption
-        lastMintTime: BigInt(Math.floor(Date.now() / 1000)),
+        cooldown: 0n,
+        lastMintTime: 0n,
         mintCount: 0n,
         maxMints: 0n,
-        canMintNow: false, // Fail-closed
-        cooldownRemaining: BigInt(60),
+        canMintNow: true, // Fail-open - let the contract enforce if needed
+        cooldownRemaining: 0n,
       };
     }
   }, [decodeUint256Result]);
