@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult, decodeEventLog, formatEther, formatUnits, maxUint256 } from 'viem';
+import { CONTRACT_ERRORS as VERIFIED_CONTRACT_ERRORS } from '@/contracts/MemoryMintContract';
 
 // ============ CONFIGURATION ============
 // Deployed MemoryMintUltraSafe_Bonus contract on Base Mainnet
@@ -116,6 +117,19 @@ const CONTRACT_ERROR_ABI = parseAbi([
   'error MintCapReached()',
 ]);
 
+// Standard Solidity errors
+const STANDARD_ERROR_ABI = parseAbi([
+  'error Error(string)',
+  'error Panic(uint256)',
+]);
+
+// Combined error ABI (legacy + verified + standard)
+const ALL_ERROR_ABI = [
+  ...CONTRACT_ERROR_ABI,
+  ...VERIFIED_CONTRACT_ERRORS,
+  ...STANDARD_ERROR_ABI,
+] as const;
+
 // ============ TYPES ============
 export interface AdminConfig {
   mintEnabled: boolean;
@@ -158,6 +172,8 @@ export interface MintState {
   tokenId: string | null;
   tokenIds: string[] | null;
   error: string | null;
+  mintBlocked?: boolean;
+  mintBlockedReason?: string | null;
   success: boolean;
   isSponsored: boolean;
   mintPriceEth: string | null;
@@ -278,44 +294,132 @@ function decodeMintErrorWithCode(error: unknown): MintErrorResult {
   const rawMsg: string | undefined = err?.data?.message || err?.error?.message || err?.message;
   if (rawMsg) {
     const lowerMsg = rawMsg.toLowerCase();
-    if (lowerMsg.includes('rejected') || lowerMsg.includes('denied') || lowerMsg.includes('cancelled') || lowerMsg.includes('canceled')) {
+    if (
+      lowerMsg.includes('rejected') ||
+      lowerMsg.includes('denied') ||
+      lowerMsg.includes('cancelled') ||
+      lowerMsg.includes('canceled')
+    ) {
       return { message: 'Transaction cancelled by user', isCancelled: true, code: 'USER_REJECTED' };
     }
   }
 
-  const revertData: unknown =
-    err?.data?.data ?? err?.data ?? err?.error?.data?.data ?? err?.error?.data;
+  // Extract revert data from: wallet errors, JSON-RPC errors, viem errors
+  const candidates: unknown[] = [
+    err?.data?.data,
+    err?.data,
+    err?.error?.data?.data,
+    err?.error?.data,
+    err?.rpcError?.data,
+    err?.rpcError?.data?.data,
+    err?.rpcError,
+  ];
 
-  if (typeof revertData === 'string' && revertData.startsWith('0x')) {
+  let revertHex: `0x${string}` | null = null;
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.startsWith('0x')) {
+      revertHex = c as `0x${string}`;
+      break;
+    }
+    if (c && typeof c === 'object') {
+      const maybeData = (c as any).data;
+      if (typeof maybeData === 'string' && maybeData.startsWith('0x')) {
+        revertHex = maybeData as `0x${string}`;
+        break;
+      }
+      const nested = (c as any).originalError?.data;
+      if (typeof nested === 'string' && nested.startsWith('0x')) {
+        revertHex = nested as `0x${string}`;
+        break;
+      }
+    }
+  }
+
+  if (revertHex) {
+    // 1) Decode custom errors (incl. verified ABI)
     try {
       const decoded = decodeErrorResult({
-        abi: CONTRACT_ERROR_ABI,
-        data: revertData as `0x${string}`,
-      });
+        abi: ALL_ERROR_ABI as any,
+        data: revertHex,
+      }) as { errorName: string; args?: any[] };
+
+      const errorName = decoded.errorName;
+      const args = decoded.args || [];
+
+      // Standard Error(string)
+      if (errorName === 'Error' && typeof args?.[0] === 'string') {
+        return { message: args[0].slice(0, 160), isCancelled: false, code: 'Error(string)' };
+      }
+
+      // Known contract errors with richer messages
+      if (errorName === 'InsufficientPayment' && args?.length >= 2) {
+        const required = args[0] as bigint;
+        const provided = args[1] as bigint;
+        return {
+          message: `Invalid ETH value: required ${formatEther(required)} ETH, provided ${formatEther(provided)} ETH`,
+          isCancelled: false,
+          code: 'InsufficientPayment',
+        };
+      }
+
+      if (errorName === 'CooldownActive' && args?.length >= 1) {
+        const remainingBlocks = args[0] as bigint;
+        return {
+          message: `Cooldown active: ${remainingBlocks.toString()} blocks remaining`,
+          isCancelled: false,
+          code: 'CooldownActive',
+        };
+      }
 
       const errorMessages: Record<string, string> = {
-        'InsufficientPayment': 'Insufficient payment. Please ensure you have enough ETH.',
-        'InvalidQuantity': 'Batch size must be 1–10',
-        'MaxBatchExceeded': 'Batch size must be 1–10',
-        'TransferToNonReceiver': 'Recipient cannot receive ERC-721 tokens',
-        'NotOwner': 'Not authorized',
-        'MintDisabled': 'Minting is currently disabled by admin',
-        'ClaimDisabled': 'Claiming is currently disabled by admin',
-        'CooldownActive': 'Please wait before minting again',
-        'MintCapReached': 'Wallet mint limit reached',
-        'AlreadyClaimed': 'Bonus already claimed for this level',
-        'NotEligible': 'Not eligible to claim this bonus',
-        'OracleStalePrice': 'Price feed temporarily unavailable. Please try again.',
-        'OracleInvalidPrice': 'Price feed temporarily unavailable. Please try again.',
-        'OracleNotSet': 'Price feed temporarily unavailable. Please try again.',
+        // Mint gating
+        MintDisabled: 'Minting is disabled',
+        MintingPaused: 'Minting is paused',
+        EmergencyMintDisabled: 'Minting is disabled',
+        MintLimitExceeded: 'Max mints per wallet reached',
+        FCFSMintCapReached: 'Mint cap has been reached',
+
+        // Allow/Deny list
+        AddressDenylisted: 'Caller not allowed (denylisted)',
+        NotAllowlisted: 'Caller not allowed (not on allowlist)',
+
+        // Signature
+        InvalidSignature: 'Invalid signature',
+        SignatureExpired: 'Signature has expired',
+        NonceAlreadyUsed: 'Signature nonce already used',
+
+        // Currency
+        CurrencyNotEnabled: 'Payment currency not enabled',
+        InsufficientUSDCAllowance: 'Insufficient USDC allowance',
+        USDCTransferFailed: 'USDC transfer failed',
+
+        // Chain / misc
+        WrongChain: 'Wrong network (please switch to Base)',
+        ReentrancyGuard: 'Temporary protection triggered. Please try again.',
+
+        // Claims
+        ClaimDisabled: 'Claiming is disabled',
+        ClaimNotActive: 'Claiming is not active',
+        AlreadyClaimed: 'Already claimed',
+        NotEligible: 'Not eligible',
+        InvalidBonusLevel: 'Invalid bonus level',
       };
 
-      return { 
-        message: errorMessages[decoded.errorName] || `Transaction failed: ${decoded.errorName}`, 
+      return {
+        message: errorMessages[errorName] || `Transaction would fail: ${errorName}`,
         isCancelled: false,
-        code: decoded.errorName,
+        code: errorName,
       };
-    } catch { /* fall through */ }
+    } catch {
+      // continue
+    }
+
+    // If we have revert data but can't decode it, still surface it.
+    return {
+      message: `Transaction would fail (undecoded revert): ${revertHex.slice(0, 18)}…`,
+      isCancelled: false,
+      code: 'UNDECODED_REVERT',
+    };
   }
 
   if (rawMsg) {
@@ -328,14 +432,12 @@ function decodeMintErrorWithCode(error: unknown): MintErrorResult {
     if (rawMsg.includes('gas required exceeds')) {
       return { message: 'Transaction would fail. Please check your balance.', isCancelled: false, code: 'GAS_LIMIT' };
     }
-    if (rawMsg.includes('cooldown')) {
-      return { message: 'Please wait before minting again', isCancelled: false, code: 'COOLDOWN' };
+    if (rawMsg.toLowerCase().includes('wrong network') || rawMsg.toLowerCase().includes('chain')) {
+      return { message: 'Wrong network (please switch to Base)', isCancelled: false, code: 'WRONG_CHAIN' };
     }
-    if (rawMsg.includes('disabled')) {
-      return { message: 'Feature is currently disabled by admin', isCancelled: false, code: 'DISABLED' };
-    }
-    return { message: rawMsg.slice(0, 100), isCancelled: false, code: 'UNKNOWN' };
+    return { message: rawMsg.slice(0, 160), isCancelled: false, code: 'UNKNOWN' };
   }
+
   return { message: 'Transaction failed. Please try again.', isCancelled: false, code: 'UNKNOWN' };
 }
 
@@ -409,6 +511,59 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
   throw new Error('RPC temporarily unavailable. Please try again.');
 }
 
+// RPC call for simulation ONLY: preserves revert payloads instead of masking them.
+async function rpcCallForSimulation(method: string, params: any[], timeout = 8000): Promise<any> {
+  let lastError: any = null;
+
+  for (const endpoint of RPC_ENDPOINTS) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        lastError = new Error(`${endpoint}: HTTP ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+
+      if (data?.error) {
+        // If it's a revert, it will usually include .data; preserve it and stop.
+        if (data.error.data) {
+          const e: any = new Error(data.error.message || 'Execution reverted');
+          e.code = data.error.code;
+          e.rpcError = data.error;
+          e.data = data.error.data;
+          throw e;
+        }
+
+        // Node error without revert payload: try next endpoint.
+        lastError = new Error(data.error.message || 'RPC error');
+        continue;
+      }
+
+      return data.result;
+    } catch (err) {
+      // If we intentionally threw a revert error, bubble it up.
+      const anyErr: any = err;
+      if (anyErr?.rpcError?.data || anyErr?.data) throw err;
+      lastError = err;
+      continue;
+    }
+  }
+
+  throw lastError || new Error('Simulation RPC failed');
+}
+
 // ============ MAIN HOOK ============
 export function useNFTMint() {
   const [mintState, setMintState] = useState<MintState>({
@@ -437,6 +592,8 @@ export function useNFTMint() {
     mintQueuePosition: 0,
     requireSIWE: false,
     isSIWEAuthenticated: false,
+    mintBlocked: false,
+    mintBlockedReason: null,
   });
   
   // Separate locks by operation type
@@ -451,6 +608,10 @@ export function useNFTMint() {
   // Network switch tracking
   const currentChainRef = useRef<string | null>(null);
   const isNetworkSwitchingRef = useRef<boolean>(false);
+
+  // Repeat-failure blocking (require refresh before retry after 2 identical preflight failures)
+  const repeatFailureRef = useRef<{ code: string | null; count: number }>({ code: null, count: 0 });
+  const mintBlockedRef = useRef<boolean>(false);
 
   // Detect wallet type on mount
   useEffect(() => {
@@ -1170,12 +1331,27 @@ export function useNFTMint() {
   }): Promise<{ 
     success: boolean; 
     error: string | null; 
+    errorCode: string | null;
     gasLimit: bigint | null;
     maxFeePerGas: bigint | null;
     maxPriorityFeePerGas: bigint | null;
     estimatedCostEth: string | null;
   }> => {
     const { from, to, data, value = 0n } = params;
+
+    // Hard block on repeated identical failures (requires refresh)
+    if (mintBlockedRef.current) {
+      const msg = mintState.mintBlockedReason || 'Mint blocked due to repeated failures. Please refresh to retry.';
+      return {
+        success: false,
+        error: msg,
+        errorCode: 'REPEAT_BLOCK',
+        gasLimit: null,
+        maxFeePerGas: null,
+        maxPriorityFeePerGas: null,
+        estimatedCostEth: null,
+      };
+    }
 
     try {
       setMintState(prev => ({ ...prev, isSimulating: true, pollingMessage: 'Simulating transaction...' }));
@@ -1187,33 +1363,83 @@ export function useNFTMint() {
         value: value > 0n ? `0x${value.toString(16)}` : '0x0',
       };
 
-      // Step 1: Simulate with eth_call
-      console.log('[Simulation] Running eth_call simulation...');
-      let simulationResult: any;
+      // Step 1: Simulate with eth_call (static)
+      console.log('[Simulation] eth_call', {
+        selector: data.slice(0, 10),
+        calldataBytes: (data.length - 2) / 2,
+        valueWei: value.toString(),
+      });
+
       try {
-        simulationResult = await rpcCall('eth_call', [callParams, 'latest']);
+        await rpcCallForSimulation('eth_call', [callParams, 'latest']);
       } catch (simErr: any) {
-        // Try to decode custom error
-        const decoded = decodeMintError(simErr);
+        const decoded = decodeMintErrorWithCode(simErr);
         console.error('[Simulation] eth_call reverted:', decoded);
+
+        // Repeat-failure tracking (only for deterministic preflight failures)
+        repeatFailureRef.current = decoded.code && decoded.code === repeatFailureRef.current.code
+          ? { code: decoded.code, count: repeatFailureRef.current.count + 1 }
+          : { code: decoded.code, count: 1 };
+
+        if (repeatFailureRef.current.count >= 2) {
+          mintBlockedRef.current = true;
+          const blockedMsg = `Repeated failure: ${decoded.message}. Refresh required before retry.`;
+          setMintState(prev => ({
+            ...prev,
+            isSimulating: false,
+            pollingMessage: null,
+            mintBlocked: true,
+            mintBlockedReason: blockedMsg,
+            error: blockedMsg,
+            txPhase: 'failed',
+            isMinting: false,
+          }));
+
+          return {
+            success: false,
+            error: blockedMsg,
+            errorCode: decoded.code,
+            gasLimit: null,
+            maxFeePerGas: null,
+            maxPriorityFeePerGas: null,
+            estimatedCostEth: null,
+          };
+        }
+
         setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
-        return { success: false, error: decoded, gasLimit: null, maxFeePerGas: null, maxPriorityFeePerGas: null, estimatedCostEth: null };
+        return {
+          success: false,
+          error: decoded.message,
+          errorCode: decoded.code,
+          gasLimit: null,
+          maxFeePerGas: null,
+          maxPriorityFeePerGas: null,
+          estimatedCostEth: null,
+        };
       }
 
-      // Step 2: Estimate gas
+      // Step 2: Estimate gas ONLY after simulation succeeded
       console.log('[Simulation] Estimating gas...');
       let gasEstimate: bigint;
       try {
-        const gasResult = await rpcCall('eth_estimateGas', [callParams]);
+        const gasResult = await rpcCallForSimulation('eth_estimateGas', [callParams]);
         gasEstimate = BigInt(gasResult as string);
       } catch (gasErr: any) {
-        const decoded = decodeMintError(gasErr);
+        const decoded = decodeMintErrorWithCode(gasErr);
         console.error('[Simulation] Gas estimation failed:', decoded);
         setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
-        return { success: false, error: decoded, gasLimit: null, maxFeePerGas: null, maxPriorityFeePerGas: null, estimatedCostEth: null };
+        return {
+          success: false,
+          error: decoded.message,
+          errorCode: decoded.code,
+          gasLimit: null,
+          maxFeePerGas: null,
+          maxPriorityFeePerGas: null,
+          estimatedCostEth: null,
+        };
       }
 
-      // Apply minimal buffer (7% for Base)
+      // Apply minimal buffer (unchanged)
       const gasWithBuffer = gasEstimate + (gasEstimate * GAS_BUFFER_PERCENT / 100n);
 
       // Step 3: Get gas price (EIP-1559)
@@ -1225,39 +1451,45 @@ export function useNFTMint() {
       } catch {
         // Use default
       }
-      
+
       const maxFeePerGas = baseGasPrice + maxPriorityFeePerGas;
       const estimatedCostWei = gasWithBuffer * maxFeePerGas + value;
       const estimatedCostEth = formatEther(estimatedCostWei);
 
-      console.log('[Simulation] Success:', {
-        gasEstimate: gasEstimate.toString(),
-        gasWithBuffer: gasWithBuffer.toString(),
-        estimatedCostEth,
-      });
+      // Clear repeat-failure tracking on success
+      repeatFailureRef.current = { code: null, count: 0 };
 
-      setMintState(prev => ({ 
-        ...prev, 
-        isSimulating: false, 
+      setMintState(prev => ({
+        ...prev,
+        isSimulating: false,
         pollingMessage: null,
         estimatedGasEth: estimatedCostEth,
       }));
 
-      return { 
-        success: true, 
-        error: null, 
+      return {
+        success: true,
+        error: null,
+        errorCode: null,
         gasLimit: gasWithBuffer,
         maxFeePerGas,
         maxPriorityFeePerGas,
         estimatedCostEth,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Simulation failed';
+      const errorInfo = decodeMintErrorWithCode(error);
       console.error('[Simulation] Unexpected error:', error);
       setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
-      return { success: false, error: errorMessage, gasLimit: null, maxFeePerGas: null, maxPriorityFeePerGas: null, estimatedCostEth: null };
+      return {
+        success: false,
+        error: errorInfo.message,
+        errorCode: errorInfo.code,
+        gasLimit: null,
+        maxFeePerGas: null,
+        maxPriorityFeePerGas: null,
+        estimatedCostEth: null,
+      };
     }
-  }, []);
+  }, [mintState.mintBlockedReason]);
 
   // ============ INTERNAL MINT EXECUTOR ============
   const executeMintInternal = useCallback(async (
@@ -1387,6 +1619,19 @@ export function useNFTMint() {
 
         if (canSponsor) {
           setMintState(prev => ({ ...prev, pollingMessage: 'Requesting sponsored mint...', txPhase: 'awaiting_wallet' }));
+
+          // CRITICAL: still preflight before opening wallet (prevents "likely to fail")
+          const sponsorPreflight = await simulateAndEstimateGas({
+            from: walletAddress,
+            to: NFT_CONTRACT_ADDRESS,
+            data,
+            value: 0n,
+          });
+
+          if (!sponsorPreflight.success) {
+            resetOnError(sponsorPreflight.error || 'Transaction would fail - blocked', 'failed');
+            return false;
+          }
           
           try {
             const callId = await (window.ethereum as any).request({
