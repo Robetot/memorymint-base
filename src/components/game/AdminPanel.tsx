@@ -155,17 +155,54 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   };
 
   const handleSaveMintSettings = async (settings: any) => {
-    // Send multiple transactions if needed (inform user)
+    // Compare against on-chain values and send transactions for changed settings
     let success = true;
+    let anyChangeMade = false;
     
+    // Check mintEnabled (uses pauseMinting with inverted logic)
     if (settings.mintEnabled !== config?.mintEnabled) {
       success = await sendAdminTx('pauseMinting', [!settings.mintEnabled]);
       if (!success) return false;
+      anyChangeMade = true;
     }
 
-    if (settings.mintPriceETH !== String(config?.mintPriceETH)) {
-      success = await sendAdminTx('setMintPriceETH', [parseEther(settings.mintPriceETH)]);
+    // Check ETH price - compare parsed values
+    const currentPriceETH = config?.mintPriceETH ?? 0n;
+    const newPriceETH = parseEther(settings.mintPriceETH || '0');
+    if (newPriceETH !== currentPriceETH) {
+      success = await sendAdminTx('setMintPriceETH', [newPriceETH]);
       if (!success) return false;
+      anyChangeMade = true;
+    }
+
+    // Check USDC price - compare parsed values
+    const currentPriceUSDC = config?.mintPriceUSDC ?? 0n;
+    const newPriceUSDC = parseUnits(settings.mintPriceUSDC || '0', USDC_DECIMALS);
+    if (newPriceUSDC !== currentPriceUSDC) {
+      success = await sendAdminTx('setMintPriceUSDC', [newPriceUSDC]);
+      if (!success) return false;
+      anyChangeMade = true;
+    }
+
+    // Check max mints per wallet
+    const currentMaxMints = Number(config?.walletMintLimit ?? 10n);
+    const newMaxMints = settings.maxMintsPerWallet;
+    if (newMaxMints !== currentMaxMints) {
+      success = await sendAdminTx('setWalletMintLimit', [BigInt(newMaxMints)]);
+      if (!success) return false;
+      anyChangeMade = true;
+    }
+
+    // Check anti-bot setting
+    const currentAntiBotEnabled = (config?.antiBotMode ?? 0) > 0;
+    if (settings.antiBotEnabled !== currentAntiBotEnabled) {
+      success = await sendAdminTx('setAntiBotMode', [settings.antiBotEnabled ? 1 : 0]);
+      if (!success) return false;
+      anyChangeMade = true;
+    }
+
+    if (!anyChangeMade) {
+      toast.info('No changes detected');
     }
     
     return success;
