@@ -185,25 +185,48 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="min-h-screen flex flex-col p-6 bg-gradient-to-br from-background via-amber-950/5 to-background overflow-y-auto pb-24">
+      {/* Header with amber/gold styling */}
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-            <Crown className="h-5 w-5 text-white" />
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <Crown className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h2 className="text-xl font-bold flex items-center gap-2">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-400 via-yellow-500 to-orange-500 bg-clip-text text-transparent">
               Admin Panel
-            </h2>
+            </h1>
             <p className="text-sm text-muted-foreground">Owner controls for MemoryMint</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => fetchContractConfig(true)} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="border-amber-500/50 text-amber-500">
+            Owner Only
+          </Badge>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => fetchContractConfig(true)} 
+            disabled={isLoading}
+            className="border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          {onClose && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={onClose}
+              className="border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10"
+            >
+              Close
+            </Button>
+          )}
+        </div>
       </div>
+
+      <div className="space-y-6 max-w-4xl mx-auto w-full">
 
       {/* Preview Mode Banner */}
       {isPreviewMode && (
@@ -265,6 +288,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
       {/* Footer */}
       <AdminFooter lastActionTimestamp={lastActionTimestamp} />
+      </div>
     </div>
   );
 }
