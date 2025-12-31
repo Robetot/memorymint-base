@@ -136,6 +136,16 @@ export interface AntiBotConfig {
   cooldownRemaining: bigint;
 }
 
+// ============ TX LIFECYCLE STATES ============
+export type TxPhase = 
+  | 'idle'           // No transaction in progress
+  | 'simulating'     // Running eth_call simulation
+  | 'awaiting_wallet' // Wallet popup open, waiting for user
+  | 'pending'        // TX submitted, waiting for confirmation
+  | 'success'        // TX confirmed successfully
+  | 'failed'         // TX reverted on-chain
+  | 'cancelled';     // User rejected in wallet
+
 export interface MintState {
   isMinting: boolean;
   isClaiming: boolean;
@@ -143,6 +153,7 @@ export interface MintState {
   isApprovingUSDC: boolean;
   isAuthenticating: boolean;
   isSimulating: boolean;
+  txPhase: TxPhase;
   txHash: string | null;
   tokenId: string | null;
   tokenIds: string[] | null;
@@ -248,10 +259,29 @@ function detectWalletType(): DetectedWalletType {
   return 'unknown';
 }
 
-function decodeMintError(error: unknown): string {
+// ============ ERROR DETECTION ============
+interface MintErrorResult {
+  message: string;
+  isCancelled: boolean;
+  code: string | null;
+}
+
+function decodeMintErrorWithCode(error: unknown): MintErrorResult {
   const err: any = error;
 
-  if (err?.code === 4001) return 'Transaction rejected by user';
+  // User rejection - CRITICAL: detect this immediately
+  if (err?.code === 4001 || err?.code === 'ACTION_REJECTED') {
+    return { message: 'Transaction cancelled by user', isCancelled: true, code: '4001' };
+  }
+
+  // Also check for rejection messages
+  const rawMsg: string | undefined = err?.data?.message || err?.error?.message || err?.message;
+  if (rawMsg) {
+    const lowerMsg = rawMsg.toLowerCase();
+    if (lowerMsg.includes('rejected') || lowerMsg.includes('denied') || lowerMsg.includes('cancelled') || lowerMsg.includes('canceled')) {
+      return { message: 'Transaction cancelled by user', isCancelled: true, code: 'USER_REJECTED' };
+    }
+  }
 
   const revertData: unknown =
     err?.data?.data ?? err?.data ?? err?.error?.data?.data ?? err?.error?.data;
@@ -263,38 +293,54 @@ function decodeMintError(error: unknown): string {
         data: revertData as `0x${string}`,
       });
 
-      switch (decoded.errorName) {
-        case 'InsufficientPayment': return 'Insufficient payment. Please ensure you have enough ETH.';
-        case 'InvalidQuantity':
-        case 'MaxBatchExceeded': return 'Batch size must be 1–10';
-        case 'TransferToNonReceiver': return 'Recipient cannot receive ERC-721 tokens';
-        case 'NotOwner': return 'Not authorized';
-        case 'MintDisabled': return 'Minting is currently disabled by admin';
-        case 'ClaimDisabled': return 'Claiming is currently disabled by admin';
-        case 'CooldownActive': return 'Please wait before minting again';
-        case 'MintCapReached': return 'Wallet mint limit reached';
-        case 'AlreadyClaimed': return 'Bonus already claimed for this level';
-        case 'NotEligible': return 'Not eligible to claim this bonus';
-        case 'OracleStalePrice':
-        case 'OracleInvalidPrice':
-        case 'OracleNotSet': return 'Price feed temporarily unavailable. Please try again.';
-        default: return `Transaction failed: ${decoded.errorName}`;
-      }
+      const errorMessages: Record<string, string> = {
+        'InsufficientPayment': 'Insufficient payment. Please ensure you have enough ETH.',
+        'InvalidQuantity': 'Batch size must be 1–10',
+        'MaxBatchExceeded': 'Batch size must be 1–10',
+        'TransferToNonReceiver': 'Recipient cannot receive ERC-721 tokens',
+        'NotOwner': 'Not authorized',
+        'MintDisabled': 'Minting is currently disabled by admin',
+        'ClaimDisabled': 'Claiming is currently disabled by admin',
+        'CooldownActive': 'Please wait before minting again',
+        'MintCapReached': 'Wallet mint limit reached',
+        'AlreadyClaimed': 'Bonus already claimed for this level',
+        'NotEligible': 'Not eligible to claim this bonus',
+        'OracleStalePrice': 'Price feed temporarily unavailable. Please try again.',
+        'OracleInvalidPrice': 'Price feed temporarily unavailable. Please try again.',
+        'OracleNotSet': 'Price feed temporarily unavailable. Please try again.',
+      };
+
+      return { 
+        message: errorMessages[decoded.errorName] || `Transaction failed: ${decoded.errorName}`, 
+        isCancelled: false,
+        code: decoded.errorName,
+      };
     } catch { /* fall through */ }
   }
 
-  const rawMsg: string | undefined = err?.data?.message || err?.error?.message || err?.message;
   if (rawMsg) {
     if (rawMsg.toLowerCase().includes('oracle') || rawMsg.toLowerCase().includes('price feed')) {
-      return 'Price feed temporarily unavailable. Please try again.';
+      return { message: 'Price feed temporarily unavailable. Please try again.', isCancelled: false, code: 'ORACLE_ERROR' };
     }
-    if (rawMsg.includes('insufficient funds')) return 'Insufficient ETH balance for transaction';
-    if (rawMsg.includes('gas required exceeds')) return 'Transaction would fail. Please check your balance.';
-    if (rawMsg.includes('cooldown')) return 'Please wait before minting again';
-    if (rawMsg.includes('disabled')) return 'Feature is currently disabled by admin';
-    return rawMsg.slice(0, 100);
+    if (rawMsg.includes('insufficient funds')) {
+      return { message: 'Insufficient ETH balance for transaction', isCancelled: false, code: 'INSUFFICIENT_FUNDS' };
+    }
+    if (rawMsg.includes('gas required exceeds')) {
+      return { message: 'Transaction would fail. Please check your balance.', isCancelled: false, code: 'GAS_LIMIT' };
+    }
+    if (rawMsg.includes('cooldown')) {
+      return { message: 'Please wait before minting again', isCancelled: false, code: 'COOLDOWN' };
+    }
+    if (rawMsg.includes('disabled')) {
+      return { message: 'Feature is currently disabled by admin', isCancelled: false, code: 'DISABLED' };
+    }
+    return { message: rawMsg.slice(0, 100), isCancelled: false, code: 'UNKNOWN' };
   }
-  return 'Transaction failed. Please try again.';
+  return { message: 'Transaction failed. Please try again.', isCancelled: false, code: 'UNKNOWN' };
+}
+
+function decodeMintError(error: unknown): string {
+  return decodeMintErrorWithCode(error).message;
 }
 
 function supportsWalletSendCalls(): boolean {
@@ -372,6 +418,7 @@ export function useNFTMint() {
     isApprovingUSDC: false,
     isAuthenticating: false,
     isSimulating: false,
+    txPhase: 'idle',
     txHash: null,
     tokenId: null,
     tokenIds: null,
@@ -1219,9 +1266,22 @@ export function useNFTMint() {
     quantity: number
   ): Promise<boolean> => {
     if (!window.ethereum || !walletAddress) {
-      setMintState(prev => ({ ...prev, error: 'Wallet not connected' }));
+      setMintState(prev => ({ ...prev, error: 'Wallet not connected', txPhase: 'failed' }));
       return false;
     }
+
+    // Helper to reset state on error/cancellation
+    const resetOnError = (error: string, phase: TxPhase) => {
+      setMintState(prev => ({ 
+        ...prev, 
+        isMinting: false,
+        isClaiming: false,
+        isSimulating: false,
+        error,
+        txPhase: phase,
+        pollingMessage: null,
+      }));
+    };
 
     try {
       // Fetch fresh config and determine payment token
@@ -1230,13 +1290,13 @@ export function useNFTMint() {
       
       const { allowed, error, config } = await enforceMintAllowed(walletAddress, paymentToken);
       if (!allowed) {
-        setMintState(prev => ({ ...prev, error }));
+        resetOnError(error || 'Mint not allowed', 'failed');
         return false;
       }
 
       const isBase = await verifyBaseNetwork();
       if (!isBase) {
-        setMintState(prev => ({ ...prev, error: 'Please switch to Base network' }));
+        resetOnError('Please switch to Base network', 'failed');
         return false;
       }
 
@@ -1246,10 +1306,11 @@ export function useNFTMint() {
         error: null,
         success: false,
         selectedPaymentToken: paymentToken,
+        txPhase: 'simulating',
         pollingMessage: 'Preparing transaction...',
       }));
 
-      let txHash: string;
+      let txHash: string | undefined;
       let isSponsored = false;
 
       if (paymentToken === 'USDC') {
@@ -1261,13 +1322,15 @@ export function useNFTMint() {
           if (allowance < priceUSDC) {
             const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
             if (!approved) {
-              setMintState(prev => ({ ...prev, isMinting: false, error: approvalError, pollingMessage: null }));
+              // Check if approval was cancelled
+              const errorInfo = decodeMintErrorWithCode({ message: approvalError });
+              resetOnError(approvalError || 'USDC approval failed', errorInfo.isCancelled ? 'cancelled' : 'failed');
               return false;
             }
           }
         }
 
-        setMintState(prev => ({ ...prev, pollingMessage: 'Optimizing gas...' }));
+        setMintState(prev => ({ ...prev, pollingMessage: 'Optimizing gas...', txPhase: 'simulating' }));
 
         const data = quantity === 1
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintWithUSDC', args: [tokenURI || ''] })
@@ -1282,29 +1345,31 @@ export function useNFTMint() {
         });
 
         if (!simulation.success) {
-          setMintState(prev => ({ 
-            ...prev, 
-            isMinting: false, 
-            error: simulation.error || 'Transaction would fail', 
-            pollingMessage: null 
-          }));
+          resetOnError(simulation.error || 'Transaction would fail', 'failed');
           return false;
         }
 
-        setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+        setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...', txPhase: 'awaiting_wallet' }));
 
-        txHash = await (window.ethereum as any).request({
-          method: 'eth_sendTransaction',
-          params: [{
-            from: walletAddress,
-            to: NFT_CONTRACT_ADDRESS,
-            data,
-            // Pass optimized gas params
-            gas: simulation.gasLimit ? `0x${simulation.gasLimit.toString(16)}` : undefined,
-            maxFeePerGas: simulation.maxFeePerGas ? `0x${simulation.maxFeePerGas.toString(16)}` : undefined,
-            maxPriorityFeePerGas: simulation.maxPriorityFeePerGas ? `0x${simulation.maxPriorityFeePerGas.toString(16)}` : undefined,
-          }],
-        });
+        try {
+          txHash = await (window.ethereum as any).request({
+            method: 'eth_sendTransaction',
+            params: [{
+              from: walletAddress,
+              to: NFT_CONTRACT_ADDRESS,
+              data,
+              // Pass optimized gas params
+              gas: simulation.gasLimit ? `0x${simulation.gasLimit.toString(16)}` : undefined,
+              maxFeePerGas: simulation.maxFeePerGas ? `0x${simulation.maxFeePerGas.toString(16)}` : undefined,
+              maxPriorityFeePerGas: simulation.maxPriorityFeePerGas ? `0x${simulation.maxPriorityFeePerGas.toString(16)}` : undefined,
+            }],
+          });
+        } catch (walletErr: unknown) {
+          const errorInfo = decodeMintErrorWithCode(walletErr);
+          console.log('[Mint] Wallet response:', { isCancelled: errorInfo.isCancelled, message: errorInfo.message });
+          resetOnError(errorInfo.message, errorInfo.isCancelled ? 'cancelled' : 'failed');
+          return false;
+        }
       } else {
         const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
         setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
@@ -1321,7 +1386,7 @@ export function useNFTMint() {
           supportsWalletSendCalls();
 
         if (canSponsor) {
-          setMintState(prev => ({ ...prev, pollingMessage: 'Requesting sponsored mint...' }));
+          setMintState(prev => ({ ...prev, pollingMessage: 'Requesting sponsored mint...', txPhase: 'awaiting_wallet' }));
           
           try {
             const callId = await (window.ethereum as any).request({
@@ -1339,7 +1404,7 @@ export function useNFTMint() {
               }],
             });
 
-            setMintState(prev => ({ ...prev, pollingMessage: 'Confirming sponsored transaction...' }));
+            setMintState(prev => ({ ...prev, pollingMessage: 'Confirming sponsored transaction...', txPhase: 'pending' }));
 
             let confirmed = false;
             for (let i = 0; i < 60; i++) {
@@ -1374,8 +1439,37 @@ export function useNFTMint() {
             if (!confirmed) {
               // Fallback to normal transaction if sponsored mint times out
               console.warn('[Mint] Sponsored mint timeout, falling back to normal transaction');
-              setMintState(prev => ({ ...prev, pollingMessage: 'Sponsored mint unavailable, using normal transaction...' }));
+              setMintState(prev => ({ ...prev, pollingMessage: 'Sponsored mint unavailable, using normal transaction...', txPhase: 'awaiting_wallet' }));
               
+              try {
+                txHash = await (window.ethereum as any).request({
+                  method: 'eth_sendTransaction',
+                  params: [{
+                    from: walletAddress,
+                    to: NFT_CONTRACT_ADDRESS,
+                    data,
+                    value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
+                  }],
+                });
+              } catch (walletErr: unknown) {
+                const errorInfo = decodeMintErrorWithCode(walletErr);
+                resetOnError(errorInfo.message, errorInfo.isCancelled ? 'cancelled' : 'failed');
+                return false;
+              }
+            }
+          } catch (sponsorErr: any) {
+            // Check if user cancelled the sponsored transaction
+            const errorInfo = decodeMintErrorWithCode(sponsorErr);
+            if (errorInfo.isCancelled) {
+              resetOnError(errorInfo.message, 'cancelled');
+              return false;
+            }
+            
+            // Fallback to normal transaction on sponsored mint failure
+            console.warn('[Mint] Sponsored transaction failed, falling back:', sponsorErr);
+            setMintState(prev => ({ ...prev, pollingMessage: 'Using normal transaction...', txPhase: 'awaiting_wallet' }));
+            
+            try {
               txHash = await (window.ethereum as any).request({
                 method: 'eth_sendTransaction',
                 params: [{
@@ -1385,24 +1479,14 @@ export function useNFTMint() {
                   value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
                 }],
               });
+            } catch (walletErr: unknown) {
+              const errorInfo = decodeMintErrorWithCode(walletErr);
+              resetOnError(errorInfo.message, errorInfo.isCancelled ? 'cancelled' : 'failed');
+              return false;
             }
-          } catch (sponsorErr: any) {
-            // Fallback to normal transaction on sponsored mint failure
-            console.warn('[Mint] Sponsored transaction failed, falling back:', sponsorErr);
-            setMintState(prev => ({ ...prev, pollingMessage: 'Using normal transaction...' }));
-            
-            txHash = await (window.ethereum as any).request({
-              method: 'eth_sendTransaction',
-              params: [{
-                from: walletAddress,
-                to: NFT_CONTRACT_ADDRESS,
-                data,
-                value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
-              }],
-            });
           }
         } else {
-          setMintState(prev => ({ ...prev, pollingMessage: 'Optimizing gas...' }));
+          setMintState(prev => ({ ...prev, pollingMessage: 'Optimizing gas...', txPhase: 'simulating' }));
           
           // Pre-simulate to get optimized gas params
           const simulation = await simulateAndEstimateGas({
@@ -1414,42 +1498,52 @@ export function useNFTMint() {
           
           if (!simulation.success) {
             // Block transaction if simulation fails
-            setMintState(prev => ({ 
-              ...prev, 
-              isMinting: false, 
-              error: simulation.error || 'Transaction would fail - blocked', 
-              pollingMessage: null 
-            }));
+            resetOnError(simulation.error || 'Transaction would fail - blocked', 'failed');
             return false;
           }
           
           setMintState(prev => ({ 
             ...prev, 
             pollingMessage: 'Waiting for signature...',
+            txPhase: 'awaiting_wallet',
             estimatedGasEth: simulation.estimatedCostEth,
           }));
           
           // Pass optimized gas params to wallet - this is critical for gas reduction
-          txHash = await (window.ethereum as any).request({
-            method: 'eth_sendTransaction',
-            params: [{
-              from: walletAddress,
-              to: NFT_CONTRACT_ADDRESS,
-              data,
-              // CRITICAL: Only attach value if price > 0 (free mint = no ETH)
-              value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
-              // Pass optimized gas limit to wallet
-              gas: simulation.gasLimit ? `0x${simulation.gasLimit.toString(16)}` : undefined,
-              maxFeePerGas: simulation.maxFeePerGas ? `0x${simulation.maxFeePerGas.toString(16)}` : undefined,
-              maxPriorityFeePerGas: simulation.maxPriorityFeePerGas ? `0x${simulation.maxPriorityFeePerGas.toString(16)}` : undefined,
-            }],
-          });
+          try {
+            txHash = await (window.ethereum as any).request({
+              method: 'eth_sendTransaction',
+              params: [{
+                from: walletAddress,
+                to: NFT_CONTRACT_ADDRESS,
+                data,
+                // CRITICAL: Only attach value if price > 0 (free mint = no ETH)
+                value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
+                // Pass optimized gas limit to wallet
+                gas: simulation.gasLimit ? `0x${simulation.gasLimit.toString(16)}` : undefined,
+                maxFeePerGas: simulation.maxFeePerGas ? `0x${simulation.maxFeePerGas.toString(16)}` : undefined,
+                maxPriorityFeePerGas: simulation.maxPriorityFeePerGas ? `0x${simulation.maxPriorityFeePerGas.toString(16)}` : undefined,
+              }],
+            });
+          } catch (walletErr: unknown) {
+            const errorInfo = decodeMintErrorWithCode(walletErr);
+            console.log('[Mint] Wallet response:', { isCancelled: errorInfo.isCancelled, message: errorInfo.message });
+            resetOnError(errorInfo.message, errorInfo.isCancelled ? 'cancelled' : 'failed');
+            return false;
+          }
         }
       }
 
-      setMintState(prev => ({ ...prev, txHash, isSponsored }));
+      // CRITICAL: Only proceed if we have a txHash
+      if (!txHash) {
+        console.error('[Mint] No txHash returned - exiting immediately');
+        resetOnError('Transaction was not submitted', 'failed');
+        return false;
+      }
 
-      const { success, tokenIds } = await waitForReceipt(txHash!, walletAddress);
+      setMintState(prev => ({ ...prev, txHash, isSponsored, txPhase: 'pending' }));
+
+      const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
 
       setMintState(prev => ({
         ...prev,
@@ -1459,17 +1553,19 @@ export function useNFTMint() {
         tokenIds: tokenIds.length > 0 ? tokenIds : null,
         success,
         isSponsored,
+        txPhase: success ? 'success' : 'failed',
         pollingMessage: null,
       }));
 
-      if (success) notifyMinted(walletAddress, tokenIds, txHash!);
+      if (success) notifyMinted(walletAddress, tokenIds, txHash);
       return success;
     } catch (error: unknown) {
       console.error('[Mint] Error:', error);
-      setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error), pollingMessage: null }));
+      const errorInfo = decodeMintErrorWithCode(error);
+      resetOnError(errorInfo.message, errorInfo.isCancelled ? 'cancelled' : 'failed');
       return false;
     }
-  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, getBatchMintPriceETH, getMintPriceUSDC, getBatchMintPriceUSDC, checkUSDCAllowance, approveUSDC, waitForReceipt, notifyMinted]);
+  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, getBatchMintPriceETH, getMintPriceUSDC, getBatchMintPriceUSDC, checkUSDCAllowance, approveUSDC, waitForReceipt, notifyMinted, simulateAndEstimateGas]);
 
   // ============ MINT QUEUE PROCESSOR ============
   const processNextInQueue = useCallback(async () => {
@@ -1597,7 +1693,7 @@ export function useNFTMint() {
             }
           }
 
-          setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+          setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...', txPhase: 'awaiting_wallet' }));
 
           const data = encodeFunctionData({
             abi: CONTRACT_ABI,
@@ -1605,12 +1701,26 @@ export function useNFTMint() {
             args: [tokenURI],
           });
 
-          const txHash = await (window.ethereum as any).request({
-            method: 'eth_sendTransaction',
-            params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
-          }) as string;
+          let txHash: string;
+          try {
+            txHash = await (window.ethereum as any).request({
+              method: 'eth_sendTransaction',
+              params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+            }) as string;
+          } catch (walletErr: unknown) {
+            const errorInfo = decodeMintErrorWithCode(walletErr);
+            setMintState(prev => ({ 
+              ...prev, 
+              isMinting: false, 
+              error: errorInfo.message, 
+              txPhase: errorInfo.isCancelled ? 'cancelled' : 'failed',
+              pollingMessage: null 
+            }));
+            resolve(false);
+            return false;
+          }
 
-          setMintState(prev => ({ ...prev, txHash, isSponsored: false }));
+          setMintState(prev => ({ ...prev, txHash, isSponsored: false, txPhase: 'pending' }));
 
           const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
 
@@ -1622,6 +1732,7 @@ export function useNFTMint() {
             tokenIds: tokenIds.length > 0 ? tokenIds : null,
             success,
             isSponsored: false,
+            txPhase: success ? 'success' : 'failed',
             pollingMessage: null,
           }));
 
@@ -1630,7 +1741,14 @@ export function useNFTMint() {
           return success;
         } catch (error: unknown) {
           console.error('[MintWithUSDC] Error:', error);
-          setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error), pollingMessage: null }));
+          const errorInfo = decodeMintErrorWithCode(error);
+          setMintState(prev => ({ 
+            ...prev, 
+            isMinting: false, 
+            error: errorInfo.message, 
+            txPhase: errorInfo.isCancelled ? 'cancelled' : 'failed',
+            pollingMessage: null 
+          }));
           resolve(false);
           return false;
         }
@@ -1717,7 +1835,7 @@ export function useNFTMint() {
             }
           }
 
-          setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+          setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...', txPhase: 'awaiting_wallet' }));
 
           // v4: Include nonce in function call
           const data = encodeFunctionData({
@@ -1726,12 +1844,26 @@ export function useNFTMint() {
             args: [tokenURI, nonce, expiration, signature],
           });
 
-          const txHash = await (window.ethereum as any).request({
-            method: 'eth_sendTransaction',
-            params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
-          }) as string;
+          let txHash: string;
+          try {
+            txHash = await (window.ethereum as any).request({
+              method: 'eth_sendTransaction',
+              params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+            }) as string;
+          } catch (walletErr: unknown) {
+            const errorInfo = decodeMintErrorWithCode(walletErr);
+            setMintState(prev => ({ 
+              ...prev, 
+              isMinting: false, 
+              error: errorInfo.message, 
+              txPhase: errorInfo.isCancelled ? 'cancelled' : 'failed',
+              pollingMessage: null 
+            }));
+            resolve(false);
+            return false;
+          }
 
-          setMintState(prev => ({ ...prev, txHash, isSponsored: false }));
+          setMintState(prev => ({ ...prev, txHash, isSponsored: false, txPhase: 'pending' }));
 
           const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
 
@@ -1743,6 +1875,7 @@ export function useNFTMint() {
             tokenIds: tokenIds.length > 0 ? tokenIds : null,
             success,
             isSponsored: false,
+            txPhase: success ? 'success' : 'failed',
             pollingMessage: null,
           }));
 
@@ -1751,7 +1884,14 @@ export function useNFTMint() {
           return success;
         } catch (error: unknown) {
           console.error('[MintWithUSDCAndSignature] Error:', error);
-          setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error), pollingMessage: null }));
+          const errorInfo = decodeMintErrorWithCode(error);
+          setMintState(prev => ({ 
+            ...prev, 
+            isMinting: false, 
+            error: errorInfo.message, 
+            txPhase: errorInfo.isCancelled ? 'cancelled' : 'failed',
+            pollingMessage: null 
+          }));
           resolve(false);
           return false;
         }
@@ -1824,7 +1964,7 @@ export function useNFTMint() {
           }));
 
           const priceWei = await getMintPriceETH();
-          setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei), pollingMessage: 'Waiting for signature...' }));
+          setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei), pollingMessage: 'Waiting for signature...', txPhase: 'awaiting_wallet' }));
 
           // v4: Include nonce in function call
           const data = encodeFunctionData({
@@ -1833,17 +1973,31 @@ export function useNFTMint() {
             args: [tokenURI, nonce, expiration, signature],
           });
 
-          const txHash = await (window.ethereum as any).request({
-            method: 'eth_sendTransaction',
-            params: [{
-              from: walletAddress,
-              to: NFT_CONTRACT_ADDRESS,
-              data,
-              value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
-            }],
-          });
+          let txHash: string;
+          try {
+            txHash = await (window.ethereum as any).request({
+              method: 'eth_sendTransaction',
+              params: [{
+                from: walletAddress,
+                to: NFT_CONTRACT_ADDRESS,
+                data,
+                value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
+              }],
+            });
+          } catch (walletErr: unknown) {
+            const errorInfo = decodeMintErrorWithCode(walletErr);
+            setMintState(prev => ({ 
+              ...prev, 
+              isMinting: false, 
+              error: errorInfo.message, 
+              txPhase: errorInfo.isCancelled ? 'cancelled' : 'failed',
+              pollingMessage: null 
+            }));
+            resolve(false);
+            return false;
+          }
 
-          setMintState(prev => ({ ...prev, txHash, isSponsored: false }));
+          setMintState(prev => ({ ...prev, txHash, isSponsored: false, txPhase: 'pending' }));
 
           const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
 
@@ -1855,6 +2009,7 @@ export function useNFTMint() {
             tokenIds: tokenIds.length > 0 ? tokenIds : null,
             success,
             isSponsored: false,
+            txPhase: success ? 'success' : 'failed',
             pollingMessage: null,
           }));
 
@@ -1863,7 +2018,14 @@ export function useNFTMint() {
           return success;
         } catch (error: unknown) {
           console.error('[MintWithSignature] Error:', error);
-          setMintState(prev => ({ ...prev, isMinting: false, error: decodeMintError(error), pollingMessage: null }));
+          const errorInfo = decodeMintErrorWithCode(error);
+          setMintState(prev => ({ 
+            ...prev, 
+            isMinting: false, 
+            error: errorInfo.message, 
+            txPhase: errorInfo.isCancelled ? 'cancelled' : 'failed',
+            pollingMessage: null 
+          }));
           resolve(false);
           return false;
         }
