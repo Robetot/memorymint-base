@@ -7,6 +7,7 @@ import { useAchievements } from '@/hooks/useAchievements';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useWallet } from '@/hooks/useWallet';
 import { RarityResult } from '@/utils/rarityCalculator';
+import { AdminErrorBoundary, AdminPanelRouteFallback } from '@/components/game/admin';
 
 // Lazy load components not needed on initial page load
 const GameScreen = lazy(() => import('@/components/game/GameScreen').then(m => ({ default: m.GameScreen })));
@@ -264,9 +265,11 @@ const Index = () => {
         );
       case 'admin':
         return (
-          <Suspense fallback={null}>
-            <AdminPanel walletAddress={walletAddress || ''} onClose={handleBackToMenu} />
-          </Suspense>
+          <AdminErrorBoundary onClose={handleBackToMenu} onRetry={() => { /* AdminPanel has its own retry */ }}>
+            <Suspense fallback={<AdminPanelRouteFallback />}>
+              <AdminPanel walletAddress={walletAddress || ''} onClose={handleBackToMenu} />
+            </Suspense>
+          </AdminErrorBoundary>
         );
       default:
         return null;

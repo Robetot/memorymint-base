@@ -329,7 +329,8 @@ export function useContractReads() {
   // ============ FETCH BONUS LEVELS ============
   const fetchBonusLevels = useCallback(async (walletAddress?: string): Promise<BonusLevelInfo[]> => {
     const levels: BonusLevelInfo[] = [];
-    
+    let hadFailures = false;
+
     // Fetch levels 1-10 (common range)
     for (let level = 1; level <= 10; level++) {
       try {
@@ -337,10 +338,11 @@ export function useContractReads() {
           { functionName: 'bonusLevels', args: [BigInt(level)] },
           ...(walletAddress ? [{ functionName: 'canClaim', args: [walletAddress, BigInt(level)] }] : []),
         ]);
-        
+
         const levelData = results[0] as [bigint, bigint, boolean, bigint, bigint, boolean] | null;
-        
-        if (levelData && levelData[2]) { // Only include active levels
+
+        if (levelData && levelData[2]) {
+          // Only include active levels
           levels.push({
             level,
             amountETH: levelData[0],
@@ -351,11 +353,16 @@ export function useContractReads() {
             canClaim: walletAddress ? (results[1] as boolean) ?? false : false,
           });
         }
-      } catch {
-        // Level doesn't exist or inactive, skip
+      } catch (err) {
+        hadFailures = true;
+        // Non-fatal: keep rendering partial UI.
       }
     }
-    
+
+    if (hadFailures) {
+      console.warn('[ContractReads] Some bonus level reads failed');
+    }
+
     setBonusLevels(levels);
     return levels;
   }, []);

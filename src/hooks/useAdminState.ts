@@ -1,16 +1,17 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { useContractReads, ContractConfig, BonusLevelInfo } from './useContractReads';
-import { BASE_CHAIN_ID } from '@/contracts/MemoryMintContract';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useContractReads, type BonusLevelInfo, type ContractConfig } from "./useContractReads";
+import { BASE_CHAIN_ID } from "@/contracts/MemoryMintContract";
 
 // ============ TYPES ============
-export type AdminInitState = 
-  | 'idle'
-  | 'checking-wallet'
-  | 'checking-network'
-  | 'checking-admin'
-  | 'loading-config'
-  | 'ready'
-  | 'error';
+export type AdminInitState =
+  | "idle"
+  | "loadingAuth"
+  | "loadingContract"
+  | "loadingAdminData"
+  | "ready"
+  | "error";
+
+export type AdminAuthPhase = "connectingWallet" | "verifyingNetwork" | "verifyingAdmin";
 
 export interface AdminHealthStatus {
   walletConnected: boolean;
@@ -24,6 +25,7 @@ export interface AdminHealthStatus {
 
 export interface AdminState {
   initState: AdminInitState;
+  authPhase: AdminAuthPhase | null;
   healthStatus: AdminHealthStatus;
   config: ContractConfig | null;
   bonusLevels: BonusLevelInfo[];
@@ -32,21 +34,51 @@ export interface AdminState {
   isReady: boolean;
 }
 
+const ADMIN_ADDRESS = "0x830f4c15480aa516a0cc4826902443936f9596cf";
+const STEP_TIMEOUT_MS = 8000;
+
+function shortAddr(addr: string) {
+  if (!addr) return "";
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function isTimeoutError(err: unknown) {
+  return err instanceof Error && err.name === "TimeoutError";
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      const e = new Error(`${label} timed out`);
+      e.name = "TimeoutError";
+      reject(e);
+    }, ms);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  }
+}
+
 // ============ HOOK ============
 export function useAdminState(walletAddress: string) {
-  const { 
-    config, 
-    fetchContractConfig, 
-    fetchBonusLevels, 
-    bonusLevels, 
-    isOwner, 
+  const {
+    config,
+    fetchContractConfig,
+    fetchBonusLevels,
+    bonusLevels,
     invalidateConfigCache,
     invalidateWalletCache,
     isLoading: contractLoading,
     error: contractError,
+    isOwner,
   } = useContractReads();
 
-  const [initState, setInitState] = useState<AdminInitState>('idle');
+  const [initState, setInitState] = useState<AdminInitState>("idle");
+  const [authPhase, setAuthPhase] = useState<AdminAuthPhase | null>("connectingWallet");
   const [error, setError] = useState<string | null>(null);
   const [healthStatus, setHealthStatus] = useState<AdminHealthStatus>({
     walletConnected: false,
@@ -54,245 +86,283 @@ export function useAdminState(walletAddress: string) {
     isAdmin: false,
     contractReachable: false,
     configLoaded: false,
-    abiFunctionsPresent: true, // Assumed true if ABI is defined
+    abiFunctionsPresent: true,
     lastCheck: 0,
   });
-  
-  const initRef = useRef(false);
-  const previousWalletRef = useRef<string>('');
-  const previousNetworkRef = useRef<string>('');
+
+  // Prevent stale async updates after wallet/network changes
+  const runIdRef = useRef(0);
+  const markNewRun = useCallback(() => {
+    runIdRef.current += 1;
+    return runIdRef.current;
+  }, []);
+  const isActiveRun = useCallback((runId: number) => runIdRef.current === runId, []);
 
   // ============ CHECK NETWORK ============
   const checkNetwork = useCallback(async (): Promise<boolean> => {
     if (!window.ethereum) return false;
-    try {
-      const chainId = await (window.ethereum as any).request({ method: 'eth_chainId' });
-      return chainId?.toLowerCase() === BASE_CHAIN_ID.toLowerCase();
-    } catch {
-      return false;
-    }
+    const chainId = await (window.ethereum as any).request({ method: "eth_chainId" });
+    return chainId?.toLowerCase() === BASE_CHAIN_ID.toLowerCase();
   }, []);
 
-  // ============ HARDCODED ADMIN ADDRESS ============
-  // This is the SOLE gate for admin access - do NOT rely on contract.owner()
-  const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
-  
   // ============ CHECK ADMIN (LOCAL, NO CONTRACT CALL) ============
   const checkIsAdmin = useCallback((address: string): boolean => {
     if (!address) return false;
     return address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
   }, []);
 
+  const resetState = useCallback(() => {
+    markNewRun();
+    setError(null);
+    setInitState("idle");
+    setAuthPhase("connectingWallet");
+    setHealthStatus({
+      walletConnected: false,
+      networkCorrect: false,
+      isAdmin: false,
+      contractReachable: false,
+      configLoaded: false,
+      abiFunctionsPresent: true,
+      lastCheck: 0,
+    });
+  }, [markNewRun]);
+
   // ============ INITIALIZE ADMIN PANEL ============
   const initialize = useCallback(async () => {
-    if (initRef.current) return;
-    initRef.current = true;
-    
+    const runId = markNewRun();
+    const startedAt = Date.now();
+
     setError(null);
-    const startTime = Date.now();
-    
-    console.log('[AdminInit] Starting initialization...');
-    console.log('[AdminInit] Wallet address:', walletAddress);
-    console.log('[AdminInit] Admin address:', ADMIN_ADDRESS);
-    
+    setInitState("loadingAuth");
+
+    // NOTE: Do not log admin address; only log step results.
+    console.log("[AdminInit] start", {
+      runId,
+      wallet: walletAddress ? shortAddr(walletAddress) : null,
+    });
+
+    // Step 2: Resolve wallet (non-blocking UI)
+    setAuthPhase("connectingWallet");
+    setHealthStatus((prev) => ({ ...prev, walletConnected: !!walletAddress }));
+
+    if (!walletAddress) {
+      console.log("[AdminInit] waiting for wallet", { runId });
+      return;
+    }
+
     try {
-      // Step 1: Check wallet connection
-      setInitState('checking-wallet');
-      console.log('[AdminInit] Step 1: Checking wallet connection...');
-      if (!walletAddress) {
-        console.log('[AdminInit] ❌ Wallet not connected');
-        setError('Wallet not connected');
-        setInitState('error');
-        setHealthStatus(prev => ({ ...prev, walletConnected: false, lastCheck: startTime }));
-        return;
-      }
-      console.log('[AdminInit] ✓ Wallet connected:', walletAddress.slice(0, 10) + '...');
-      setHealthStatus(prev => ({ ...prev, walletConnected: true }));
+      // Step 3: Resolve network
+      setAuthPhase("verifyingNetwork");
+      const isCorrectNetwork = await withTimeout(checkNetwork(), STEP_TIMEOUT_MS, "network check");
+      if (!isActiveRun(runId)) return;
 
-      // Step 2: Check network BEFORE admin check
-      setInitState('checking-network');
-      console.log('[AdminInit] Step 2: Checking network...');
-      const isCorrectNetwork = await checkNetwork();
       if (!isCorrectNetwork) {
-        console.log('[AdminInit] ❌ Wrong network');
-        setError('Please connect to Base network');
-        setInitState('error');
-        setHealthStatus(prev => ({ ...prev, networkCorrect: false, lastCheck: startTime }));
+        console.warn("[AdminInit] wrong network", { runId });
+        setHealthStatus((prev) => ({
+          ...prev,
+          walletConnected: true,
+          networkCorrect: false,
+          lastCheck: startedAt,
+        }));
+        setError("Wrong network. Please connect to Base.");
+        setInitState("error");
         return;
       }
-      console.log('[AdminInit] ✓ Network is Base');
-      setHealthStatus(prev => ({ ...prev, networkCorrect: true }));
 
-      // Step 3: Check admin status (LOCAL, NO CONTRACT CALL)
-      // This must happen AFTER wallet and network are confirmed
-      setInitState('checking-admin');
-      console.log('[AdminInit] Step 3: Checking admin status...');
-      console.log('[AdminInit] Comparing:', walletAddress.toLowerCase(), '===', ADMIN_ADDRESS.toLowerCase());
+      setHealthStatus((prev) => ({ ...prev, networkCorrect: true }));
+
+      // Step 4: Verify admin
+      setAuthPhase("verifyingAdmin");
       const userIsAdmin = checkIsAdmin(walletAddress);
       if (!userIsAdmin) {
-        console.log('[AdminInit] ❌ Not admin - address mismatch');
-        setError('Not authorized - owner access required');
-        setInitState('error');
-        setHealthStatus(prev => ({ ...prev, isAdmin: false, lastCheck: startTime }));
-        return;
-      }
-      console.log('[AdminInit] ✓ Admin verified');
-      setHealthStatus(prev => ({ ...prev, isAdmin: true }));
-
-      // Step 4: Load contract config (now that we know user is admin)
-      setInitState('loading-config');
-      console.log('[AdminInit] Step 4: Loading contract config...');
-      const configResult = await fetchContractConfig(true);
-      
-      if (!configResult) {
-        // Config load failed but user IS admin - show warning but allow access
-        console.warn('[AdminInit] ⚠ Config load failed, allowing admin access with limited data');
-        setHealthStatus(prev => ({ 
-          ...prev, 
-          contractReachable: false, 
-          configLoaded: false,
-          lastCheck: startTime,
+        console.warn("[AdminInit] not authorized", { runId, wallet: shortAddr(walletAddress) });
+        setHealthStatus((prev) => ({
+          ...prev,
+          walletConnected: true,
+          networkCorrect: true,
+          isAdmin: false,
+          lastCheck: startedAt,
         }));
-        // Still proceed to ready state - admin access is based on address, not contract
-        setInitState('ready');
+        setError("Not authorized – owner access required");
+        setInitState("error");
         return;
       }
-      console.log('[AdminInit] ✓ Config loaded');
-      
-      setHealthStatus(prev => ({ 
-        ...prev, 
-        contractReachable: true, 
-        configLoaded: true,
+
+      setHealthStatus((prev) => ({ ...prev, isAdmin: true }));
+
+      // Step 5: Initialize contract (config)
+      setAuthPhase(null);
+      setInitState("loadingContract");
+
+      let configResult: ContractConfig | null = null;
+      try {
+        configResult = await withTimeout(fetchContractConfig(true), STEP_TIMEOUT_MS, "contract config");
+      } catch (err) {
+        if (!isActiveRun(runId)) return;
+        console.warn("[AdminInit] contract config failed", {
+          runId,
+          reason: err instanceof Error ? err.message : "unknown",
+        });
+        configResult = null;
+      }
+
+      if (!isActiveRun(runId)) return;
+
+      setHealthStatus((prev) => ({
+        ...prev,
+        contractReachable: !!configResult,
+        configLoaded: !!configResult?.isLoaded,
       }));
 
-      // Step 5: Load bonus levels
-      console.log('[AdminInit] Step 5: Loading bonus levels...');
-      await fetchBonusLevels(walletAddress);
-      console.log('[AdminInit] ✓ Bonus levels loaded');
+      // Step 6: Fetch admin data (bonus levels)
+      setInitState("loadingAdminData");
+      try {
+        await withTimeout(fetchBonusLevels(walletAddress), STEP_TIMEOUT_MS, "admin data");
+      } catch (err) {
+        if (!isActiveRun(runId)) return;
+        console.warn("[AdminInit] admin data load failed", {
+          runId,
+          reason: err instanceof Error ? err.message : "unknown",
+        });
+        // Non-fatal: keep rendering a partial UI.
+      }
 
-      // All checks passed
-      setHealthStatus(prev => ({ ...prev, lastCheck: startTime }));
-      setInitState('ready');
-      console.log('[AdminInit] ✓ Initialization complete - ready');
-      
+      if (!isActiveRun(runId)) return;
+
+      setHealthStatus((prev) => ({ ...prev, lastCheck: startedAt }));
+      setInitState("ready");
+      console.log("[AdminInit] ready", { runId, ms: Date.now() - startedAt });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Initialization failed';
-      console.error('[AdminInit] ❌ Error:', msg);
-      setError(msg);
-      setInitState('error');
-      setHealthStatus(prev => ({ ...prev, lastCheck: startTime }));
-    } finally {
-      initRef.current = false;
-    }
-  }, [walletAddress, checkNetwork, fetchContractConfig, fetchBonusLevels, checkIsAdmin]);
+      if (!isActiveRun(runId)) return;
 
-  // ============ REFRESH CONFIG ============
-  const refreshConfig = useCallback(async () => {
-    invalidateConfigCache();
-    const configResult = await fetchContractConfig(true);
-    if (configResult && walletAddress) {
-      await fetchBonusLevels(walletAddress);
-    }
-    return configResult;
-  }, [invalidateConfigCache, fetchContractConfig, fetchBonusLevels, walletAddress]);
+      if (isTimeoutError(err)) {
+        console.error("[AdminInit] timeout", { runId, at: (err as Error).message });
+        setError("Admin panel failed to load. Retry?");
+      } else {
+        console.error("[AdminInit] error", { runId, err });
+        setError(err instanceof Error ? err.message : "Admin panel failed to load. Retry?");
+      }
 
-  // ============ HANDLE WALLET/NETWORK CHANGE ============
+      setHealthStatus((prev) => ({ ...prev, lastCheck: startedAt }));
+      setInitState("error");
+    }
+  }, [walletAddress, markNewRun, checkNetwork, isActiveRun, checkIsAdmin, fetchContractConfig, fetchBonusLevels]);
+
+  // ============ AUTO-INITIALIZE (strict order, no blocking render) ============
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  // ============ RESET ON WALLET/NETWORK CHANGES ============
   useEffect(() => {
     const handleAccountsChanged = () => {
-      // Clear caches and reinitialize
       invalidateConfigCache();
       invalidateWalletCache();
-      initRef.current = false;
-      setInitState('idle');
+      resetState();
     };
 
     const handleChainChanged = () => {
-      // Clear caches and reinitialize
       invalidateConfigCache();
       invalidateWalletCache();
-      initRef.current = false;
-      setInitState('idle');
+      resetState();
     };
 
     if (window.ethereum) {
-      (window.ethereum as any).on('accountsChanged', handleAccountsChanged);
-      (window.ethereum as any).on('chainChanged', handleChainChanged);
+      (window.ethereum as any).on("accountsChanged", handleAccountsChanged);
+      (window.ethereum as any).on("chainChanged", handleChainChanged);
     }
 
     return () => {
       if (window.ethereum) {
-        (window.ethereum as any).removeListener('accountsChanged', handleAccountsChanged);
-        (window.ethereum as any).removeListener('chainChanged', handleChainChanged);
+        (window.ethereum as any).removeListener("accountsChanged", handleAccountsChanged);
+        (window.ethereum as any).removeListener("chainChanged", handleChainChanged);
       }
     };
-  }, [invalidateConfigCache, invalidateWalletCache]);
+  }, [invalidateConfigCache, invalidateWalletCache, resetState]);
 
-  // ============ DETECT WALLET ADDRESS CHANGE ============
-  useEffect(() => {
-    if (walletAddress !== previousWalletRef.current) {
-      previousWalletRef.current = walletAddress;
-      initRef.current = false;
-      setInitState('idle');
+  // ============ REFRESH CONFIG ============
+  const refreshConfig = useCallback(async () => {
+    invalidateConfigCache();
+    try {
+      return await fetchContractConfig(true);
+    } finally {
+      if (walletAddress) {
+        await fetchBonusLevels(walletAddress).catch(() => undefined);
+      }
     }
-  }, [walletAddress]);
-
-  // ============ AUTO-INITIALIZE ============
-  useEffect(() => {
-    if (initState === 'idle' && walletAddress) {
-      initialize();
-    }
-  }, [initState, walletAddress, initialize]);
+  }, [invalidateConfigCache, fetchContractConfig, fetchBonusLevels, walletAddress]);
 
   // ============ RUN HEALTH CHECK ============
   const runHealthCheck = useCallback(async (): Promise<AdminHealthStatus> => {
+    const now = Date.now();
+
     const status: AdminHealthStatus = {
       walletConnected: !!walletAddress,
-      networkCorrect: await checkNetwork(),
-      isAdmin: checkIsAdmin(walletAddress), // Use local check, not contract
+      networkCorrect: false,
+      isAdmin: checkIsAdmin(walletAddress),
       contractReachable: false,
       configLoaded: false,
       abiFunctionsPresent: true,
-      lastCheck: Date.now(),
+      lastCheck: now,
     };
 
-    if (status.walletConnected && status.networkCorrect) {
+    if (!walletAddress) {
+      setHealthStatus(status);
+      return status;
+    }
+
+    try {
+      status.networkCorrect = await withTimeout(checkNetwork(), STEP_TIMEOUT_MS, "network check");
+    } catch {
+      status.networkCorrect = false;
+    }
+
+    if (status.walletConnected && status.networkCorrect && status.isAdmin) {
       try {
-        const configResult = await fetchContractConfig(true);
-        status.contractReachable = !!configResult;
-        status.configLoaded = !!configResult?.isLoaded;
+        const cfg = await withTimeout(fetchContractConfig(true), STEP_TIMEOUT_MS, "contract config");
+        status.contractReachable = !!cfg;
+        status.configLoaded = !!cfg?.isLoaded;
       } catch {
         status.contractReachable = false;
+        status.configLoaded = false;
       }
     }
 
     setHealthStatus(status);
     return status;
-  }, [walletAddress, checkNetwork, fetchContractConfig, checkIsAdmin]);
+  }, [walletAddress, checkNetwork, checkIsAdmin, fetchContractConfig]);
 
   // ============ RETRY INITIALIZATION ============
   const retry = useCallback(() => {
-    setError(null);
-    initRef.current = false;
-    setInitState('idle');
-  }, []);
+    invalidateConfigCache();
+    invalidateWalletCache();
+    resetState();
+  }, [invalidateConfigCache, invalidateWalletCache, resetState]);
+
+  const isReady = initState === "ready";
+
+  const isLoading = useMemo(() => {
+    return contractLoading || ["loadingAuth", "loadingContract", "loadingAdminData"].includes(initState);
+  }, [contractLoading, initState]);
 
   return {
     // State
     initState,
+    authPhase,
     healthStatus,
     config,
     bonusLevels,
-    isLoading: contractLoading || ['checking-wallet', 'checking-network', 'checking-admin', 'loading-config'].includes(initState),
+    isLoading,
     error: error || contractError,
-    isReady: initState === 'ready',
-    
+    isReady,
+
     // Actions
     initialize,
     refreshConfig,
     runHealthCheck,
     retry,
     invalidateConfigCache,
-    
+
     // Utilities
     isOwner,
   };

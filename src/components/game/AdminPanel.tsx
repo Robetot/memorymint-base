@@ -36,6 +36,7 @@ interface AdminPanelProps {
 export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   const {
     initState,
+    authPhase,
     healthStatus,
     config,
     bonusLevels,
@@ -67,12 +68,12 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       toast.info('Preview mode active - no transactions allowed');
       return false;
     }
-    
+
     setIsSubmitting(true);
-    
+
     try {
       const ethereum = window.ethereum as any;
-      
+
       // Verify chain
       const chainId = await ethereum.request({ method: 'eth_chainId' });
       if (chainId.toLowerCase() !== BASE_CHAIN_ID.toLowerCase()) {
@@ -81,41 +82,41 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           params: [{ chainId: BASE_CHAIN_ID }],
         });
       }
-      
+
       const data = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: functionName as any,
         args: args as any,
       });
-      
+
       const txParams: any = {
         from: walletAddress,
         to: NFT_CONTRACT_ADDRESS,
         data,
       };
-      
+
       if (value && value > 0n) {
         txParams.value = `0x${value.toString(16)}`;
       }
-      
+
       const txHash = await ethereum.request({
         method: 'eth_sendTransaction',
         params: [txParams],
       });
-      
+
       toast.success('Transaction submitted', { description: `Hash: ${txHash.slice(0, 10)}...` });
-      
+
       // Wait for confirmation
       let receipt = null;
       for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 2000));
         receipt = await ethereum.request({
           method: 'eth_getTransactionReceipt',
           params: [txHash],
         });
         if (receipt) break;
       }
-      
+
       if (receipt?.status === '0x1') {
         toast.success('Transaction confirmed');
         setLastActionTimestamp(Date.now());
@@ -158,7 +159,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
   const handleSaveClaimSettings = async (settings: any) => {
     return sendAdminTx('setClaimMode', [
-      settings.claimsEnabled ? ClaimModeEnum.UNLIMITED : ClaimModeEnum.DISABLED
+      settings.claimsEnabled ? ClaimModeEnum.UNLIMITED : ClaimModeEnum.DISABLED,
     ]);
   };
 
@@ -166,7 +167,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     // Compare against on-chain values and send transactions for changed settings
     let success = true;
     let anyChangeMade = false;
-    
+
     // Check mintEnabled (uses pauseMinting with inverted logic)
     if (settings.mintEnabled !== config?.mintEnabled) {
       success = await sendAdminTx('pauseMinting', [!settings.mintEnabled]);
@@ -212,7 +213,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     if (!anyChangeMade) {
       toast.info('No changes detected');
     }
-    
+
     return success;
   };
 
@@ -224,11 +225,12 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     return sendAdminTx('setClaimMode', [ClaimModeEnum.DISABLED]);
   };
 
-  // Show loading/error state if not ready
+  // Always render a visible state (never blank)
   if (!isReady) {
     return (
-      <AdminLoadingState 
+      <AdminLoadingState
         initState={initState}
+        authPhase={authPhase}
         error={error}
         onRetry={retry}
         onClose={onClose}
@@ -323,6 +325,30 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
       <div className="space-y-6 max-w-4xl mx-auto w-full">
 
+      {/* If contract config couldn't load, render a visible partial UI + retry */}
+      {!config && (
+        <div className="mb-2">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4">
+            <p className="font-medium">Admin configuration unavailable</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              On-chain reads failed or timed out. You can retry initialization.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Button variant="outline" size="sm" onClick={retry}>
+                Retry
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => refreshConfig()} disabled={isLoading}>
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <AdminHealthCheck healthStatus={healthStatus} onRunCheck={runHealthCheck} isLoading={isLoading} />
+          </div>
+        </div>
+      )}
+
       {/* Preview Mode Banner */}
       {isPreviewMode && (
         <div className="bg-secondary/20 border border-secondary/50 rounded-lg p-3 text-center text-sm">
@@ -330,68 +356,69 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
         </div>
       )}
 
-      {/* Section 0: Health Check (Collapsible) */}
-      <AdminHealthCheck 
-        healthStatus={healthStatus}
-        onRunCheck={runHealthCheck}
-        isLoading={isLoading}
-      />
+      {/* Only render config-dependent sections when config is present */}
+      {config && (
+        <>
+          {/* Section 0: Health Check (Collapsible) */}
+          <AdminHealthCheck healthStatus={healthStatus} onRunCheck={runHealthCheck} isLoading={isLoading} />
 
-      <Separator />
+          <Separator />
 
-      {/* Section 1: System Status */}
-      <AdminSystemStatus config={config} isLoading={isLoading} />
+          {/* Section 1: System Status */}
+          <AdminSystemStatus config={config} isLoading={isLoading} />
 
-      <Separator />
+          <Separator />
 
-      {/* Section 2: Reward Tiers */}
-      <AdminRewardTiers
-        bonusLevels={bonusLevels}
-        isPreviewMode={isPreviewMode}
-        onConfigureTier={handleConfigureTier}
-        isPending={isSubmitting}
-      />
+          {/* Section 2: Reward Tiers */}
+          <AdminRewardTiers
+            bonusLevels={bonusLevels}
+            isPreviewMode={isPreviewMode}
+            onConfigureTier={handleConfigureTier}
+            isPending={isSubmitting}
+          />
 
-      <Separator />
+          <Separator />
 
-      {/* Section 3: Claim Settings */}
-      <AdminClaimSettings
-        config={config}
-        isPreviewMode={isPreviewMode}
-        onSaveChanges={handleSaveClaimSettings}
-        isPending={isSubmitting}
-      />
+          {/* Section 3: Claim Settings */}
+          <AdminClaimSettings
+            config={config}
+            isPreviewMode={isPreviewMode}
+            onSaveChanges={handleSaveClaimSettings}
+            isPending={isSubmitting}
+          />
 
-      <Separator />
+          <Separator />
 
-      {/* Section 4: Mint Controls */}
-      <AdminMintControls
-        config={config}
-        isPreviewMode={isPreviewMode}
-        onSaveChanges={handleSaveMintSettings}
-        isPending={isSubmitting}
-      />
+          {/* Section 4: Mint Controls */}
+          <AdminMintControls
+            config={config}
+            isPreviewMode={isPreviewMode}
+            onSaveChanges={handleSaveMintSettings}
+            isPending={isSubmitting}
+          />
 
-      <Separator />
+          <Separator />
 
-      {/* Section 5: Emergency Controls */}
-      <AdminEmergencyControls
-        walletAddress={walletAddress}
-        isPreviewMode={isPreviewMode}
-        onPauseMinting={handlePauseMinting}
-        onPauseClaims={handlePauseClaims}
-        isPending={isSubmitting}
-      />
+          {/* Section 5: Emergency Controls */}
+          <AdminEmergencyControls
+            walletAddress={walletAddress}
+            isPreviewMode={isPreviewMode}
+            onPauseMinting={handlePauseMinting}
+            onPauseClaims={handlePauseClaims}
+            isPending={isSubmitting}
+          />
 
-      <Separator />
+          <Separator />
 
-      {/* Section 6: Preview Mode */}
-      <AdminPreviewMode isEnabled={isPreviewMode} onToggle={setIsPreviewMode} />
+          {/* Section 6: Preview Mode */}
+          <AdminPreviewMode isEnabled={isPreviewMode} onToggle={setIsPreviewMode} />
 
-      <Separator />
+          <Separator />
 
-      {/* Footer */}
-      <AdminFooter lastActionTimestamp={lastActionTimestamp} />
+          {/* Footer */}
+          <AdminFooter lastActionTimestamp={lastActionTimestamp} />
+        </>
+      )}
       </div>
     </div>
   );
