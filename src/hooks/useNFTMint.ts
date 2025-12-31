@@ -142,6 +142,7 @@ export interface MintState {
   isWaitingForReceipt: boolean;
   isApprovingUSDC: boolean;
   isAuthenticating: boolean;
+  isSimulating: boolean;
   txHash: string | null;
   tokenId: string | null;
   tokenIds: string[] | null;
@@ -150,6 +151,7 @@ export interface MintState {
   isSponsored: boolean;
   mintPriceEth: string | null;
   mintPriceUSDC: string | null;
+  estimatedGasEth: string | null;
   selectedPaymentToken: PaymentToken;
   adminConfig: AdminConfig;
   antiBotConfig: AntiBotConfig | null;
@@ -369,6 +371,7 @@ export function useNFTMint() {
     isWaitingForReceipt: false,
     isApprovingUSDC: false,
     isAuthenticating: false,
+    isSimulating: false,
     txHash: null,
     tokenId: null,
     tokenIds: null,
@@ -377,6 +380,7 @@ export function useNFTMint() {
     isSponsored: false,
     mintPriceEth: null,
     mintPriceUSDC: null,
+    estimatedGasEth: null,
     selectedPaymentToken: 'ETH',
     adminConfig: FAIL_CLOSED_ADMIN_CONFIG,
     antiBotConfig: null,
@@ -1106,6 +1110,106 @@ export function useNFTMint() {
         detail: { address: walletAddress, tokenIds, txHash },
       })
     );
+  }, []);
+
+  // ============ TRANSACTION SIMULATION (BASE-OPTIMIZED) ============
+  const GAS_BUFFER_PERCENT = 7n; // 7% buffer for Base (between 5-8%)
+  
+  const simulateAndEstimateGas = useCallback(async (params: {
+    from: string;
+    to: string;
+    data: `0x${string}`;
+    value?: bigint;
+  }): Promise<{ 
+    success: boolean; 
+    error: string | null; 
+    gasLimit: bigint | null;
+    maxFeePerGas: bigint | null;
+    maxPriorityFeePerGas: bigint | null;
+    estimatedCostEth: string | null;
+  }> => {
+    const { from, to, data, value = 0n } = params;
+
+    try {
+      setMintState(prev => ({ ...prev, isSimulating: true, pollingMessage: 'Simulating transaction...' }));
+
+      const callParams = {
+        from,
+        to,
+        data,
+        value: value > 0n ? `0x${value.toString(16)}` : '0x0',
+      };
+
+      // Step 1: Simulate with eth_call
+      console.log('[Simulation] Running eth_call simulation...');
+      let simulationResult: any;
+      try {
+        simulationResult = await rpcCall('eth_call', [callParams, 'latest']);
+      } catch (simErr: any) {
+        // Try to decode custom error
+        const decoded = decodeMintError(simErr);
+        console.error('[Simulation] eth_call reverted:', decoded);
+        setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
+        return { success: false, error: decoded, gasLimit: null, maxFeePerGas: null, maxPriorityFeePerGas: null, estimatedCostEth: null };
+      }
+
+      // Step 2: Estimate gas
+      console.log('[Simulation] Estimating gas...');
+      let gasEstimate: bigint;
+      try {
+        const gasResult = await rpcCall('eth_estimateGas', [callParams]);
+        gasEstimate = BigInt(gasResult as string);
+      } catch (gasErr: any) {
+        const decoded = decodeMintError(gasErr);
+        console.error('[Simulation] Gas estimation failed:', decoded);
+        setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
+        return { success: false, error: decoded, gasLimit: null, maxFeePerGas: null, maxPriorityFeePerGas: null, estimatedCostEth: null };
+      }
+
+      // Apply minimal buffer (7% for Base)
+      const gasWithBuffer = gasEstimate + (gasEstimate * GAS_BUFFER_PERCENT / 100n);
+
+      // Step 3: Get gas price (EIP-1559)
+      const baseGasPrice = BigInt(await rpcCall('eth_gasPrice', []) as string);
+      let maxPriorityFeePerGas = 1000000n; // 0.001 gwei default for Base
+      try {
+        const priorityFee = await rpcCall('eth_maxPriorityFeePerGas', []);
+        if (priorityFee) maxPriorityFeePerGas = BigInt(priorityFee as string);
+      } catch {
+        // Use default
+      }
+      
+      const maxFeePerGas = baseGasPrice + maxPriorityFeePerGas;
+      const estimatedCostWei = gasWithBuffer * maxFeePerGas + value;
+      const estimatedCostEth = formatEther(estimatedCostWei);
+
+      console.log('[Simulation] Success:', {
+        gasEstimate: gasEstimate.toString(),
+        gasWithBuffer: gasWithBuffer.toString(),
+        estimatedCostEth,
+      });
+
+      setMintState(prev => ({ 
+        ...prev, 
+        isSimulating: false, 
+        pollingMessage: null,
+        estimatedGasEth: estimatedCostEth,
+      }));
+
+      return { 
+        success: true, 
+        error: null, 
+        gasLimit: gasWithBuffer,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+        estimatedCostEth,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Simulation failed';
+      console.error('[Simulation] Unexpected error:', error);
+      setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
+      return { success: false, error: errorMessage, gasLimit: null, maxFeePerGas: null, maxPriorityFeePerGas: null, estimatedCostEth: null };
+    }
   }, []);
 
   // ============ INTERNAL MINT EXECUTOR ============
