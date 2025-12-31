@@ -8,3 +8,6 @@ export { AdminPreviewMode } from './AdminPreviewMode';
 export { AdminFooter } from './AdminFooter';
 export { AdminHealthCheck } from './AdminHealthCheck';
 export { AdminLoadingState } from './AdminLoadingState';
+export { AdminErrorBoundary } from './AdminErrorBoundary';
+export { AdminPanelRouteFallback } from './AdminPanelRouteFallback';
+
