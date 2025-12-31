@@ -1,12 +1,15 @@
 import { Button } from '@/components/ui/button';
-import { Home, Trophy, Award, Settings, Wallet } from 'lucide-react';
+import { Home, Trophy, Award, Settings, Wallet, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type NavView = 'welcome' | 'levels' | 'game' | 'leaderboard' | 'achievements' | 'settings' | 'wallet' | 'stats' | 'ai-art';
+const ADMIN_OWNER_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
+
+type NavView = 'welcome' | 'levels' | 'game' | 'leaderboard' | 'achievements' | 'settings' | 'wallet' | 'stats' | 'ai-art' | 'admin';
 
 interface BottomNavProps {
   currentView: NavView;
   onNavigate: (view: NavView) => void;
+  walletAddress?: string | null;
 }
 
 const navItems = [
@@ -17,11 +20,14 @@ const navItems = [
   { view: 'settings' as const, icon: Settings, label: 'Settings' },
 ];
 
-export function BottomNav({ currentView, onNavigate }: BottomNavProps) {
+export function BottomNav({ currentView, onNavigate, walletAddress }: BottomNavProps) {
   // Hide bottom nav during gameplay
   if (currentView === 'game' || currentView === 'ai-art') {
     return null;
   }
+
+  // Check if connected wallet is admin (case-insensitive)
+  const isAdmin = walletAddress?.toLowerCase() === ADMIN_OWNER_ADDRESS.toLowerCase();
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-md border-t border-border safe-area-inset-bottom">
@@ -50,6 +56,25 @@ export function BottomNav({ currentView, onNavigate }: BottomNavProps) {
             </Button>
           );
         })}
+        
+        {/* Admin button - only visible to admin wallet */}
+        {isAdmin && (
+          <Button
+            variant="ghost"
+            onClick={() => onNavigate('admin')}
+            className={cn(
+              'flex flex-col items-center gap-1 h-auto py-2 px-3 min-w-[56px] min-h-[56px] rounded-xl transition-all',
+              currentView === 'admin'
+                ? 'text-amber-500 bg-amber-500/10' 
+                : 'text-amber-400/70 hover:text-amber-500 hover:bg-amber-500/10'
+            )}
+            aria-label="Admin Panel"
+            aria-current={currentView === 'admin' ? 'page' : undefined}
+          >
+            <Shield className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Admin</span>
+          </Button>
+        )}
       </div>
     </nav>
   );
