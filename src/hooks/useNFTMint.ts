@@ -1267,15 +1267,43 @@ export function useNFTMint() {
           }
         }
 
-        setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+        setMintState(prev => ({ ...prev, pollingMessage: 'Optimizing gas...' }));
 
         const data = quantity === 1
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintWithUSDC', args: [tokenURI || ''] })
           : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMintWithUSDC', args: [BigInt(quantity)] });
 
+        // Pre-simulate USDC transaction
+        const simulation = await simulateAndEstimateGas({
+          from: walletAddress,
+          to: NFT_CONTRACT_ADDRESS,
+          data,
+          value: 0n, // USDC transactions have no ETH value
+        });
+
+        if (!simulation.success) {
+          setMintState(prev => ({ 
+            ...prev, 
+            isMinting: false, 
+            error: simulation.error || 'Transaction would fail', 
+            pollingMessage: null 
+          }));
+          return false;
+        }
+
+        setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+
         txHash = await (window.ethereum as any).request({
           method: 'eth_sendTransaction',
-          params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+          params: [{
+            from: walletAddress,
+            to: NFT_CONTRACT_ADDRESS,
+            data,
+            // Pass optimized gas params
+            gas: simulation.gasLimit ? `0x${simulation.gasLimit.toString(16)}` : undefined,
+            maxFeePerGas: simulation.maxFeePerGas ? `0x${simulation.maxFeePerGas.toString(16)}` : undefined,
+            maxPriorityFeePerGas: simulation.maxPriorityFeePerGas ? `0x${simulation.maxPriorityFeePerGas.toString(16)}` : undefined,
+          }],
         });
       } else {
         const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
@@ -1374,15 +1402,46 @@ export function useNFTMint() {
             });
           }
         } else {
-          setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));
+          setMintState(prev => ({ ...prev, pollingMessage: 'Optimizing gas...' }));
           
+          // Pre-simulate to get optimized gas params
+          const simulation = await simulateAndEstimateGas({
+            from: walletAddress,
+            to: NFT_CONTRACT_ADDRESS,
+            data,
+            value: priceWei,
+          });
+          
+          if (!simulation.success) {
+            // Block transaction if simulation fails
+            setMintState(prev => ({ 
+              ...prev, 
+              isMinting: false, 
+              error: simulation.error || 'Transaction would fail - blocked', 
+              pollingMessage: null 
+            }));
+            return false;
+          }
+          
+          setMintState(prev => ({ 
+            ...prev, 
+            pollingMessage: 'Waiting for signature...',
+            estimatedGasEth: simulation.estimatedCostEth,
+          }));
+          
+          // Pass optimized gas params to wallet - this is critical for gas reduction
           txHash = await (window.ethereum as any).request({
             method: 'eth_sendTransaction',
             params: [{
               from: walletAddress,
               to: NFT_CONTRACT_ADDRESS,
               data,
+              // CRITICAL: Only attach value if price > 0 (free mint = no ETH)
               value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
+              // Pass optimized gas limit to wallet
+              gas: simulation.gasLimit ? `0x${simulation.gasLimit.toString(16)}` : undefined,
+              maxFeePerGas: simulation.maxFeePerGas ? `0x${simulation.maxFeePerGas.toString(16)}` : undefined,
+              maxPriorityFeePerGas: simulation.maxPriorityFeePerGas ? `0x${simulation.maxPriorityFeePerGas.toString(16)}` : undefined,
             }],
           });
         }
