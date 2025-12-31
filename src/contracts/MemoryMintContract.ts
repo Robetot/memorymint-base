@@ -238,11 +238,23 @@ export const CONTRACT_ERRORS = parseAbi([
 export const TRANSFER_EVENT_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' as const;
 export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
-// ============ GAS OPTIMIZATION CONSTANTS ============
-export const GAS_BUFFER_PERCENT = 10; // 10% buffer for gas estimation
-export const EIP1559_BASE_MAX_PRIORITY_FEE = 1000000n; // 0.001 gwei - very low for Base
+// ============ GAS OPTIMIZATION CONSTANTS (BASE-OPTIMIZED) ============
+// CRITICAL: 7% buffer is optimal for Base L2 - higher wastes gas, lower risks failure
+export const GAS_BUFFER_PERCENT = 7;
+// Minimal priority fee - Base doesn't need high tips
+export const EIP1559_BASE_MAX_PRIORITY_FEE = 1000000n; // 0.001 gwei
 export const RECEIPT_POLL_INTERVAL = 2000; // 2 seconds
 export const RECEIPT_MAX_POLLS = 60; // 2 minutes max wait
+
+// Expected gas baselines for validation (block if 50%+ above)
+export const GAS_BASELINES: Record<string, bigint> = {
+  mintNFT: 85000n,
+  mintWithUSDC: 95000n,
+  batchMint: 200000n,
+  claimBonus: 65000n,
+  setMintPriceETH: 28000n,
+  pauseMinting: 28000n,
+} as const;
 
 // ============ CACHE TTL CONSTANTS ============
 export const CONFIG_CACHE_TTL = 30000; // 30 seconds for config

@@ -34,9 +34,9 @@ export interface SimulationState {
 }
 
 // ============ CONSTANTS ============
-// Base-optimized: minimal buffer since L2 gas is predictable
-const GAS_BUFFER_PERCENT = 7; // 7% buffer (between 5-8%)
-const BASE_MAX_PRIORITY_FEE = 1000000n; // 0.001 gwei - very low for Base
+// Base-optimized: 7% buffer (between 5-8% as specified)
+const GAS_BUFFER_PERCENT = 7;
+const BASE_MAX_PRIORITY_FEE = 1000000n; // 0.001 gwei - minimal for Base L2
 const SIMULATION_TIMEOUT_MS = 8000;
 
 // ============ ERROR DECODING ============
