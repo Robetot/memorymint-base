@@ -5,6 +5,7 @@ import { BottomNav } from '@/components/game/BottomNav';
 import { useSettings } from '@/hooks/useSettings';
 import { useAchievements } from '@/hooks/useAchievements';
 import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
+import { useWallet } from '@/hooks/useWallet';
 import { RarityResult } from '@/utils/rarityCalculator';
 
 // Lazy load components not needed on initial page load
@@ -18,8 +19,9 @@ const SettingsScreen = lazy(() => import('@/components/game/SettingsScreen').the
 const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m => ({ default: m.StatsScreen })));
 const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
 const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
+const AdminPanel = lazy(() => import('@/components/game/AdminPanel').then(m => ({ default: m.AdminPanel })));
 
-type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements';
+type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements' | 'admin';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20, scale: 0.98 },
@@ -38,6 +40,7 @@ const Index = () => {
   const [gameKey, setGameKey] = useState(0); // Key to force re-mount
   const { settings, updateSetting, resetSettings, markTutorialComplete } = useSettings();
   const { achievements, newUnlock, dismissNewUnlock, unlockedCount, totalCount } = useAchievements();
+  const { address: walletAddress } = useWallet();
   
   // Background music system
   const { isPlaying, toggle: toggleMusic, setVolume: setMusicVolume, changeTheme } = useBackgroundMusic(settings.musicTheme);
@@ -259,6 +262,12 @@ const Index = () => {
             />
           </Suspense>
         );
+      case 'admin':
+        return (
+          <Suspense fallback={null}>
+            <AdminPanel walletAddress={walletAddress || ''} onClose={handleBackToMenu} />
+          </Suspense>
+        );
       default:
         return null;
     }
@@ -311,7 +320,7 @@ const Index = () => {
       </AnimatePresence>
 
       {/* Bottom Navigation */}
-      <BottomNav currentView={currentView} onNavigate={handleNavigation} />
+      <BottomNav currentView={currentView} onNavigate={handleNavigation} walletAddress={walletAddress} />
     </>
   );
 };
