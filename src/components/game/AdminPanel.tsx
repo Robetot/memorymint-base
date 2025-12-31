@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { encodeFunctionData, parseEther, parseUnits } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -239,9 +239,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   }
 
   // Check if connected wallet matches admin address
-  const isVerifiedAdmin = useMemo(() => {
-    return walletAddress.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
-  }, [walletAddress]);
+  const isVerifiedAdmin = walletAddress.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
 
   const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
