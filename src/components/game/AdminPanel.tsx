@@ -12,6 +12,7 @@ import {
   CONTRACT_ABI,
   USDC_DECIMALS,
   ClaimModeEnum,
+  PaymentCurrencyEnum,
 } from '@/contracts/MemoryMintContract';
 import {
   AdminSystemStatus,
@@ -158,9 +159,32 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   };
 
   const handleSaveClaimSettings = async (settings: any) => {
-    return sendAdminTx('setClaimMode', [
-      settings.claimsEnabled ? ClaimModeEnum.UNLIMITED : ClaimModeEnum.DISABLED,
-    ]);
+    let success = true;
+    let anyChangeMade = false;
+
+    // Check claim mode / enabled state
+    const targetClaimMode = settings.claimsEnabled ? ClaimModeEnum.UNLIMITED : ClaimModeEnum.DISABLED;
+    if (targetClaimMode !== config?.claimMode) {
+      success = await sendAdminTx('setClaimMode', [targetClaimMode]);
+      if (!success) return false;
+      anyChangeMade = true;
+    }
+
+    // Check active bonus currency
+    if (settings.activeBonusCurrency !== config?.activeBonusCurrency) {
+      const currencyValue = settings.activeBonusCurrency === 'USDC' 
+        ? PaymentCurrencyEnum.USDC 
+        : PaymentCurrencyEnum.ETH;
+      success = await sendAdminTx('setActiveBonusCurrency', [currencyValue]);
+      if (!success) return false;
+      anyChangeMade = true;
+    }
+
+    if (!anyChangeMade) {
+      toast.info('No changes detected');
+    }
+
+    return success;
   };
 
   const handleSaveMintSettings = async (settings: any) => {

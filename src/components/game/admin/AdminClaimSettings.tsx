@@ -12,9 +12,11 @@ import {
   RefreshCw,
   Loader2,
   Fuel,
+  Coins,
+  DollarSign,
 } from 'lucide-react';
 import { ContractConfig } from '@/hooks/useContractReads';
-import { ClaimModeEnum } from '@/contracts/MemoryMintContract';
+import { ClaimModeEnum, PaymentCurrencyEnum, PaymentCurrency } from '@/contracts/MemoryMintContract';
 
 interface AdminClaimSettingsProps {
   config: ContractConfig | null;
@@ -29,6 +31,7 @@ export interface ClaimSettingsData {
   cooldownHours: number;
   maxClaimsPerWallet: number;
   claimMode: number;
+  activeBonusCurrency: PaymentCurrency;
 }
 
 export function AdminClaimSettings({ 
@@ -44,6 +47,7 @@ export function AdminClaimSettings({
     cooldownHours: 24,
     maxClaimsPerWallet: 1,
     claimMode: config?.claimMode ?? ClaimModeEnum.DISABLED,
+    activeBonusCurrency: config?.activeBonusCurrency ?? 'ETH',
   });
 
   // Store the on-chain state as source of truth for comparison
@@ -52,6 +56,7 @@ export function AdminClaimSettings({
     return {
       claimsEnabled: config.claimEnabled,
       claimMode: config.claimMode,
+      activeBonusCurrency: config.activeBonusCurrency,
     };
   }, [config]);
 
@@ -62,6 +67,7 @@ export function AdminClaimSettings({
         ...prev,
         claimsEnabled: config.claimEnabled,
         claimMode: config.claimMode,
+        activeBonusCurrency: config.activeBonusCurrency,
       }));
     }
   }, [config]);
@@ -83,7 +89,8 @@ export function AdminClaimSettings({
     if (!onChainState) return false;
     return (
       localSettings.claimsEnabled !== onChainState.claimsEnabled ||
-      localSettings.claimMode !== onChainState.claimMode
+      localSettings.claimMode !== onChainState.claimMode ||
+      localSettings.activeBonusCurrency !== onChainState.activeBonusCurrency
     );
   }, [localSettings, onChainState]);
 
@@ -134,6 +141,41 @@ export function AdminClaimSettings({
               onCheckedChange={(checked) => handleChange('cooldownEnabled', checked)}
               disabled={isPreviewMode}
             />
+          </div>
+
+          {/* Payout Currency Toggle */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-base flex items-center gap-2">
+                <Coins className="h-4 w-4" />
+                Payout Currency
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Currency used for claim rewards
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={localSettings.activeBonusCurrency === 'ETH' ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleChange('activeBonusCurrency', 'ETH')}
+                disabled={isPreviewMode}
+                className="gap-1"
+              >
+                <Coins className="h-3 w-3" />
+                ETH
+              </Button>
+              <Button
+                variant={localSettings.activeBonusCurrency === 'USDC' ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleChange('activeBonusCurrency', 'USDC')}
+                disabled={isPreviewMode}
+                className="gap-1"
+              >
+                <DollarSign className="h-3 w-3" />
+                USDC
+              </Button>
+            </div>
           </div>
 
           {/* Claim Mode */}
