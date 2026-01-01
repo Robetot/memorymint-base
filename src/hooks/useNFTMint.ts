@@ -58,8 +58,7 @@ const CONTRACT_ABI = parseAbi([
   'function mintEnabled() view returns (bool)',
   'function claimEnabled() view returns (bool)',
   'function activePaymentToken() view returns (uint8)',
-  'function getDisabledReason() view returns (string)',
-  'function sponsoredMintEnabled() view returns (bool)',
+  'function signatureRequired() view returns (bool)',
   // Currency config
   'function currencyConfig() view returns (bool ethEnabled, bool usdcEnabled, uint8 activeMintCurrency, uint8 activeBonusCurrency)',
   // Anti-bot
@@ -129,7 +128,7 @@ export interface AdminConfig {
   mintEnabled: boolean;
   claimEnabled: boolean;
   activePaymentToken: PaymentToken;
-  sponsoredMintEnabled: boolean;
+  signatureRequired: boolean;
   disabledReason: string | null;
   lastFetched: number;
   isLoaded: boolean;
@@ -198,13 +197,15 @@ export interface BalanceCheck {
   token: PaymentToken;
 }
 
-// ============ FAIL-CLOSED DEFAULTS ============
-const FAIL_CLOSED_ADMIN_CONFIG: AdminConfig = {
-  mintEnabled: false,
-  claimEnabled: false,
+// ============ ADMIN CONFIG DEFAULTS ============
+// NOTE: Default to permissive values for non-critical fields to prevent false negatives
+// Critical fields (mintEnabled, signatureRequired) are always fetched from chain
+const DEFAULT_ADMIN_CONFIG: AdminConfig = {
+  mintEnabled: false,  // Will be fetched from chain
+  claimEnabled: false, // Will be fetched from chain
   activePaymentToken: 'ETH',
-  sponsoredMintEnabled: false,
-  disabledReason: 'Admin configuration unavailable',
+  signatureRequired: true, // Default to true for safety - will be fetched from chain
+  disabledReason: null,
   lastFetched: 0,
   isLoaded: false,
 };
@@ -574,7 +575,7 @@ export function useNFTMint() {
     mintPriceUSDC: null,
     estimatedGasEth: null,
     selectedPaymentToken: 'ETH',
-    adminConfig: FAIL_CLOSED_ADMIN_CONFIG,
+    adminConfig: DEFAULT_ADMIN_CONFIG,
     antiBotConfig: null,
     isLoadingConfig: true,
     detectedWalletType: 'unknown',
@@ -666,6 +667,9 @@ export function useNFTMint() {
   }, []);
 
   // ============ FETCH ADMIN CONFIG WITH CACHING ============
+  // FIXED: Only calls functions that exist in the contract ABI
+  // - mintEnabled, claimEnabled, activePaymentToken, signatureRequired exist
+  // - Removed: sponsoredMintEnabled, getDisabledReason (do not exist in contract)
   const fetchAdminConfig = useCallback(async (force = false): Promise<AdminConfig> => {
     const now = Date.now();
     
@@ -681,95 +685,15 @@ export function useNFTMint() {
       if (cachedAdminConfig) return cachedAdminConfig;
     }
     
-    // If force is true, bypass pending lock
-    if (force) {
-      lastForcedFetchTime = now;
-      
-      try {
-        const calls = [
-          { fn: 'mintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintEnabled', data: r as `0x${string}` }) as boolean },
-          { fn: 'claimEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'claimEnabled', data: r as `0x${string}` }) as boolean },
-          { fn: 'activePaymentToken', decode: (r: string) => (decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'activePaymentToken', data: r as `0x${string}` }) as number) === 1 ? 'USDC' : 'ETH' },
-          { fn: 'sponsoredMintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'sponsoredMintEnabled', data: r as `0x${string}` }) as boolean },
-          { fn: 'getDisabledReason', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'getDisabledReason', data: r as `0x${string}` }) as string },
-        ];
-
-        const results = await Promise.allSettled(
-          calls.map(async ({ fn }) => {
-            const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: fn as any, args: [] });
-            const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-            return { fn, result };
-          })
-        );
-
-        const mintResult = results[0];
-        const claimResult = results[1];
-        
-        if (mintResult.status === 'rejected' || claimResult.status === 'rejected') {
-          console.error('[AdminConfig] Critical config call failed');
-          return FAIL_CLOSED_ADMIN_CONFIG;
-        }
-
-        try {
-          const mintEnabled = calls[0].decode((mintResult as PromiseFulfilledResult<{ fn: string; result: string }>).value.result) as boolean;
-          const claimEnabled = calls[1].decode((claimResult as PromiseFulfilledResult<{ fn: string; result: string }>).value.result) as boolean;
-          
-          let activePaymentToken: PaymentToken = 'ETH';
-          let sponsoredMintEnabled = false;
-          let disabledReason: string | null = null;
-
-          if (results[2].status === 'fulfilled') {
-            try {
-              const tokenResult = calls[2].decode((results[2] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
-              activePaymentToken = tokenResult as PaymentToken;
-            } catch { /* use default */ }
-          }
-
-          if (results[3].status === 'fulfilled') {
-            try {
-              const sponsoredResult = calls[3].decode((results[3] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
-              sponsoredMintEnabled = sponsoredResult as boolean;
-            } catch { /* use default */ }
-          }
-
-          if (results[4].status === 'fulfilled') {
-            try {
-              const reasonResult = calls[4].decode((results[4] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
-              disabledReason = (reasonResult as string) || null;
-            } catch { /* use default */ }
-          }
-
-          const config: AdminConfig = {
-            mintEnabled,
-            claimEnabled,
-            activePaymentToken,
-            sponsoredMintEnabled,
-            disabledReason,
-            lastFetched: now,
-            isLoaded: true,
-          };
-          
-          // Update cache
-          cachedAdminConfig = config;
-          return config;
-        } catch (error) {
-          console.error('[AdminConfig] Decode failed:', error);
-          return FAIL_CLOSED_ADMIN_CONFIG;
-        }
-      } catch (error) {
-        console.error('[AdminConfig] Forced fetch failed:', error);
-        return FAIL_CLOSED_ADMIN_CONFIG;
-      }
-    }
-
-    // Non-forced fetch uses safeRpcCall with pending lock
-    return safeRpcCall(async () => {
+    lastForcedFetchTime = now;
+    
+    try {
+      // Only call functions that exist in the contract ABI
       const calls = [
         { fn: 'mintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintEnabled', data: r as `0x${string}` }) as boolean },
         { fn: 'claimEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'claimEnabled', data: r as `0x${string}` }) as boolean },
         { fn: 'activePaymentToken', decode: (r: string) => (decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'activePaymentToken', data: r as `0x${string}` }) as number) === 1 ? 'USDC' : 'ETH' },
-        { fn: 'sponsoredMintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'sponsoredMintEnabled', data: r as `0x${string}` }) as boolean },
-        { fn: 'getDisabledReason', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'getDisabledReason', data: r as `0x${string}` }) as string },
+        { fn: 'signatureRequired', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'signatureRequired', data: r as `0x${string}` }) as boolean },
       ];
 
       const results = await Promise.allSettled(
@@ -785,7 +709,7 @@ export function useNFTMint() {
       
       if (mintResult.status === 'rejected' || claimResult.status === 'rejected') {
         console.error('[AdminConfig] Critical config call failed');
-        return FAIL_CLOSED_ADMIN_CONFIG;
+        return DEFAULT_ADMIN_CONFIG;
       }
 
       try {
@@ -793,8 +717,7 @@ export function useNFTMint() {
         const claimEnabled = calls[1].decode((claimResult as PromiseFulfilledResult<{ fn: string; result: string }>).value.result) as boolean;
         
         let activePaymentToken: PaymentToken = 'ETH';
-        let sponsoredMintEnabled = false;
-        let disabledReason: string | null = null;
+        let signatureRequired = true; // Default to true for safety
 
         if (results[2].status === 'fulfilled') {
           try {
@@ -805,15 +728,8 @@ export function useNFTMint() {
 
         if (results[3].status === 'fulfilled') {
           try {
-            const sponsoredResult = calls[3].decode((results[3] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
-            sponsoredMintEnabled = sponsoredResult as boolean;
-          } catch { /* use default */ }
-        }
-
-        if (results[4].status === 'fulfilled') {
-          try {
-            const reasonResult = calls[4].decode((results[4] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
-            disabledReason = (reasonResult as string) || null;
+            const sigResult = calls[3].decode((results[3] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
+            signatureRequired = sigResult as boolean;
           } catch { /* use default */ }
         }
 
@@ -821,8 +737,8 @@ export function useNFTMint() {
           mintEnabled,
           claimEnabled,
           activePaymentToken,
-          sponsoredMintEnabled,
-          disabledReason,
+          signatureRequired,
+          disabledReason: !mintEnabled ? 'Minting is paused' : null,
           lastFetched: now,
           isLoaded: true,
         };
@@ -832,10 +748,13 @@ export function useNFTMint() {
         return config;
       } catch (error) {
         console.error('[AdminConfig] Decode failed:', error);
-        return FAIL_CLOSED_ADMIN_CONFIG;
+        return DEFAULT_ADMIN_CONFIG;
       }
-    }, pendingAdminConfigRef, FAIL_CLOSED_ADMIN_CONFIG);
-  }, [safeRpcCall]);
+    } catch (error) {
+      console.error('[AdminConfig] Fetch failed:', error);
+      return DEFAULT_ADMIN_CONFIG;
+    }
+  }, []);
 
   // ============ FETCH ANTI-BOT CONFIG (HARDENED) ============
   const fetchAntiBotConfig = useCallback(async (walletAddress: string): Promise<AntiBotConfig | null> => {
@@ -957,7 +876,7 @@ export function useNFTMint() {
     requiredToken: PaymentToken
   ): Promise<{ allowed: boolean; error: string | null; config: AdminConfig }> => {
     if (isNetworkSwitchingRef.current) {
-      return { allowed: false, error: 'Network switch in progress', config: FAIL_CLOSED_ADMIN_CONFIG };
+      return { allowed: false, error: 'Network switch in progress', config: DEFAULT_ADMIN_CONFIG };
     }
 
     // Always fetch fresh admin config
@@ -970,6 +889,12 @@ export function useNFTMint() {
 
     if (!config.mintEnabled) {
       return { allowed: false, error: config.disabledReason || 'Minting is currently disabled', config };
+    }
+
+    // CRITICAL: Check if signatures are required - this causes "Invalid signature" errors
+    // when signatureRequired is true and we're using direct mint functions
+    if (config.signatureRequired) {
+      return { allowed: false, error: 'Minting requires admin signature authorization. Please contact the admin or wait for this to be disabled.', config };
     }
 
     if (config.activePaymentToken !== requiredToken) {
@@ -995,7 +920,7 @@ export function useNFTMint() {
   // ============ PRE-CLAIM ENFORCEMENT ============
   const enforceClaimAllowed = useCallback(async (): Promise<{ allowed: boolean; error: string | null; config: AdminConfig }> => {
     if (isNetworkSwitchingRef.current) {
-      return { allowed: false, error: 'Network switch in progress', config: FAIL_CLOSED_ADMIN_CONFIG };
+      return { allowed: false, error: 'Network switch in progress', config: DEFAULT_ADMIN_CONFIG };
     }
 
     const config = await fetchAdminConfig(true);
@@ -1578,12 +1503,8 @@ export function useNFTMint() {
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintNFT', args: [tokenURI || ''] })
           : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMint', args: [BigInt(quantity)] });
 
-        const canSponsor = 
-          priceWei === 0n && 
-          config.sponsoredMintEnabled && 
-          config.isLoaded &&
-          paymentToken === 'ETH' &&
-          supportsWalletSendCalls();
+        // Sponsored mints are disabled - contract doesn't support sponsoredMintEnabled
+        const canSponsor = false;
 
         if (canSponsor) {
           setMintState(prev => ({ ...prev, pollingMessage: 'Requesting sponsored mint...', txPhase: 'awaiting_wallet' }));
