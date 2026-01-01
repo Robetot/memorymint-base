@@ -11,6 +11,8 @@ import {
   Layers,
   Copy,
   ExternalLink,
+  KeyRound,
+  AlertTriangle,
 } from 'lucide-react';
 import { ContractConfig } from '@/hooks/useContractReads';
 import { formatEther, formatUnits } from 'viem';
@@ -62,18 +64,19 @@ export function AdminSystemStatus({ config, isLoading }: AdminSystemStatusProps)
       inactiveText: 'Disabled',
     },
     {
+      label: 'Signatures',
+      value: !(config?.signatureRequired ?? true),
+      icon: KeyRound,
+      activeText: 'Not Required',
+      inactiveText: 'Required',
+      isCritical: config?.signatureRequired ?? true,
+    },
+    {
       label: 'Rewards',
       value: config?.claimEnabled ?? false,
       icon: Gift,
       activeText: 'Active',
       inactiveText: 'Inactive',
-    },
-    {
-      label: 'Bonus System',
-      value: (config?.bonusPoolETH ?? 0n) > 0n || (config?.bonusPoolUSDC ?? 0n) > 0n,
-      icon: Layers,
-      activeText: 'Configured',
-      inactiveText: 'Not Setup',
     },
     {
       label: 'Total Minted',
@@ -110,15 +113,23 @@ export function AdminSystemStatus({ config, isLoading }: AdminSystemStatusProps)
               ) : (
                 <Badge 
                   variant={item.value ? "default" : "secondary"}
-                  className={item.value 
-                    ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/30" 
-                    : "bg-muted text-muted-foreground"
+                  className={
+                    (item as any).isCritical && !item.value
+                      ? "bg-destructive/20 text-destructive hover:bg-destructive/30"
+                      : item.value 
+                        ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/30" 
+                        : "bg-muted text-muted-foreground"
                   }
                 >
                   {item.value ? (
                     <>
                       <CheckCircle2 className="h-3 w-3 mr-1" />
                       {item.activeText}
+                    </>
+                  ) : (item as any).isCritical ? (
+                    <>
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      {item.inactiveText}
                     </>
                   ) : (
                     <>
