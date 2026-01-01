@@ -256,6 +256,24 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     return sendAdminTx('setClaimMode', [ClaimModeEnum.DISABLED]);
   };
 
+  const handleDepositETH = async (amount: string) => {
+    const value = parseEther(amount || '0');
+    if (value <= 0n) {
+      toast.error('Invalid amount');
+      return false;
+    }
+    return sendAdminTx('depositBonusFundsETH', [], value);
+  };
+
+  const handleDepositUSDC = async (amount: string) => {
+    const value = parseUnits(amount || '0', USDC_DECIMALS);
+    if (value <= 0n) {
+      toast.error('Invalid amount');
+      return false;
+    }
+    return sendAdminTx('depositBonusFundsUSDC', [value]);
+  };
+
   // Always render a visible state (never blank)
   if (!isReady) {
     return (
@@ -414,6 +432,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
             bonusLevels={bonusLevels}
             isPreviewMode={isPreviewMode}
             onSaveChanges={handleSaveClaimSettings}
+            onDepositETH={handleDepositETH}
+            onDepositUSDC={handleDepositUSDC}
             isPending={isSubmitting}
           />
 
