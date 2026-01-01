@@ -274,6 +274,32 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     return sendAdminTx('depositBonusFundsUSDC', [value]);
   };
 
+  const handleWithdrawETH = async (amount: string) => {
+    const value = parseEther(amount || '0');
+    if (value <= 0n) {
+      toast.error('Invalid amount');
+      return false;
+    }
+    if (config && value > config.bonusPoolETH) {
+      toast.error('Insufficient pool balance');
+      return false;
+    }
+    return sendAdminTx('withdrawBonusFundsETH', [value]);
+  };
+
+  const handleWithdrawUSDC = async (amount: string) => {
+    const value = parseUnits(amount || '0', USDC_DECIMALS);
+    if (value <= 0n) {
+      toast.error('Invalid amount');
+      return false;
+    }
+    if (config && value > config.bonusPoolUSDC) {
+      toast.error('Insufficient pool balance');
+      return false;
+    }
+    return sendAdminTx('withdrawBonusFundsUSDC', [value]);
+  };
+
   // Always render a visible state (never blank)
   if (!isReady) {
     return (
@@ -434,6 +460,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
             onSaveChanges={handleSaveClaimSettings}
             onDepositETH={handleDepositETH}
             onDepositUSDC={handleDepositUSDC}
+            onWithdrawETH={handleWithdrawETH}
+            onWithdrawUSDC={handleWithdrawUSDC}
             isPending={isSubmitting}
           />
 
