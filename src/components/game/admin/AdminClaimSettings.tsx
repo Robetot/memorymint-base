@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
+import { formatEther, formatUnits } from 'viem';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Gift, 
   Clock, 
@@ -14,12 +16,15 @@ import {
   Fuel,
   Coins,
   DollarSign,
+  AlertTriangle,
+  Wallet,
 } from 'lucide-react';
-import { ContractConfig } from '@/hooks/useContractReads';
-import { ClaimModeEnum, PaymentCurrencyEnum, PaymentCurrency } from '@/contracts/MemoryMintContract';
+import { ContractConfig, BonusLevelInfo } from '@/hooks/useContractReads';
+import { ClaimModeEnum, PaymentCurrency, USDC_DECIMALS } from '@/contracts/MemoryMintContract';
 
 interface AdminClaimSettingsProps {
   config: ContractConfig | null;
+  bonusLevels: BonusLevelInfo[];
   isPreviewMode: boolean;
   onSaveChanges: (settings: ClaimSettingsData) => Promise<boolean>;
   isPending: boolean;
@@ -36,6 +41,7 @@ export interface ClaimSettingsData {
 
 export function AdminClaimSettings({ 
   config, 
+  bonusLevels,
   isPreviewMode,
   onSaveChanges,
   isPending,
@@ -72,6 +78,42 @@ export function AdminClaimSettings({
     }
   }, [config]);
 
+  // Calculate required funds for active tiers
+  const requiredFunds = useMemo(() => {
+    const activeTiers = bonusLevels.filter(l => l.active);
+    let ethRequired = 0n;
+    let usdcRequired = 0n;
+    
+    for (const tier of activeTiers) {
+      // Multiply amount by remaining claims to get max potential payout
+      ethRequired += tier.amountETH * tier.claimsRemaining;
+      usdcRequired += tier.amountUSDC * tier.claimsRemaining;
+    }
+    
+    return { eth: ethRequired, usdc: usdcRequired };
+  }, [bonusLevels]);
+
+  // Check if selected currency has sufficient funds
+  const insufficientFundsWarning = useMemo(() => {
+    if (!config) return null;
+    
+    const selectedCurrency = localSettings.activeBonusCurrency;
+    const poolBalance = selectedCurrency === 'ETH' ? config.bonusPoolETH : config.bonusPoolUSDC;
+    const required = selectedCurrency === 'ETH' ? requiredFunds.eth : requiredFunds.usdc;
+    
+    // Only warn if switching to a currency with insufficient funds
+    if (poolBalance < required && localSettings.activeBonusCurrency !== onChainState?.activeBonusCurrency) {
+      const shortfall = required - poolBalance;
+      if (selectedCurrency === 'ETH') {
+        return `Insufficient ETH in pool. Need ${formatEther(shortfall)} more ETH to cover all active tier claims.`;
+      } else {
+        return `Insufficient USDC in pool. Need $${formatUnits(shortfall, USDC_DECIMALS)} more USDC to cover all active tier claims.`;
+      }
+    }
+    
+    return null;
+  }, [config, localSettings.activeBonusCurrency, requiredFunds, onChainState]);
+
   const handleChange = <K extends keyof ClaimSettingsData>(
     key: K,
     value: ClaimSettingsData[K]
@@ -93,6 +135,15 @@ export function AdminClaimSettings({
       localSettings.activeBonusCurrency !== onChainState.activeBonusCurrency
     );
   }, [localSettings, onChainState]);
+
+  // Format pool balances for display
+  const formattedPoolBalances = useMemo(() => {
+    if (!config) return { eth: '0', usdc: '$0.00' };
+    return {
+      eth: formatEther(config.bonusPoolETH),
+      usdc: formatUnits(config.bonusPoolUSDC, USDC_DECIMALS),
+    };
+  }, [config]);
 
   return (
     <div className="space-y-4">
@@ -143,6 +194,34 @@ export function AdminClaimSettings({
             />
           </div>
 
+          {/* Pool Balances Display */}
+          <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Bonus Pool Balances</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className={`rounded-md p-2 border ${localSettings.activeBonusCurrency === 'ETH' ? 'border-primary bg-primary/10' : 'border-border/50 bg-background/50'}`}>
+                <div className="flex items-center gap-1.5">
+                  <Coins className="h-3.5 w-3.5 text-amber-500" />
+                  <span className="text-xs text-muted-foreground">ETH Pool</span>
+                </div>
+                <p className="text-sm font-mono font-medium mt-0.5">
+                  {parseFloat(formattedPoolBalances.eth).toFixed(4)} ETH
+                </p>
+              </div>
+              <div className={`rounded-md p-2 border ${localSettings.activeBonusCurrency === 'USDC' ? 'border-primary bg-primary/10' : 'border-border/50 bg-background/50'}`}>
+                <div className="flex items-center gap-1.5">
+                  <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
+                  <span className="text-xs text-muted-foreground">USDC Pool</span>
+                </div>
+                <p className="text-sm font-mono font-medium mt-0.5">
+                  ${parseFloat(formattedPoolBalances.usdc).toFixed(2)}
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Payout Currency Toggle */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
@@ -177,6 +256,16 @@ export function AdminClaimSettings({
               </Button>
             </div>
           </div>
+
+          {/* Insufficient Funds Warning */}
+          {insufficientFundsWarning && (
+            <Alert variant="destructive" className="border-amber-500/50 bg-amber-500/10">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <AlertDescription className="text-amber-600 dark:text-amber-400">
+                {insufficientFundsWarning}
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Claim Mode */}
           <div className="flex items-center justify-between">

@@ -411,6 +411,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           {/* Section 3: Claim Settings */}
           <AdminClaimSettings
             config={config}
+            bonusLevels={bonusLevels}
             isPreviewMode={isPreviewMode}
             onSaveChanges={handleSaveClaimSettings}
             isPending={isSubmitting}
