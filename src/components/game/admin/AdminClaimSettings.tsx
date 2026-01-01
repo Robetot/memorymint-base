@@ -7,6 +7,14 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { 
   Gift, 
   Clock, 
@@ -18,6 +26,7 @@ import {
   DollarSign,
   AlertTriangle,
   Wallet,
+  Plus,
 } from 'lucide-react';
 import { ContractConfig, BonusLevelInfo } from '@/hooks/useContractReads';
 import { ClaimModeEnum, PaymentCurrency, USDC_DECIMALS } from '@/contracts/MemoryMintContract';
@@ -27,6 +36,8 @@ interface AdminClaimSettingsProps {
   bonusLevels: BonusLevelInfo[];
   isPreviewMode: boolean;
   onSaveChanges: (settings: ClaimSettingsData) => Promise<boolean>;
+  onDepositETH: (amount: string) => Promise<boolean>;
+  onDepositUSDC: (amount: string) => Promise<boolean>;
   isPending: boolean;
 }
 
@@ -44,6 +55,8 @@ export function AdminClaimSettings({
   bonusLevels,
   isPreviewMode,
   onSaveChanges,
+  onDepositETH,
+  onDepositUSDC,
   isPending,
 }: AdminClaimSettingsProps) {
   // Local state for form
@@ -55,6 +68,11 @@ export function AdminClaimSettings({
     claimMode: config?.claimMode ?? ClaimModeEnum.DISABLED,
     activeBonusCurrency: config?.activeBonusCurrency ?? 'ETH',
   });
+
+  // Deposit dialog state
+  const [depositDialogOpen, setDepositDialogOpen] = useState(false);
+  const [depositCurrency, setDepositCurrency] = useState<PaymentCurrency>('ETH');
+  const [depositAmount, setDepositAmount] = useState('');
 
   // Store the on-chain state as source of truth for comparison
   const onChainState = useMemo(() => {
@@ -126,6 +144,25 @@ export function AdminClaimSettings({
     // Config will be refetched after tx confirmation, which will update onChainState
   };
 
+  const openDepositDialog = (currency: PaymentCurrency) => {
+    setDepositCurrency(currency);
+    setDepositAmount('');
+    setDepositDialogOpen(true);
+  };
+
+  const handleDeposit = async () => {
+    if (!depositAmount || parseFloat(depositAmount) <= 0) return;
+    
+    const success = depositCurrency === 'ETH' 
+      ? await onDepositETH(depositAmount)
+      : await onDepositUSDC(depositAmount);
+    
+    if (success) {
+      setDepositDialogOpen(false);
+      setDepositAmount('');
+    }
+  };
+
   // Compare local settings against ON-CHAIN state (not UI-to-UI)
   const hasChanges = useMemo(() => {
     if (!onChainState) return false;
@@ -194,7 +231,7 @@ export function AdminClaimSettings({
             />
           </div>
 
-          {/* Pool Balances Display */}
+          {/* Pool Balances Display with Deposit Buttons */}
           <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
             <div className="flex items-center gap-2 mb-2">
               <Wallet className="h-4 w-4 text-muted-foreground" />
@@ -202,18 +239,40 @@ export function AdminClaimSettings({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className={`rounded-md p-2 border ${localSettings.activeBonusCurrency === 'ETH' ? 'border-primary bg-primary/10' : 'border-border/50 bg-background/50'}`}>
-                <div className="flex items-center gap-1.5">
-                  <Coins className="h-3.5 w-3.5 text-amber-500" />
-                  <span className="text-xs text-muted-foreground">ETH Pool</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Coins className="h-3.5 w-3.5 text-amber-500" />
+                    <span className="text-xs text-muted-foreground">ETH Pool</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => openDepositDialog('ETH')}
+                    disabled={isPreviewMode || isPending}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
                 <p className="text-sm font-mono font-medium mt-0.5">
                   {parseFloat(formattedPoolBalances.eth).toFixed(4)} ETH
                 </p>
               </div>
               <div className={`rounded-md p-2 border ${localSettings.activeBonusCurrency === 'USDC' ? 'border-primary bg-primary/10' : 'border-border/50 bg-background/50'}`}>
-                <div className="flex items-center gap-1.5">
-                  <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
-                  <span className="text-xs text-muted-foreground">USDC Pool</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <DollarSign className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="text-xs text-muted-foreground">USDC Pool</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => openDepositDialog('USDC')}
+                    disabled={isPreviewMode || isPending}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
                 <p className="text-sm font-mono font-medium mt-0.5">
                   ${parseFloat(formattedPoolBalances.usdc).toFixed(2)}
@@ -360,6 +419,80 @@ export function AdminClaimSettings({
           Settings match on-chain values
         </p>
       )}
+
+      {/* Deposit Dialog */}
+      <Dialog open={depositDialogOpen} onOpenChange={setDepositDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {depositCurrency === 'ETH' ? (
+                <Coins className="h-5 w-5 text-amber-500" />
+              ) : (
+                <DollarSign className="h-5 w-5 text-emerald-500" />
+              )}
+              Deposit {depositCurrency} to Bonus Pool
+            </DialogTitle>
+            <DialogDescription>
+              Enter the amount to deposit into the {depositCurrency} bonus pool. This will require a transaction.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="deposit-amount">
+                Amount ({depositCurrency})
+              </Label>
+              <div className="relative">
+                <Input
+                  id="deposit-amount"
+                  type="number"
+                  step={depositCurrency === 'ETH' ? '0.001' : '1'}
+                  min="0"
+                  placeholder={depositCurrency === 'ETH' ? '0.01' : '10.00'}
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  className="pr-16"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                  {depositCurrency}
+                </span>
+              </div>
+            </div>
+            
+            <Alert className="border-amber-500/30 bg-amber-500/10">
+              <Fuel className="h-4 w-4 text-amber-500" />
+              <AlertDescription className="text-amber-600 dark:text-amber-400 text-sm">
+                On-chain transaction (gas required)
+              </AlertDescription>
+            </Alert>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setDepositDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeposit}
+              disabled={!depositAmount || parseFloat(depositAmount) <= 0 || isPending}
+            >
+              {isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Depositing...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Deposit {depositCurrency}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
