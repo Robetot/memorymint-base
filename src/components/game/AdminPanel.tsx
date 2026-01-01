@@ -175,6 +175,13 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       anyChangeMade = true;
     }
 
+    // CRITICAL: Check signatureRequired - this is what causes "Invalid signature" errors
+    if (settings.signatureRequired !== config?.signatureRequired) {
+      success = await sendAdminTx('setSignatureRequired', [settings.signatureRequired]);
+      if (!success) return false;
+      anyChangeMade = true;
+    }
+
     // Check ETH price - compare parsed values
     const currentPriceETH = config?.mintPriceETH ?? 0n;
     const newPriceETH = parseEther(settings.mintPriceETH || '0');

@@ -12,6 +12,8 @@ import {
   Fuel,
   DollarSign,
   Users,
+  KeyRound,
+  AlertTriangle,
 } from 'lucide-react';
 import { ContractConfig } from '@/hooks/useContractReads';
 import { formatEther, formatUnits } from 'viem';
@@ -28,6 +30,7 @@ export interface MintSettingsData {
   mintEnabled: boolean;
   freeMint: boolean;
   antiBotEnabled: boolean;
+  signatureRequired: boolean;
   mintPriceETH: string;
   mintPriceUSDC: string;
   maxMintsPerWallet: number;
@@ -50,6 +53,7 @@ export function AdminMintControls({
     mintEnabled: config?.mintEnabled ?? false,
     freeMint: (config?.mintPriceETH ?? 0n) === 0n && (config?.mintPriceUSDC ?? 0n) === 0n,
     antiBotEnabled: (config?.antiBotMode ?? 0) > 0,
+    signatureRequired: config?.signatureRequired ?? true,
     mintPriceETH: config ? formatEther(config.mintPriceETH) : '0',
     mintPriceUSDC: config ? formatUnits(config.mintPriceUSDC, USDC_DECIMALS) : '0',
     maxMintsPerWallet: Number(config?.walletMintLimit ?? 10n),
@@ -62,6 +66,7 @@ export function AdminMintControls({
       mintEnabled: config.mintEnabled,
       freeMint: config.mintPriceETH === 0n && config.mintPriceUSDC === 0n,
       antiBotEnabled: config.antiBotMode > 0,
+      signatureRequired: config.signatureRequired,
       mintPriceETH: normalizeEthValue(formatEther(config.mintPriceETH)),
       mintPriceUSDC: normalizeEthValue(formatUnits(config.mintPriceUSDC, USDC_DECIMALS)),
       maxMintsPerWallet: Number(config.walletMintLimit),
@@ -75,6 +80,7 @@ export function AdminMintControls({
         mintEnabled: config.mintEnabled,
         freeMint: config.mintPriceETH === 0n && config.mintPriceUSDC === 0n,
         antiBotEnabled: config.antiBotMode > 0,
+        signatureRequired: config.signatureRequired,
         mintPriceETH: formatEther(config.mintPriceETH),
         mintPriceUSDC: formatUnits(config.mintPriceUSDC, USDC_DECIMALS),
         maxMintsPerWallet: Number(config.walletMintLimit),
@@ -96,6 +102,7 @@ export function AdminMintControls({
     const localMintEnabled = localSettings.mintEnabled;
     const localFreeMint = localSettings.freeMint;
     const localAntiBotEnabled = localSettings.antiBotEnabled;
+    const localSignatureRequired = localSettings.signatureRequired;
     const localPriceETH = normalizeEthValue(localSettings.mintPriceETH);
     const localPriceUSDC = normalizeEthValue(localSettings.mintPriceUSDC);
     const localMaxMints = localSettings.maxMintsPerWallet;
@@ -103,6 +110,7 @@ export function AdminMintControls({
     return (
       localMintEnabled !== onChainState.mintEnabled ||
       localAntiBotEnabled !== onChainState.antiBotEnabled ||
+      localSignatureRequired !== onChainState.signatureRequired ||
       localMaxMints !== onChainState.maxMintsPerWallet ||
       // Only compare prices if not free mint
       (!localFreeMint && (
@@ -188,6 +196,36 @@ export function AdminMintControls({
             <Switch
               checked={localSettings.antiBotEnabled}
               onCheckedChange={(checked) => handleChange('antiBotEnabled', checked)}
+              disabled={isPreviewMode}
+            />
+          </div>
+
+          {/* Signature Required Toggle - CRITICAL for unsigned minting */}
+          <div className={`flex items-center justify-between p-3 rounded-lg ${
+            localSettings.signatureRequired 
+              ? 'bg-destructive/10 border border-destructive/30' 
+              : 'bg-emerald-500/10 border border-emerald-500/30'
+          }`}>
+            <div className="space-y-0.5">
+              <Label className="text-base flex items-center gap-2">
+                <KeyRound className="h-4 w-4" />
+                Require Signatures
+                {localSettings.signatureRequired && (
+                  <Badge variant="destructive" className="text-xs">
+                    <AlertTriangle className="h-3 w-3 mr-1" />
+                    Blocking Mints
+                  </Badge>
+                )}
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                {localSettings.signatureRequired 
+                  ? 'Users must have signed authorization to mint (causes "Invalid signature" errors)'
+                  : 'Users can mint directly without signatures'}
+              </p>
+            </div>
+            <Switch
+              checked={localSettings.signatureRequired}
+              onCheckedChange={(checked) => handleChange('signatureRequired', checked)}
               disabled={isPreviewMode}
             />
           </div>
