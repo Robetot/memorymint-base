@@ -1,69 +1,16 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Loader2,
-  AlertCircle,
-  RefreshCw,
-  Wallet,
-  Network,
-  Shield,
-  FileCode,
-  Crown,
-  Database,
-} from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw, Crown, Shield } from 'lucide-react';
 import type { AdminAuthPhase, AdminInitState } from '@/hooks/useAdminState';
 
 interface AdminLoadingStateProps {
   initState: AdminInitState;
-  authPhase: AdminAuthPhase | null;
+  authPhase: AdminAuthPhase;
   error: string | null;
   onRetry: () => void;
   onClose?: () => void;
 }
-
-type UiStep = 'wallet' | 'network' | 'admin' | 'contract' | 'data';
-
-function getCurrentStep(initState: AdminInitState, authPhase: AdminAuthPhase | null): UiStep {
-  if (initState === 'loadingAuth') {
-    if (authPhase === 'verifyingNetwork') return 'network';
-    if (authPhase === 'verifyingAdmin') return 'admin';
-    return 'wallet';
-  }
-  if (initState === 'loadingContract') return 'contract';
-  if (initState === 'loadingAdminData') return 'data';
-  return 'data';
-}
-
-const STEP_ORDER: UiStep[] = ['wallet', 'network', 'admin', 'contract', 'data'];
-
-const STEP_META: Record<UiStep, { title: string; description: string; icon: typeof Loader2 }> = {
-  wallet: {
-    title: 'Connecting Wallet',
-    description: 'Connecting wallet…',
-    icon: Wallet,
-  },
-  network: {
-    title: 'Verifying Network',
-    description: 'Verifying Base network…',
-    icon: Network,
-  },
-  admin: {
-    title: 'Verifying Admin Access',
-    description: 'Verifying admin access…',
-    icon: Shield,
-  },
-  contract: {
-    title: 'Loading Configuration',
-    description: 'Loading admin configuration…',
-    icon: FileCode,
-  },
-  data: {
-    title: 'Loading Admin Data',
-    description: 'Fetching admin data…',
-    icon: Database,
-  },
-};
 
 export function AdminLoadingState({
   initState,
@@ -73,85 +20,98 @@ export function AdminLoadingState({
   onClose,
 }: AdminLoadingStateProps) {
   const isError = initState === 'error';
-  const currentStep = getCurrentStep(initState, authPhase);
-  const currentIndex = STEP_ORDER.indexOf(currentStep);
+  const isUnauthorized = error?.includes('Not authorized');
+  const isWrongNetwork = error?.includes('Wrong network');
 
-  const header = isError
-    ? { title: 'Admin panel failed to load', description: error || 'Retry to continue', icon: AlertCircle }
-    : { ...STEP_META[currentStep], description: STEP_META[currentStep].description };
+  // Determine icon and colors based on state
+  const getIconAndStyle = () => {
+    if (isError) {
+      if (isUnauthorized) {
+        return {
+          icon: Shield,
+          bgClass: 'bg-amber-500/10',
+          iconClass: 'text-amber-500',
+        };
+      }
+      if (isWrongNetwork) {
+        return {
+          icon: AlertCircle,
+          bgClass: 'bg-orange-500/10',
+          iconClass: 'text-orange-500',
+        };
+      }
+      return {
+        icon: AlertCircle,
+        bgClass: 'bg-destructive/10',
+        iconClass: 'text-destructive',
+      };
+    }
+    return {
+      icon: Crown,
+      bgClass: 'bg-amber-500/10',
+      iconClass: 'text-amber-500',
+    };
+  };
 
-  const Icon = header.icon;
+  const { icon: Icon, bgClass, iconClass } = getIconAndStyle();
+
+  // Unified loading message
+  const getMessage = () => {
+    if (isError) {
+      return error || 'Failed to load admin panel';
+    }
+    return 'Loading Admin Panel...';
+  };
+
+  const getTitle = () => {
+    if (isError) {
+      if (isUnauthorized) return 'Access Denied';
+      if (isWrongNetwork) return 'Wrong Network';
+      return 'Error';
+    }
+    return 'Admin Panel';
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-background via-muted/30 to-background">
-      <Card className={`max-w-md w-full ${isError ? 'border-destructive/50' : 'border-border/60'}`}>
+      <Card className={`max-w-md w-full ${isError ? 'border-destructive/30' : 'border-amber-500/30'}`}>
         <CardContent className="p-8 text-center space-y-6">
           {/* Icon */}
-          <div
-            className={`
-              w-16 h-16 mx-auto rounded-full flex items-center justify-center
-              ${isError ? 'bg-destructive/10' : 'bg-muted'}
-            `}
-          >
-            <Icon
-              className={`h-8 w-8 ${isError ? 'text-destructive' : 'text-muted-foreground animate-spin'}`}
-              style={{ animationDuration: isError ? '0s' : '2s' }}
-              aria-hidden="true"
-            />
+          <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center ${bgClass}`}>
+            {isError ? (
+              <Icon className={`h-8 w-8 ${iconClass}`} aria-hidden="true" />
+            ) : (
+              <Loader2
+                className={`h-8 w-8 ${iconClass} animate-spin`}
+                aria-hidden="true"
+              />
+            )}
           </div>
 
-          {/* Title */}
+          {/* Title & Message */}
           <div>
-            <h2 className={`text-xl font-bold mb-1 ${isError ? 'text-destructive' : 'text-foreground'}`}>
-              {header.title}
+            <h2 className={`text-xl font-bold mb-2 ${isError ? 'text-foreground' : 'bg-gradient-to-r from-amber-400 via-yellow-500 to-orange-500 bg-clip-text text-transparent'}`}>
+              {getTitle()}
             </h2>
-            <p className="text-muted-foreground">{header.description}</p>
+            <p className="text-muted-foreground text-sm">{getMessage()}</p>
           </div>
 
-          {/* Progress Steps */}
-          {!isError && (
-            <div className="space-y-2">
-              {STEP_ORDER.map((step, idx) => {
-                const stepInfo = STEP_META[step];
-                const isComplete = idx < currentIndex;
-                const isCurrent = idx === currentIndex;
-                return (
-                  <div
-                    key={step}
-                    className={`
-                      flex items-center gap-3 px-4 py-2 rounded-lg text-sm
-                      ${isComplete ? 'text-foreground' : isCurrent ? 'text-foreground' : 'text-muted-foreground'}
-                      ${isCurrent ? 'bg-muted/60' : ''}
-                    `}
-                  >
-                    {isComplete ? (
-                      <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-primary" />
-                      </div>
-                    ) : isCurrent ? (
-                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                    ) : (
-                      <div className="w-4 h-4 rounded-full bg-muted" />
-                    )}
-                    {stepInfo.description}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Loading Skeleton */}
+          {/* Loading skeleton (only when not error) */}
           {!isError && (
             <div className="space-y-3">
-              <Skeleton className="h-4 w-3/4 mx-auto" />
-              <Skeleton className="h-4 w-1/2 mx-auto" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-3/4 mx-auto" />
             </div>
           )}
 
           {/* Error Actions */}
           {isError && (
-            <div className="flex gap-3 justify-center">
-              <Button variant="outline" onClick={onRetry}>
+            <div className="flex gap-3 justify-center pt-2">
+              <Button 
+                variant="outline" 
+                onClick={onRetry}
+                className="border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10"
+              >
                 <RefreshCw className="h-4 w-4 mr-2" aria-hidden="true" />
                 Retry
               </Button>

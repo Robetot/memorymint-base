@@ -5,13 +5,11 @@ import { BASE_CHAIN_ID } from "@/contracts/MemoryMintContract";
 // ============ TYPES ============
 export type AdminInitState =
   | "idle"
-  | "loadingAuth"
-  | "loadingContract"
-  | "loadingAdminData"
+  | "initializing"
   | "ready"
   | "error";
 
-export type AdminAuthPhase = "connectingWallet" | "verifyingNetwork" | "verifyingAdmin";
+export type AdminAuthPhase = "connecting" | "verifying" | null;
 
 export interface AdminHealthStatus {
   walletConnected: boolean;
@@ -25,7 +23,7 @@ export interface AdminHealthStatus {
 
 export interface AdminState {
   initState: AdminInitState;
-  authPhase: AdminAuthPhase | null;
+  authPhase: AdminAuthPhase;
   healthStatus: AdminHealthStatus;
   config: ContractConfig | null;
   bonusLevels: BonusLevelInfo[];
@@ -34,33 +32,45 @@ export interface AdminState {
   isReady: boolean;
 }
 
+interface CachedAdminData {
+  address: string;
+  chainId: string;
+  isAdmin: boolean;
+  config: ContractConfig | null;
+  bonusLevels: BonusLevelInfo[];
+  timestamp: number;
+}
+
 const ADMIN_ADDRESS = "0x830f4c15480aa516a0cc4826902443936f9596cf";
-const STEP_TIMEOUT_MS = 8000;
+const INIT_TIMEOUT_MS = 10000;
+const CACHE_TTL_MS = 60000; // 1 minute cache
+
+// Session memory cache (faster than sessionStorage)
+let memoryCache: CachedAdminData | null = null;
+
+function getCachedData(address: string, chainId: string): CachedAdminData | null {
+  if (
+    memoryCache &&
+    memoryCache.address.toLowerCase() === address.toLowerCase() &&
+    memoryCache.chainId === chainId &&
+    Date.now() - memoryCache.timestamp < CACHE_TTL_MS
+  ) {
+    return memoryCache;
+  }
+  return null;
+}
+
+function setCachedData(data: CachedAdminData): void {
+  memoryCache = data;
+}
+
+function clearCache(): void {
+  memoryCache = null;
+}
 
 function shortAddr(addr: string) {
   if (!addr) return "";
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
-}
-
-function isTimeoutError(err: unknown) {
-  return err instanceof Error && err.name === "TimeoutError";
-}
-
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timeoutId: number | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = window.setTimeout(() => {
-      const e = new Error(`${label} timed out`);
-      e.name = "TimeoutError";
-      reject(e);
-    }, ms);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutId) window.clearTimeout(timeoutId);
-  }
 }
 
 // ============ HOOK ============
@@ -78,7 +88,7 @@ export function useAdminState(walletAddress: string) {
   } = useContractReads();
 
   const [initState, setInitState] = useState<AdminInitState>("idle");
-  const [authPhase, setAuthPhase] = useState<AdminAuthPhase | null>("connectingWallet");
+  const [authPhase, setAuthPhase] = useState<AdminAuthPhase>(null);
   const [error, setError] = useState<string | null>(null);
   const [healthStatus, setHealthStatus] = useState<AdminHealthStatus>({
     walletConnected: false,
@@ -89,16 +99,20 @@ export function useAdminState(walletAddress: string) {
     abiFunctionsPresent: true,
     lastCheck: 0,
   });
+  const [timings, setTimings] = useState<Record<string, number>>({});
 
-  // Prevent stale async updates after wallet/network changes
+  // Prevent stale async updates and duplicate runs
   const runIdRef = useRef(0);
+  const lastInitRef = useRef<{ address: string; chainId: string | null }>({ address: "", chainId: null });
+
   const markNewRun = useCallback(() => {
     runIdRef.current += 1;
     return runIdRef.current;
   }, []);
+
   const isActiveRun = useCallback((runId: number) => runIdRef.current === runId, []);
 
-  // ============ CHECK NETWORK ============
+  // ============ CHECK NETWORK (instant) ============
   const checkNetwork = useCallback(async (): Promise<boolean> => {
     if (!window.ethereum) return false;
     const chainId = await (window.ethereum as any).request({ method: "eth_chainId" });
@@ -111,11 +125,21 @@ export function useAdminState(walletAddress: string) {
     return address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
   }, []);
 
+  // ============ GET CURRENT CHAIN ID ============
+  const getCurrentChainId = useCallback(async (): Promise<string | null> => {
+    if (!window.ethereum) return null;
+    try {
+      return await (window.ethereum as any).request({ method: "eth_chainId" });
+    } catch {
+      return null;
+    }
+  }, []);
+
   const resetState = useCallback(() => {
     markNewRun();
     setError(null);
     setInitState("idle");
-    setAuthPhase("connectingWallet");
+    setAuthPhase(null);
     setHealthStatus({
       walletConnected: false,
       networkCorrect: false,
@@ -127,128 +151,196 @@ export function useAdminState(walletAddress: string) {
     });
   }, [markNewRun]);
 
-  // ============ INITIALIZE ADMIN PANEL ============
+  // ============ INITIALIZE ADMIN PANEL (PARALLEL, NON-BLOCKING) ============
   const initialize = useCallback(async () => {
+    const startTime = performance.now();
     const runId = markNewRun();
-    const startedAt = Date.now();
+    const stepTimings: Record<string, number> = {};
 
-    setError(null);
-    setInitState("loadingAuth");
+    // Get current chain ID first
+    const currentChainId = await getCurrentChainId();
 
-    // NOTE: Do not log admin address; only log step results.
-    console.log("[AdminInit] start", {
-      runId,
-      wallet: walletAddress ? shortAddr(walletAddress) : null,
-    });
-
-    // Step 2: Resolve wallet (non-blocking UI)
-    setAuthPhase("connectingWallet");
-    setHealthStatus((prev) => ({ ...prev, walletConnected: !!walletAddress }));
-
-    if (!walletAddress) {
-      console.log("[AdminInit] waiting for wallet", { runId });
+    // Skip if already initialized for same wallet/network
+    if (
+      lastInitRef.current.address === walletAddress &&
+      lastInitRef.current.chainId === currentChainId &&
+      initState === "ready"
+    ) {
+      console.log("[AdminInit] Already initialized, skipping");
       return;
     }
 
+    lastInitRef.current = { address: walletAddress, chainId: currentChainId };
+
+    setError(null);
+
+    // Check for no wallet
+    if (!walletAddress) {
+      console.log("[AdminInit] No wallet connected");
+      setInitState("idle");
+      setHealthStatus((prev) => ({ ...prev, walletConnected: false }));
+      return;
+    }
+
+    // Check cache for instant load
+    const cached = currentChainId ? getCachedData(walletAddress, currentChainId) : null;
+    if (cached && cached.isAdmin && cached.config) {
+      console.log("[AdminInit] Using cached data (instant load)");
+      setHealthStatus({
+        walletConnected: true,
+        networkCorrect: true,
+        isAdmin: true,
+        contractReachable: true,
+        configLoaded: true,
+        abiFunctionsPresent: true,
+        lastCheck: cached.timestamp,
+      });
+      setInitState("ready");
+      stepTimings.cached = performance.now() - startTime;
+      setTimings(stepTimings);
+      return;
+    }
+
+    // Start initialization - single loading state
+    setInitState("initializing");
+    setAuthPhase("verifying");
+    setHealthStatus((prev) => ({ ...prev, walletConnected: true }));
+
+    console.log("[AdminInit] Starting parallel initialization", {
+      runId,
+      wallet: shortAddr(walletAddress),
+    });
+
     try {
-      // Step 3: Resolve network
-      setAuthPhase("verifyingNetwork");
-      const isCorrectNetwork = await withTimeout(checkNetwork(), STEP_TIMEOUT_MS, "network check");
+      // Create timeout promise
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error("Admin panel timed out. Please retry."));
+        }, INIT_TIMEOUT_MS);
+      });
+
+      // Run ALL checks in parallel
+      const parallelChecks = async () => {
+        const networkStart = performance.now();
+        const configStart = performance.now();
+
+        // Parallel execution of all checks
+        const [networkResult, adminResult, configResult, bonusResult] = await Promise.all([
+          // Network check
+          checkNetwork().then((isCorrect) => {
+            stepTimings.network = performance.now() - networkStart;
+            return isCorrect;
+          }),
+          
+          // Admin check (instant, local)
+          Promise.resolve(checkIsAdmin(walletAddress)),
+          
+          // Config fetch
+          fetchContractConfig(true).then((cfg) => {
+            stepTimings.config = performance.now() - configStart;
+            return cfg;
+          }).catch((err) => {
+            console.warn("[AdminInit] Config fetch failed:", err);
+            stepTimings.config = performance.now() - configStart;
+            return null;
+          }),
+          
+          // Bonus levels fetch
+          fetchBonusLevels(walletAddress).catch((err) => {
+            console.warn("[AdminInit] Bonus levels fetch failed:", err);
+            return [];
+          }),
+        ]);
+
+        return { networkResult, adminResult, configResult, bonusResult };
+      };
+
+      // Race against timeout
+      const results = await Promise.race([parallelChecks(), timeoutPromise]);
+
       if (!isActiveRun(runId)) return;
 
-      if (!isCorrectNetwork) {
-        console.warn("[AdminInit] wrong network", { runId });
-        setHealthStatus((prev) => ({
-          ...prev,
-          walletConnected: true,
-          networkCorrect: false,
-          lastCheck: startedAt,
-        }));
+      const { networkResult, adminResult, configResult } = results;
+
+      stepTimings.total = performance.now() - startTime;
+      setTimings(stepTimings);
+
+      console.log("[AdminInit] Parallel checks complete", {
+        runId,
+        network: networkResult,
+        admin: adminResult,
+        configLoaded: !!configResult,
+        timings: stepTimings,
+      });
+
+      // Update health status with all results at once
+      const now = Date.now();
+      setHealthStatus({
+        walletConnected: true,
+        networkCorrect: networkResult,
+        isAdmin: adminResult,
+        contractReachable: !!configResult,
+        configLoaded: !!configResult?.isLoaded,
+        abiFunctionsPresent: true,
+        lastCheck: now,
+      });
+
+      // Check for failures
+      if (!networkResult) {
         setError("Wrong network. Please connect to Base.");
         setInitState("error");
         return;
       }
 
-      setHealthStatus((prev) => ({ ...prev, networkCorrect: true }));
-
-      // Step 4: Verify admin
-      setAuthPhase("verifyingAdmin");
-      const userIsAdmin = checkIsAdmin(walletAddress);
-      if (!userIsAdmin) {
-        console.warn("[AdminInit] not authorized", { runId, wallet: shortAddr(walletAddress) });
-        setHealthStatus((prev) => ({
-          ...prev,
-          walletConnected: true,
-          networkCorrect: true,
-          isAdmin: false,
-          lastCheck: startedAt,
-        }));
+      if (!adminResult) {
         setError("Not authorized – owner access required");
         setInitState("error");
         return;
       }
 
-      setHealthStatus((prev) => ({ ...prev, isAdmin: true }));
+      // Cache successful result
+      if (currentChainId && configResult) {
+        setCachedData({
+          address: walletAddress,
+          chainId: currentChainId,
+          isAdmin: adminResult,
+          config: configResult,
+          bonusLevels: bonusLevels || [],
+          timestamp: now,
+        });
+      }
 
-      // Step 5: Initialize contract (config)
+      // Success!
       setAuthPhase(null);
-      setInitState("loadingContract");
-
-      let configResult: ContractConfig | null = null;
-      try {
-        configResult = await withTimeout(fetchContractConfig(true), STEP_TIMEOUT_MS, "contract config");
-      } catch (err) {
-        if (!isActiveRun(runId)) return;
-        console.warn("[AdminInit] contract config failed", {
-          runId,
-          reason: err instanceof Error ? err.message : "unknown",
-        });
-        configResult = null;
-      }
-
-      if (!isActiveRun(runId)) return;
-
-      setHealthStatus((prev) => ({
-        ...prev,
-        contractReachable: !!configResult,
-        configLoaded: !!configResult?.isLoaded,
-      }));
-
-      // Step 6: Fetch admin data (bonus levels)
-      setInitState("loadingAdminData");
-      try {
-        await withTimeout(fetchBonusLevels(walletAddress), STEP_TIMEOUT_MS, "admin data");
-      } catch (err) {
-        if (!isActiveRun(runId)) return;
-        console.warn("[AdminInit] admin data load failed", {
-          runId,
-          reason: err instanceof Error ? err.message : "unknown",
-        });
-        // Non-fatal: keep rendering a partial UI.
-      }
-
-      if (!isActiveRun(runId)) return;
-
-      setHealthStatus((prev) => ({ ...prev, lastCheck: startedAt }));
       setInitState("ready");
-      console.log("[AdminInit] ready", { runId, ms: Date.now() - startedAt });
+      console.log("[AdminInit] Ready", {
+        runId,
+        totalMs: stepTimings.total?.toFixed(0),
+      });
+
     } catch (err) {
       if (!isActiveRun(runId)) return;
 
-      if (isTimeoutError(err)) {
-        console.error("[AdminInit] timeout", { runId, at: (err as Error).message });
-        setError("Admin panel failed to load. Retry?");
-      } else {
-        console.error("[AdminInit] error", { runId, err });
-        setError(err instanceof Error ? err.message : "Admin panel failed to load. Retry?");
-      }
-
-      setHealthStatus((prev) => ({ ...prev, lastCheck: startedAt }));
+      console.error("[AdminInit] Error:", err);
+      setError(err instanceof Error ? err.message : "Admin panel failed to load. Retry?");
       setInitState("error");
+      stepTimings.total = performance.now() - startTime;
+      setTimings(stepTimings);
     }
-  }, [walletAddress, markNewRun, checkNetwork, isActiveRun, checkIsAdmin, fetchContractConfig, fetchBonusLevels]);
+  }, [
+    walletAddress,
+    markNewRun,
+    isActiveRun,
+    checkNetwork,
+    checkIsAdmin,
+    fetchContractConfig,
+    fetchBonusLevels,
+    bonusLevels,
+    getCurrentChainId,
+    initState,
+  ]);
 
-  // ============ AUTO-INITIALIZE (strict order, no blocking render) ============
+  // ============ AUTO-INITIALIZE ============
   useEffect(() => {
     initialize();
   }, [initialize]);
@@ -256,12 +348,16 @@ export function useAdminState(walletAddress: string) {
   // ============ RESET ON WALLET/NETWORK CHANGES ============
   useEffect(() => {
     const handleAccountsChanged = () => {
+      console.log("[AdminState] Account changed, clearing cache");
+      clearCache();
       invalidateConfigCache();
       invalidateWalletCache();
       resetState();
     };
 
     const handleChainChanged = () => {
+      console.log("[AdminState] Chain changed, clearing cache");
+      clearCache();
       invalidateConfigCache();
       invalidateWalletCache();
       resetState();
@@ -282,6 +378,7 @@ export function useAdminState(walletAddress: string) {
 
   // ============ REFRESH CONFIG ============
   const refreshConfig = useCallback(async () => {
+    clearCache();
     invalidateConfigCache();
     try {
       return await fetchContractConfig(true);
@@ -311,22 +408,15 @@ export function useAdminState(walletAddress: string) {
       return status;
     }
 
-    try {
-      status.networkCorrect = await withTimeout(checkNetwork(), STEP_TIMEOUT_MS, "network check");
-    } catch {
-      status.networkCorrect = false;
-    }
+    // Run checks in parallel
+    const [networkOk, configResult] = await Promise.all([
+      checkNetwork().catch(() => false),
+      fetchContractConfig(true).catch(() => null),
+    ]);
 
-    if (status.walletConnected && status.networkCorrect && status.isAdmin) {
-      try {
-        const cfg = await withTimeout(fetchContractConfig(true), STEP_TIMEOUT_MS, "contract config");
-        status.contractReachable = !!cfg;
-        status.configLoaded = !!cfg?.isLoaded;
-      } catch {
-        status.contractReachable = false;
-        status.configLoaded = false;
-      }
-    }
+    status.networkCorrect = networkOk;
+    status.contractReachable = !!configResult;
+    status.configLoaded = !!configResult?.isLoaded;
 
     setHealthStatus(status);
     return status;
@@ -334,15 +424,18 @@ export function useAdminState(walletAddress: string) {
 
   // ============ RETRY INITIALIZATION ============
   const retry = useCallback(() => {
+    clearCache();
     invalidateConfigCache();
     invalidateWalletCache();
+    lastInitRef.current = { address: "", chainId: null };
     resetState();
+    // Will auto-reinitialize via useEffect
   }, [invalidateConfigCache, invalidateWalletCache, resetState]);
 
   const isReady = initState === "ready";
 
   const isLoading = useMemo(() => {
-    return contractLoading || ["loadingAuth", "loadingContract", "loadingAdminData"].includes(initState);
+    return contractLoading || initState === "initializing";
   }, [contractLoading, initState]);
 
   return {
@@ -355,6 +448,7 @@ export function useAdminState(walletAddress: string) {
     isLoading,
     error: error || contractError,
     isReady,
+    timings,
 
     // Actions
     initialize,
