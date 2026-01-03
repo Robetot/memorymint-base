@@ -159,109 +159,27 @@ export function useSafeMint() {
 
   /**
    * Validate a claim transaction before opening the wallet
+   * NOTE: MemoryMintUltra does not support claim functionality
    */
-  const validateClaimTransaction = useCallback(async (params: {
+  const validateClaimTransaction = useCallback(async (_params: {
     walletAddress: string;
     levelId: bigint;
     gameLevel: bigint;
     levelProof: `0x${string}`;
   }): Promise<PreMintValidation> => {
-    const { walletAddress, levelId, gameLevel, levelProof } = params;
-
-    setState(prev => ({ ...prev, isValidating: true }));
-
-    try {
-      // Build transaction data
-      const encodedData = encodeFunctionData({
-        abi: CONTRACT_ABI,
-        functionName: 'claimBonus',
-        args: [levelId, gameLevel, levelProof],
-      });
-
-      // Check for no-op (already claimed)
-      const noOpCheck = await checkIsNoOp({
-        type: 'claim',
-        walletAddress,
-        levelId: Number(levelId),
-      });
-
-      if (noOpCheck.isNoOp) {
-        const result: PreMintValidation = {
-          isValid: false,
-          error: noOpCheck.reason || 'Already claimed or not eligible',
-          simulation: null,
-          preview: null,
-          encodedData: null,
-          gasLimit: null,
-          maxFeePerGas: null,
-          maxPriorityFeePerGas: null,
-        };
-        setState({ isValidating: false, validationResult: result });
-        return result;
-      }
-
-      // Run simulation
-      const simulation = await simulateTransaction({
-        from: walletAddress,
-        to: NFT_CONTRACT_ADDRESS,
-        data: encodedData,
-        value: 0n,
-      });
-
-      if (!simulation.success) {
-        const result: PreMintValidation = {
-          isValid: false,
-          error: simulation.error || 'Claim simulation failed',
-          simulation,
-          preview: null,
-          encodedData: null,
-          gasLimit: null,
-          maxFeePerGas: null,
-          maxPriorityFeePerGas: null,
-        };
-        setState({ isValidating: false, validationResult: result });
-        return result;
-      }
-
-      const preview: TransactionPreview = {
-        estimatedGasEth: simulation.estimatedCostEth || '0',
-        estimatedGasGwei: simulation.gasPrice ? (Number(simulation.gasPrice) / 1e9).toFixed(4) : '0',
-        gasLimit: simulation.gasWithBuffer || 0n,
-        maxFeePerGas: simulation.maxFeePerGas || 0n,
-        maxPriorityFeePerGas: simulation.maxPriorityFeePerGas || 0n,
-        isBaseOptimized: true,
-        warningMessage: null,
-      };
-
-      const result: PreMintValidation = {
-        isValid: true,
-        error: null,
-        simulation,
-        preview,
-        encodedData,
-        gasLimit: simulation.gasWithBuffer,
-        maxFeePerGas: simulation.maxFeePerGas,
-        maxPriorityFeePerGas: simulation.maxPriorityFeePerGas,
-      };
-
-      setState({ isValidating: false, validationResult: result });
-      return result;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Validation failed';
-      const result: PreMintValidation = {
-        isValid: false,
-        error: errorMessage,
-        simulation: null,
-        preview: null,
-        encodedData: null,
-        gasLimit: null,
-        maxFeePerGas: null,
-        maxPriorityFeePerGas: null,
-      };
-      setState({ isValidating: false, validationResult: result });
-      return result;
-    }
-  }, [simulateTransaction, checkIsNoOp]);
+    const result: PreMintValidation = {
+      isValid: false,
+      error: 'Claim functionality is not available for this contract',
+      simulation: null,
+      preview: null,
+      encodedData: null,
+      gasLimit: null,
+      maxFeePerGas: null,
+      maxPriorityFeePerGas: null,
+    };
+    setState({ isValidating: false, validationResult: result });
+    return result;
+  }, []);
 
   /**
    * Validate an admin transaction before opening the wallet

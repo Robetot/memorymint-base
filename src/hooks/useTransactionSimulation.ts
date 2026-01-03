@@ -366,19 +366,9 @@ export function useTransactionSimulation() {
     const { type, walletAddress, levelId, currentValue, newValue } = params;
 
     try {
-      if (type === 'claim' && levelId !== undefined) {
-        // Check if already claimed
-        const data = encodeFunctionData({
-          abi: CONTRACT_ABI,
-          functionName: 'canClaim',
-          args: [walletAddress as `0x${string}`, BigInt(levelId)],
-        });
-
-        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-        
-        if (result === '0x' || result === '0x0000000000000000000000000000000000000000000000000000000000000000') {
-          return { isNoOp: true, reason: 'Bonus already claimed or not eligible' };
-        }
+      if (type === 'claim') {
+        // MemoryMintUltra does not have claim functionality
+        return { isNoOp: true, reason: 'Claim functionality not available' };
       }
 
       if (type === 'admin' && currentValue !== undefined && newValue !== undefined) {
@@ -389,18 +379,9 @@ export function useTransactionSimulation() {
       }
 
       if (type === 'mint') {
-        // Check if can mint
-        const data = encodeFunctionData({
-          abi: CONTRACT_ABI,
-          functionName: 'canMint',
-          args: [walletAddress as `0x${string}`],
-        });
-
-        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-        
-        if (result === '0x' || result === '0x0000000000000000000000000000000000000000000000000000000000000000') {
-          return { isNoOp: true, reason: 'Cannot mint: limit reached or cooldown active' };
-        }
+        // MemoryMintUltra allows free minting for everyone (unless paused)
+        // No canMint function exists - minting is always allowed
+        return { isNoOp: false, reason: null };
       }
 
       return { isNoOp: false, reason: null };
