@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { encodeFunctionData } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,16 +12,28 @@ import {
   CONTRACT_ABI,
 } from '@/contracts/MemoryMintContract';
 import {
-  AdminSystemStatus,
-  AdminMintControls,
+  AdminStatusHeader,
+  AdminMintSection,
+  AdminEmergencySection,
+  AdminAntiBotSection,
+  AdminUnsupportedFeatures,
+  AdminAuditLog,
+  AdminActionPreview,
   AdminPreviewMode,
   AdminFooter,
   AdminHealthCheck,
   AdminLoadingState,
+  logAdminAction,
+  detectContractCapabilities,
+  ContractCapabilities,
+  SAFE_DEFAULTS,
 } from './admin';
 
 // Hardcoded admin address for display verification
 const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
+
+// Global init timeout (5 seconds)
+const GLOBAL_INIT_TIMEOUT_MS = 5000;
 
 interface AdminPanelProps {
   walletAddress: string;
@@ -47,12 +59,28 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [lastActionTimestamp, setLastActionTimestamp] = useState<number>();
+  const [capabilities, setCapabilities] = useState<ContractCapabilities | null>(null);
+  const [initTimeMs, setInitTimeMs] = useState<number>();
+
+  // Detect contract capabilities on mount
+  useEffect(() => {
+    const caps = detectContractCapabilities();
+    setCapabilities(caps);
+  }, []);
+
+  // Track init time
+  useEffect(() => {
+    if (initState === 'ready' && healthStatus.lastCheck) {
+      setInitTimeMs(Date.now() - healthStatus.lastCheck);
+    }
+  }, [initState, healthStatus.lastCheck]);
 
   // Send transaction helper with gas-aware UX
   const sendAdminTx = useCallback(async (
     functionName: string,
     args: unknown[],
-    value?: bigint
+    value?: bigint,
+    actionName?: string
   ): Promise<boolean> => {
     if (!window.ethereum) {
       toast.error('Wallet not connected');
@@ -101,6 +129,14 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
       toast.success('Transaction submitted', { description: `Hash: ${txHash.slice(0, 10)}...` });
 
+      // Log the action
+      logAdminAction(
+        actionName || functionName,
+        walletAddress,
+        `Called ${functionName}`,
+        txHash
+      );
+
       // Wait for confirmation
       let receipt = null;
       for (let i = 0; i < 30; i++) {
@@ -135,20 +171,22 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   }, [walletAddress, isPreviewMode, refreshConfig]);
 
   // Handler functions for AVAILABLE contract functions only
-  // MemoryMintUltra only supports: pause(), unpause(), setThrottle()
-
   const handlePause = async () => {
-    return sendAdminTx('pause', []);
+    return sendAdminTx('pause', [], undefined, 'Pause Contract');
   };
 
   const handleUnpause = async () => {
-    return sendAdminTx('unpause', []);
+    return sendAdminTx('unpause', [], undefined, 'Unpause Contract');
   };
 
   const handleSetThrottle = async (enabled: boolean) => {
-    return sendAdminTx('setThrottle', [enabled]);
+    return sendAdminTx('setThrottle', [enabled], undefined, enabled ? 'Enable Throttle' : 'Disable Throttle');
   };
 
+  const handleApplyChanges = async () => {
+    // For this contract, changes are applied individually
+    toast.info('Changes are applied via individual toggles above');
+  };
 
   // Always render a visible state (never blank)
   if (!isReady) {
@@ -165,33 +203,48 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
   // Check if connected wallet matches admin address
   const isVerifiedAdmin = walletAddress.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
-
   const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-
   const copyAddress = () => {
     navigator.clipboard.writeText(walletAddress);
     toast.success('Address copied');
   };
 
+  // Use safe defaults for capabilities if not loaded
+  const caps = capabilities ?? {
+    hasOwner: true,
+    hasTotalSupply: true,
+    hasPause: true,
+    hasUnpause: true,
+    hasSetThrottle: true,
+    hasSetWalletMintLimit: false,
+    hasSetMintPriceETH: false,
+    hasSetMintPriceUSDC: false,
+    hasBonusPool: false,
+    hasDepositETH: false,
+    hasDepositUSDC: false,
+    hasWithdrawETH: false,
+    hasWithdrawUSDC: false,
+    hasSetBonusLevel: false,
+    hasGlobalKillSwitch: false,
+    hasEmergencyWithdraw: false,
+  };
+
   return (
-    <div className="min-h-screen flex flex-col p-6 bg-gradient-to-br from-background via-amber-950/5 to-background overflow-y-auto pb-24">
+    <div className="min-h-screen flex flex-col p-4 md:p-6 bg-gradient-to-br from-background via-amber-950/5 to-background overflow-y-auto pb-24">
       {/* Header with amber/gold styling */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
-            <Crown className="h-6 w-6 text-white" />
+          <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <Crown className="h-5 w-5 md:h-6 md:w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-400 via-yellow-500 to-orange-500 bg-clip-text text-transparent">
+            <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-amber-400 via-yellow-500 to-orange-500 bg-clip-text text-transparent">
               Admin Panel
             </h1>
-            <p className="text-sm text-muted-foreground">Owner controls for MemoryMint</p>
+            <p className="text-xs md:text-sm text-muted-foreground">MemoryMintUltra (Base Mainnet)</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="border-amber-500/50 text-amber-500">
-            Owner Only
-          </Badge>
           <Button 
             variant="outline" 
             size="sm" 
@@ -199,8 +252,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
             disabled={isLoading}
             className="border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10"
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline ml-2">Refresh</span>
           </Button>
           {onClose && (
             <Button 
@@ -215,8 +268,20 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
         </div>
       </div>
 
+      {/* System Status Header - Always Visible, Non-blocking */}
+      <AdminStatusHeader
+        walletAddress={walletAddress}
+        isOwner={isVerifiedAdmin}
+        contractReachable={healthStatus.contractReachable}
+        configLoaded={healthStatus.configLoaded}
+        networkCorrect={healthStatus.networkCorrect}
+        loadTimeMs={initTimeMs}
+        onRefresh={refreshConfig}
+        isRefreshing={isLoading}
+      />
+
       {/* Admin Wallet Verification Banner */}
-      <div className={`mb-4 p-3 rounded-lg border flex items-center justify-between ${
+      <div className={`mt-4 p-3 rounded-lg border flex items-center justify-between ${
         isVerifiedAdmin 
           ? 'bg-emerald-500/10 border-emerald-500/30' 
           : 'bg-destructive/10 border-destructive/30'
@@ -246,73 +311,101 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
         </Button>
       </div>
 
-      <div className="space-y-6 max-w-4xl mx-auto w-full">
+      <div className="space-y-6 max-w-4xl mx-auto w-full mt-6">
+        {/* If contract config couldn't load, render a visible partial UI + retry */}
+        {!config && (
+          <div className="mb-2">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4">
+              <p className="font-medium">Admin configuration unavailable</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                On-chain reads failed or timed out. Safe defaults are applied.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button variant="outline" size="sm" onClick={retry}>
+                  Retry
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => refreshConfig()} disabled={isLoading}>
+                  Refresh
+                </Button>
+              </div>
+            </div>
 
-      {/* If contract config couldn't load, render a visible partial UI + retry */}
-      {!config && (
-        <div className="mb-2">
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4">
-            <p className="font-medium">Admin configuration unavailable</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              On-chain reads failed or timed out. You can retry initialization.
-            </p>
-            <div className="mt-3 flex gap-2">
-              <Button variant="outline" size="sm" onClick={retry}>
-                Retry
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => refreshConfig()} disabled={isLoading}>
-                Refresh
-              </Button>
+            <div className="mt-4">
+              <AdminHealthCheck healthStatus={healthStatus} onRunCheck={runHealthCheck} isLoading={isLoading} />
             </div>
           </div>
+        )}
 
-          <div className="mt-4">
-            <AdminHealthCheck healthStatus={healthStatus} onRunCheck={runHealthCheck} isLoading={isLoading} />
+        {/* Preview Mode Banner */}
+        {isPreviewMode && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-center text-sm">
+            <strong className="text-amber-600 dark:text-amber-400">Preview mode</strong> — no on-chain transactions allowed
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Preview Mode Banner */}
-      {isPreviewMode && (
-        <div className="bg-secondary/20 border border-secondary/50 rounded-lg p-3 text-center text-sm">
-          <strong>Preview mode</strong> — no on-chain transactions allowed
-        </div>
-      )}
+        {/* SECTION 1: Mint Controls */}
+        <AdminMintSection
+          config={config}
+          capabilities={caps}
+          isPreviewMode={isPreviewMode}
+          onPause={handlePause}
+          onUnpause={handleUnpause}
+          onSetThrottle={handleSetThrottle}
+          isPending={isSubmitting}
+        />
 
-      {/* Only render config-dependent sections when config is present */}
-      {config && (
-        <>
-          {/* Section 0: Health Check (Collapsible) */}
-          <AdminHealthCheck healthStatus={healthStatus} onRunCheck={runHealthCheck} isLoading={isLoading} />
+        <Separator className="my-6" />
 
-          <Separator />
+        {/* SECTION 2: Emergency Controls */}
+        <AdminEmergencySection
+          config={config}
+          capabilities={caps}
+          isPreviewMode={isPreviewMode}
+          onPause={handlePause}
+          isPending={isSubmitting}
+        />
 
-          {/* Section 1: System Status */}
-          <AdminSystemStatus config={config} isLoading={isLoading} />
+        <Separator className="my-6" />
 
-          <Separator />
+        {/* SECTION 3: Anti-Bot Protection */}
+        <AdminAntiBotSection
+          config={config}
+          capabilities={caps}
+          isPreviewMode={isPreviewMode}
+          onSetThrottle={handleSetThrottle}
+          isPending={isSubmitting}
+        />
 
-          {/* Section 2: Mint Controls (MemoryMintUltra - Free Mint) */}
-          <AdminMintControls
-            config={config}
-            isPreviewMode={isPreviewMode}
-            onPause={handlePause}
-            onUnpause={handleUnpause}
-            onSetThrottle={handleSetThrottle}
-            isPending={isSubmitting}
-          />
+        <Separator className="my-6" />
 
-          <Separator />
+        {/* SECTION 4: Unsupported Features Notice */}
+        <AdminUnsupportedFeatures capabilities={caps} />
 
-          {/* Section 3: Preview Mode */}
-          <AdminPreviewMode isEnabled={isPreviewMode} onToggle={setIsPreviewMode} />
+        <Separator className="my-6" />
 
-          <Separator />
+        {/* SECTION 5: Action Preview */}
+        <AdminActionPreview
+          config={config}
+          capabilities={caps}
+          isPreviewMode={isPreviewMode}
+          onApplyChanges={handleApplyChanges}
+          isPending={isSubmitting}
+        />
 
-          {/* Footer */}
-          <AdminFooter lastActionTimestamp={lastActionTimestamp} />
-        </>
-      )}
+        <Separator className="my-6" />
+
+        {/* SECTION 6: Preview Mode Toggle */}
+        <AdminPreviewMode isEnabled={isPreviewMode} onToggle={setIsPreviewMode} />
+
+        <Separator className="my-6" />
+
+        {/* SECTION 7: Audit Log */}
+        <AdminAuditLog walletAddress={walletAddress} />
+
+        <Separator className="my-6" />
+
+        {/* Footer */}
+        <AdminFooter lastActionTimestamp={lastActionTimestamp} />
       </div>
     </div>
   );
