@@ -167,17 +167,26 @@ export function useContractReads() {
   // ============ FETCH CONTRACT CONFIG (Batched) ============
   const fetchContractConfig = useCallback(async (force = false): Promise<ContractConfig | null> => {
     const now = Date.now();
-    
+
     // Check cache
     if (!force && configCache.data && now - configCache.timestamp < CONFIG_CACHE_TTL) {
       setConfig(configCache.data);
       return configCache.data;
     }
-    
-    if (isFetchingConfigRef.current) return configCache.data;
+
+    // If a fetch is already in-flight, never silently return null on a forced read
+    if (isFetchingConfigRef.current) {
+      if (force && !configCache.data) {
+        const e = new Error("Config fetch already in progress and no cached config available");
+        setError(e.message);
+        throw e;
+      }
+      return configCache.data;
+    }
+
     isFetchingConfigRef.current = true;
     setIsLoading(true);
-    
+
     try {
       const results = await batchReadContract([
         { functionName: 'owner' },
@@ -195,11 +204,18 @@ export function useContractReads() {
         { functionName: 'bonusPoolBalanceETH' },
         { functionName: 'bonusPoolBalanceUSDC' },
       ]);
-      
+
+      const owner = results[0] as string | null;
+      if (!owner || typeof owner !== 'string' || !owner.startsWith('0x') || owner.length !== 42) {
+        throw new Error(
+          "Config read failed: invalid owner() result (check contract address, ABI, and Base RPC)"
+        );
+      }
+
       const currencyConfig = results[4] as [boolean, boolean, number, number] | null;
-      
+
       const configData: ContractConfig = {
-        owner: (results[0] as string) || '',
+        owner,
         mintEnabled: (results[1] as boolean) ?? false,
         claimEnabled: (results[2] as boolean) ?? false,
         totalSupply: (results[3] as bigint) ?? 0n,
@@ -219,17 +235,19 @@ export function useContractReads() {
         lastFetched: now,
         isLoaded: true,
       };
-      
+
       configCache.data = configData;
       configCache.timestamp = now;
       setConfig(configData);
       setError(null);
-      
+
       return configData;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to fetch config';
-      setError(msg);
-      console.error('[ContractReads] Config fetch failed:', err);
+      const e = err instanceof Error ? err : new Error('Failed to fetch config');
+      setError(e.message);
+      console.error('[ContractReads] Config fetch failed:', e);
+
+      if (force) throw e;
       return null;
     } finally {
       isFetchingConfigRef.current = false;

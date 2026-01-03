@@ -42,7 +42,7 @@ interface CachedAdminData {
 }
 
 const ADMIN_ADDRESS = "0x830f4c15480aa516a0cc4826902443936f9596cf";
-const INIT_TIMEOUT_MS = 8000;
+const INIT_TIMEOUT_MS = 5000;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const SESSION_CACHE_KEY = "memorymint_admin_cache_v1";
 
@@ -148,6 +148,11 @@ export function useAdminState(walletAddress: string) {
   const runIdRef = useRef(0);
   const lastInitRef = useRef<{ address: string; chainId: string | null }>({ address: "", chainId: null });
 
+  // TEMP (isolation): after a config-fetch failure, allow ONE retry run to bypass on-chain config reads.
+  // This helps confirm whether the contract call is the blocker vs. logic/state.
+  const mockConfigNextRunRef = useRef(false);
+  const mockConfigUsedRef = useRef(false);
+
   const markNewRun = useCallback(() => {
     runIdRef.current += 1;
     return runIdRef.current;
@@ -204,6 +209,12 @@ export function useAdminState(walletAddress: string) {
     let didSetTerminalState = false;
     let step: "wallet" | "network" | "admin role" | "config fetch" = "wallet";
 
+    // Fail-detail fields (filled as we go)
+    let chainId: string | null = null;
+    let networkResult: boolean | null = null;
+    let adminResult: boolean | null = null;
+    let configResult: unknown = null;
+
     const finishTerminal = (state: AdminInitState, err: string | null) => {
       didSetTerminalState = true;
       setInitState(state);
@@ -227,14 +238,14 @@ export function useAdminState(walletAddress: string) {
 
       // Read chainId with a short timeout (prevents hanging provider requests)
       const chainIdStart = performance.now();
-      const currentChainId = await withTimeout(getCurrentChainId(), 2000, "Unable to read network. Retry.");
+      chainId = await withTimeout(getCurrentChainId(), 2000, "Unable to read network. Retry.");
       stepTimings.chainId = performance.now() - chainIdStart;
 
-      lastInitRef.current = { address: walletAddress, chainId: currentChainId };
+      lastInitRef.current = { address: walletAddress, chainId };
 
       // 2) Cache fast-path
-      if (currentChainId) {
-        const cached = getCachedData(walletAddress, currentChainId);
+      if (chainId) {
+        const cached = getCachedData(walletAddress, chainId);
         if (cached && cached.isAdmin && cached.config) {
           stepTimings.cached = performance.now() - start;
           setTimings(stepTimings);
@@ -258,10 +269,10 @@ export function useAdminState(walletAddress: string) {
       // 3) Network check (fail fast)
       step = "network";
       const networkStart = performance.now();
-      const networkOk = !!currentChainId && currentChainId.toLowerCase() === BASE_CHAIN_ID.toLowerCase();
+      networkResult = !!chainId && chainId.toLowerCase() === BASE_CHAIN_ID.toLowerCase();
       stepTimings.network = performance.now() - networkStart;
 
-      if (!networkOk) {
+      if (!networkResult) {
         setHealthStatus({
           walletConnected: true,
           networkCorrect: false,
@@ -278,10 +289,10 @@ export function useAdminState(walletAddress: string) {
       // 4) Admin role check (fail fast)
       step = "admin role";
       const adminStart = performance.now();
-      const adminOk = checkIsAdmin(walletAddress);
+      adminResult = checkIsAdmin(walletAddress);
       stepTimings.admin = performance.now() - adminStart;
 
-      if (!adminOk) {
+      if (!adminResult) {
         setHealthStatus({
           walletConnected: true,
           networkCorrect: true,
@@ -298,18 +309,56 @@ export function useAdminState(walletAddress: string) {
       // 5) Config + bonus levels fetch (timeout protected)
       step = "config fetch";
       const cfgStart = performance.now();
-      const [cfg, levels] = await withTimeout(
-        Promise.all([
-          fetchContractConfig(true),
-          fetchBonusLevels(walletAddress).catch(() => [] as BonusLevelInfo[]),
-        ]),
-        INIT_TIMEOUT_MS,
-        "Admin data failed to load. Retry"
-      );
-      stepTimings.config = performance.now() - cfgStart;
+
+      const shouldUseMockConfig = mockConfigNextRunRef.current && !mockConfigUsedRef.current;
+      let usedMockConfig = false;
+
+      let cfg: ContractConfig | null = null;
+      let levels: BonusLevelInfo[] = [];
+
+      if (shouldUseMockConfig) {
+        usedMockConfig = true;
+        mockConfigNextRunRef.current = false;
+        mockConfigUsedRef.current = true;
+
+        cfg = ({ isLoaded: true } as unknown) as ContractConfig;
+        levels = [];
+        configResult = cfg;
+
+        stepTimings.config = performance.now() - cfgStart;
+        console.warn("[AdminInit] TEMP: using mock config for isolation test (one time)");
+      } else {
+        try {
+          const [cfgRes, levelRes] = await withTimeout(
+            Promise.all([
+              fetchContractConfig(true),
+              fetchBonusLevels(walletAddress).catch(() => [] as BonusLevelInfo[]),
+            ]),
+            INIT_TIMEOUT_MS,
+            "Admin init timed out while fetching contract data"
+          );
+
+          cfg = cfgRes;
+          levels = levelRes;
+          configResult = cfg;
+
+          stepTimings.config = performance.now() - cfgStart;
+        } catch (e) {
+          stepTimings.config = performance.now() - cfgStart;
+          configResult = { error: e instanceof Error ? e.message : String(e) };
+          throw e;
+        }
+      }
 
       if (!cfg) {
-        throw new Error("Admin data failed to load. Retry");
+        console.error("[AdminInit][FAIL DETAIL]", {
+          walletAddress,
+          chainId,
+          networkResult,
+          adminResult,
+          configResult,
+        });
+        throw new Error("Contract config missing (fetchContractConfig returned null)");
       }
 
       if (!isActiveRun(runId)) return;
@@ -328,10 +377,11 @@ export function useAdminState(walletAddress: string) {
         lastCheck: now,
       });
 
-      if (currentChainId) {
+      // Do NOT persist mock config into cache
+      if (chainId && !usedMockConfig) {
         setCachedData({
           address: walletAddress,
-          chainId: currentChainId,
+          chainId,
           isAdmin: true,
           config: cfg,
           bonusLevels: levels,
@@ -351,7 +401,21 @@ export function useAdminState(walletAddress: string) {
       if (!isActiveRun(runId)) return;
 
       const message = err instanceof Error ? err.message : "Admin panel failed to load. Retry";
+
+      console.error("[AdminInit][FAIL DETAIL]", {
+        walletAddress,
+        chainId,
+        networkResult,
+        adminResult,
+        configResult,
+      });
+
       console.error("[AdminInit] Failed", { step, message, err });
+
+      // TEMP (isolation): if config fetch failed, allow the next retry to bypass config reads once.
+      if (step === "config fetch" && !mockConfigUsedRef.current) {
+        mockConfigNextRunRef.current = true;
+      }
 
       stepTimings.total = performance.now() - start;
       setTimings(stepTimings);
