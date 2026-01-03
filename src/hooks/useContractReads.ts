@@ -1,44 +1,38 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { encodeFunctionData, decodeFunctionResult, formatEther, formatUnits } from 'viem';
+import { useState, useCallback, useRef } from 'react';
+import { encodeFunctionData, decodeFunctionResult } from 'viem';
 import {
   NFT_CONTRACT_ADDRESS,
   BASE_USDC_ADDRESS,
   RPC_ENDPOINTS,
   CONTRACT_ABI,
   ERC20_ABI,
-  USDC_DECIMALS,
   CONFIG_CACHE_TTL,
   BALANCE_CACHE_TTL,
   PaymentCurrency,
-  ClaimModeEnum,
-  AntiBotModeEnum,
 } from '@/contracts/MemoryMintContract';
 
 // ============ TYPES ============
 export interface ContractConfig {
   // Core state
   owner: string;
-  mintEnabled: boolean;
-  claimEnabled: boolean;
+  paused: boolean;
+  throttleEnabled: boolean;
   totalSupply: bigint;
+  nextTokenId: bigint;
   
-  // Currency config
+  // Compatibility fields (not used in MemoryMintUltra, but kept for UI)
+  mintEnabled: boolean; // derived from !paused
+  claimEnabled: boolean; // always false for this contract
   ethEnabled: boolean;
   usdcEnabled: boolean;
   activeMintCurrency: PaymentCurrency;
   activeBonusCurrency: PaymentCurrency;
-  
-  // Prices
   mintPriceETH: bigint;
   mintPriceUSDC: bigint;
-  
-  // Anti-bot
   antiBotMode: number;
   walletMintLimit: bigint;
   mintCooldownBlocks: bigint;
   signatureRequired: boolean;
-  
-  // Bonus
   claimMode: number;
   bonusPoolETH: bigint;
   bonusPoolUSDC: bigint;
@@ -74,7 +68,7 @@ export interface BonusLevelInfo {
 // ============ CACHE ============
 const configCache: { data: ContractConfig | null; timestamp: number } = { data: null, timestamp: 0 };
 const walletCache: Map<string, { data: WalletState; timestamp: number }> = new Map();
-let contractVerified = false; // Track if contract existence has been verified
+let contractVerified = false;
 
 // ============ TIMEOUT HELPER ============
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -98,14 +92,13 @@ function abiHasFunction(functionName: string): boolean {
 
 function assertAbiHasFunction(functionName: string): void {
   if (!abiHasFunction(functionName)) {
-    throw new Error(`ABI missing function \"${functionName}\". Re-export ABI from deployed build.`);
+    throw new Error(`ABI missing function "${functionName}". Re-export ABI from deployed build.`);
   }
 }
 
-// ============ RPC HELPER (HARD OVERALL TIMEOUT) ============
+// ============ RPC HELPER ============
 async function rpcCall(method: string, params: unknown[], timeoutMs = 4000): Promise<unknown> {
   const errors: string[] = [];
-
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
@@ -120,7 +113,6 @@ async function rpcCall(method: string, params: unknown[], timeoutMs = 4000): Pro
         });
 
         if (response.status === 429) {
-          // brief backoff; still bounded by the overall AbortController timeout
           await new Promise((r) => setTimeout(r, 250));
           continue;
         }
@@ -155,7 +147,7 @@ async function rpcCall(method: string, params: unknown[], timeoutMs = 4000): Pro
   }
 }
 
-// ============ NETWORK GUARD (ADMIN/WALLET CALLS ONLY) ============
+// ============ NETWORK GUARD ============
 async function getConnectedChainId(): Promise<string | null> {
   if (!window.ethereum) return null;
   try {
@@ -167,7 +159,7 @@ async function getConnectedChainId(): Promise<string | null> {
 
 async function assertConnectedToBase(): Promise<void> {
   const chainId = await getConnectedChainId();
-  if (!chainId) return; // no wallet context available
+  if (!chainId) return;
   if (chainId.toLowerCase() !== '0x2105') {
     throw new Error(`Wrong network: expected Base Mainnet (8453), got ${chainId}`);
   }
@@ -207,7 +199,6 @@ async function verifyContractExists(requireConnectedBaseNetwork: boolean): Promi
   });
 }
 
-// Reset verification on network change (call this from useAdminState)
 export function resetContractVerification(): void {
   contractVerified = false;
 }
@@ -299,7 +290,6 @@ export function useContractReads() {
       return configCache.data;
     }
 
-    // If a fetch is already in-flight, never silently return null on a forced read
     if (isFetchingConfigRef.current) {
       if (force && !configCache.data) {
         const e = new Error('Config fetch already in progress and no cached config available');
@@ -312,7 +302,7 @@ export function useContractReads() {
     isFetchingConfigRef.current = true;
     setIsLoading(true);
 
-    const deadline = performance.now() + 4500; // ensure we fail before the 5s admin init timeout
+    const deadline = performance.now() + 4500;
     const chainId = await getConnectedChainId();
 
     const readStep = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
@@ -338,62 +328,54 @@ export function useContractReads() {
     try {
       // Preflight + hard gate
       await readStep('preflight', async () => {
-        await verifyContractExists(force); // enforce connected network only on forced/admin reads
+        await verifyContractExists(force);
         if (!contractVerified) throw new Error('contractVerified=false after preflight');
       });
 
-      // Required methods
-      ['owner', 'mintEnabled', 'claimEnabled', 'totalSupply', 'currencyConfig', 'mintPriceETH', 'mintPriceUSDC', 'antiBotMode', 'walletMintLimit', 'mintCooldownBlocks', 'signatureRequired', 'claimMode', 'bonusPoolBalanceETH', 'bonusPoolBalanceUSDC'].forEach(
-        (fn) => {
-          if (!abiHasFunction(fn)) {
-            throw new Error(`ABI missing function \"${fn}\"`);
-          }
+      // Verify required methods exist in ABI
+      const requiredMethods = ['owner', 'paused', 'throttleEnabled', 'totalSupply', 'nextTokenId'];
+      for (const fn of requiredMethods) {
+        if (!abiHasFunction(fn)) {
+          throw new Error(`ABI missing function "${fn}"`);
         }
-      );
+      }
 
+      // Sequential reads - only functions that exist in MemoryMintUltra
       const owner = (await readStep('owner()', async () => readNft('owner'))) as string;
       if (!owner || typeof owner !== 'string' || !owner.startsWith('0x') || owner.length !== 42) {
         throw new Error(`invalid owner() result: ${String(owner)}`);
       }
 
-      const mintEnabled = (await readStep('mintEnabled()', async () => readNft('mintEnabled'))) as boolean;
-      const claimEnabled = (await readStep('claimEnabled()', async () => readNft('claimEnabled'))) as boolean;
+      const paused = (await readStep('paused()', async () => readNft('paused'))) as boolean;
+      const throttleEnabled = (await readStep('throttleEnabled()', async () => readNft('throttleEnabled'))) as boolean;
       const totalSupply = (await readStep('totalSupply()', async () => readNft('totalSupply'))) as bigint;
+      const nextTokenId = (await readStep('nextTokenId()', async () => readNft('nextTokenId'))) as bigint;
 
-      const currencyConfig = (await readStep('currencyConfig()', async () => readNft('currencyConfig'))) as
-        | [boolean, boolean, number, number]
-        | null;
-
-      const mintPriceETH = (await readStep('mintPriceETH()', async () => readNft('mintPriceETH'))) as bigint;
-      const mintPriceUSDC = (await readStep('mintPriceUSDC()', async () => readNft('mintPriceUSDC'))) as bigint;
-
-      const antiBotMode = (await readStep('antiBotMode()', async () => readNft('antiBotMode'))) as number;
-      const walletMintLimit = (await readStep('walletMintLimit()', async () => readNft('walletMintLimit'))) as bigint;
-      const mintCooldownBlocks = (await readStep('mintCooldownBlocks()', async () => readNft('mintCooldownBlocks'))) as bigint;
-      const signatureRequired = (await readStep('signatureRequired()', async () => readNft('signatureRequired'))) as boolean;
-
-      const claimMode = (await readStep('claimMode()', async () => readNft('claimMode'))) as number;
-      const bonusPoolETH = (await readStep('bonusPoolBalanceETH()', async () => readNft('bonusPoolBalanceETH'))) as bigint;
-      const bonusPoolUSDC = (await readStep('bonusPoolBalanceUSDC()', async () => readNft('bonusPoolBalanceUSDC'))) as bigint;
-
+      // Build config with compatibility fields for UI
       const configData: ContractConfig = {
         owner,
-        mintEnabled: mintEnabled ?? false,
-        claimEnabled: claimEnabled ?? false,
+        paused: paused ?? false,
+        throttleEnabled: throttleEnabled ?? false,
         totalSupply: totalSupply ?? 0n,
-        ethEnabled: currencyConfig?.[0] ?? true,
-        usdcEnabled: currencyConfig?.[1] ?? false,
-        activeMintCurrency: currencyConfig?.[2] === 1 ? 'USDC' : 'ETH',
-        activeBonusCurrency: currencyConfig?.[3] === 1 ? 'USDC' : 'ETH',
-        mintPriceETH: mintPriceETH ?? 0n,
-        mintPriceUSDC: mintPriceUSDC ?? 0n,
-        antiBotMode: antiBotMode ?? 2,
-        walletMintLimit: walletMintLimit ?? 10n,
-        mintCooldownBlocks: mintCooldownBlocks ?? 2n,
-        signatureRequired: signatureRequired ?? true,
-        claimMode: claimMode ?? 0,
-        bonusPoolETH: bonusPoolETH ?? 0n,
-        bonusPoolUSDC: bonusPoolUSDC ?? 0n,
+        nextTokenId: nextTokenId ?? 1n,
+        
+        // Derived/compatibility fields
+        mintEnabled: !paused, // mintEnabled = not paused
+        claimEnabled: false, // no claim in this contract
+        ethEnabled: true, // free minting, no currency needed
+        usdcEnabled: false,
+        activeMintCurrency: 'ETH',
+        activeBonusCurrency: 'ETH',
+        mintPriceETH: 0n, // FREE minting
+        mintPriceUSDC: 0n,
+        antiBotMode: throttleEnabled ? 1 : 0,
+        walletMintLimit: 0n, // no limit
+        mintCooldownBlocks: throttleEnabled ? 1n : 0n,
+        signatureRequired: false,
+        claimMode: 0,
+        bonusPoolETH: 0n,
+        bonusPoolUSDC: 0n,
+        
         lastFetched: now,
         isLoaded: true,
       };
@@ -417,7 +399,7 @@ export function useContractReads() {
     }
   }, []);
 
-  // ============ FETCH WALLET STATE (SEQUENTIAL, TIME-BOUNDED) ============
+  // ============ FETCH WALLET STATE ============
   const fetchWalletState = useCallback(async (address: string, force = false): Promise<WalletState | null> => {
     if (!address) return null;
 
@@ -433,15 +415,12 @@ export function useContractReads() {
     isFetchingWalletRef.current = true;
 
     try {
-      // Wallet-driven reads should enforce connected network + preflight
       await verifyContractExists(true);
 
-      const canMint = (await readNft('canMint', [address])) as boolean;
+      // Read NFT balance
       const nftBalance = (await readNft('balanceOf', [address])) as bigint;
-      const nonce = (await readNft('getNonce', [address])) as bigint;
-      const isOnAllowlist = (await readNft('allowlist', [address])) as boolean;
-      const isOnDenylist = (await readNft('denylist', [address])) as boolean;
 
+      // Get ETH balance
       const ethBalanceHex = (await withTimeout(
         rpcCall('eth_getBalance', [address, 'latest'], 2800) as Promise<string>,
         3000,
@@ -449,16 +428,17 @@ export function useContractReads() {
       )) as string;
       const ethBalance = BigInt(ethBalanceHex || '0');
 
+      // Get USDC balance (optional, for compatibility)
       const usdcBalance = await readErc20('balanceOf', [address as `0x${string}`]);
       const usdcAllowance = await readErc20('allowance', [address as `0x${string}`, NFT_CONTRACT_ADDRESS]);
 
       const state: WalletState = {
         address,
-        canMint: canMint ?? false,
+        canMint: true, // anyone can mint (free, no restrictions unless paused)
         nftBalance: nftBalance ?? 0n,
-        nonce: nonce ?? 0n,
-        isOnAllowlist: isOnAllowlist ?? false,
-        isOnDenylist: isOnDenylist ?? false,
+        nonce: 0n, // no nonce in this contract
+        isOnAllowlist: true, // no allowlist
+        isOnDenylist: false, // no denylist
         ethBalance,
         usdcBalance,
         usdcAllowance,
@@ -477,70 +457,28 @@ export function useContractReads() {
     }
   }, []);
 
-  // ============ FETCH BONUS LEVELS (SEQUENTIAL, NO HANGS) ============
-  const fetchBonusLevels = useCallback(async (walletAddress?: string): Promise<BonusLevelInfo[]> => {
-    const levels: BonusLevelInfo[] = [];
-    let hadFailures = false;
-
-    try {
-      await verifyContractExists(Boolean(walletAddress));
-    } catch (e) {
-      console.error('[ContractReads] Bonus levels preflight failed:', e);
-      setBonusLevels([]);
-      return [];
-    }
-
-    // Fetch levels 1-10 (common range)
-    for (let level = 1; level <= 10; level++) {
-      try {
-        const levelData = (await readNft('bonusLevels', [BigInt(level)])) as
-          | [bigint, bigint, boolean, bigint, bigint, boolean]
-          | null;
-
-        if (levelData && levelData[2]) {
-          // Only include active levels
-          let canClaim = false;
-          if (walletAddress) {
-            canClaim = ((await readNft('canClaim', [walletAddress, BigInt(level)])) as boolean) ?? false;
-          }
-
-          levels.push({
-            level,
-            amountETH: levelData[0],
-            amountUSDC: levelData[1],
-            active: levelData[2],
-            claimsRemaining: levelData[3],
-            requiresNFT: levelData[5],
-            canClaim,
-          });
-        }
-      } catch (err) {
-        hadFailures = true;
-        console.error('[ContractReads] Bonus level read failed:', { level, err });
-        // Non-fatal: keep rendering partial UI.
-      }
-    }
-
-    if (hadFailures) {
-      console.warn('[ContractReads] Some bonus level reads failed');
-    }
-
-    setBonusLevels(levels);
-    return levels;
-  }, []);
-
-  // ============ CHECK IF OWNER ============
-  // HARDCODED ADMIN ADDRESS - This is the sole gate for admin access
-  // Do NOT rely on contract.owner() for authorization to prevent false negatives
-  const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
-  
-  const isOwner = useCallback((address: string): boolean => {
-    if (!address) return false;
-    // Case-insensitive comparison against hardcoded admin address
-    return address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
+  // ============ FETCH BONUS LEVELS (Not supported in this contract) ============
+  const fetchBonusLevels = useCallback(async (_walletAddress?: string): Promise<BonusLevelInfo[]> => {
+    // MemoryMintUltra has no bonus levels
+    setBonusLevels([]);
+    return [];
   }, []);
 
   // ============ INVALIDATE CACHE ============
+  const invalidateCache = useCallback(() => {
+    configCache.data = null;
+    configCache.timestamp = 0;
+    walletCache.clear();
+    contractVerified = false;
+  }, []);
+
+  // Invalidate specific caches (compatibility)
+  const invalidateConfigCache = useCallback(() => {
+    configCache.data = null;
+    configCache.timestamp = 0;
+    contractVerified = false;
+  }, []);
+
   const invalidateWalletCache = useCallback((address?: string) => {
     if (address) {
       walletCache.delete(address.toLowerCase());
@@ -549,49 +487,30 @@ export function useContractReads() {
     }
   }, []);
 
-  const invalidateConfigCache = useCallback(() => {
-    configCache.data = null;
-    configCache.timestamp = 0;
+  // Format bonus pool (compatibility - returns 0 for this contract)
+  const getFormattedBonusPool = useCallback(() => {
+    return { eth: '0.00', usdc: '0.00' };
   }, []);
 
-  // ============ FORMATTED VALUES ============
-  const getFormattedPrices = useCallback(() => {
-    if (!config) return { eth: '0', usdc: '$0.00' };
-    return {
-      eth: formatEther(config.mintPriceETH),
-      usdc: `$${formatUnits(config.mintPriceUSDC, USDC_DECIMALS)}`,
-    };
-  }, [config]);
-
-  const getFormattedBonusPool = useCallback(() => {
-    if (!config) return { eth: '0', usdc: '$0.00' };
-    return {
-      eth: formatEther(config.bonusPoolETH),
-      usdc: `$${formatUnits(config.bonusPoolUSDC, USDC_DECIMALS)}`,
-    };
-  }, [config]);
+  // Check if connected wallet is owner (compatibility)
+  const isOwner = useCallback((address?: string) => {
+    if (!address || !config?.owner) return false;
+    return address.toLowerCase() === config.owner.toLowerCase();
+  }, [config?.owner]);
 
   return {
-    // State
     config,
     walletState,
     bonusLevels,
     isLoading,
     error,
-    
-    // Fetchers
     fetchContractConfig,
     fetchWalletState,
     fetchBonusLevels,
-    
-    // Utilities
-    isOwner,
-    invalidateWalletCache,
+    invalidateCache,
     invalidateConfigCache,
-    getFormattedPrices,
+    invalidateWalletCache,
     getFormattedBonusPool,
-    
-    // Constants
-    contractAddress: NFT_CONTRACT_ADDRESS,
+    isOwner,
   };
 }

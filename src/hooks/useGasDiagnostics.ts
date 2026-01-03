@@ -143,23 +143,9 @@ export function useGasDiagnostics() {
       }
 
       // Check if free mint has value attached
+      // MemoryMintUltra is FREE minting - any ETH attached is wasteful
       if (functionName === 'mintNFT' && value > 0n) {
-        // Check if contract expects payment
-        try {
-          const priceData = encodeFunctionData({
-            abi: CONTRACT_ABI,
-            functionName: 'mintPriceETH',
-            args: [],
-          });
-          const priceResult = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: priceData }, 'latest']) as string;
-          const mintPrice = BigInt(priceResult || '0x0');
-          
-          if (mintPrice === 0n && value > 0n) {
-            warnings.push('⚠️ ETH attached to FREE mint - this increases gas and may fail');
-          }
-        } catch {
-          // Ignore price check failure
-        }
+        warnings.push('⚠️ ETH attached to FREE mint - this increases gas and may fail');
       }
 
       // Check calldata size
