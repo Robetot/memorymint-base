@@ -1,130 +1,98 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { 
   Coins, 
-  Shield,
   Loader2,
   Fuel,
-  DollarSign,
-  Users,
-  KeyRound,
-  AlertTriangle,
+  PlayCircle,
+  PauseCircle,
+  Info,
 } from 'lucide-react';
 import { ContractConfig } from '@/hooks/useContractReads';
-import { formatEther, formatUnits } from 'viem';
-import { USDC_DECIMALS } from '@/contracts/MemoryMintContract';
+import { CONTRACT_ABI } from '@/contracts/MemoryMintContract';
 
 interface AdminMintControlsProps {
   config: ContractConfig | null;
   isPreviewMode: boolean;
-  onSaveChanges: (settings: MintSettingsData) => Promise<boolean>;
+  onPause: () => Promise<boolean>;
+  onUnpause: () => Promise<boolean>;
+  onSetThrottle: (enabled: boolean) => Promise<boolean>;
   isPending: boolean;
 }
 
-export interface MintSettingsData {
-  mintEnabled: boolean;
-  freeMint: boolean;
-  antiBotEnabled: boolean;
-  signatureRequired: boolean;
-  mintPriceETH: string;
-  mintPriceUSDC: string;
-  maxMintsPerWallet: number;
+// Helper to check if a function exists in the ABI
+function abiHasFunction(functionName: string): boolean {
+  const abiItems = CONTRACT_ABI as unknown as readonly any[];
+  return abiItems.some(
+    (i) => i && i.type === 'function' && typeof i.name === 'string' && i.name === functionName
+  );
 }
 
-// Helper to normalize ETH values for comparison (remove trailing zeros)
-function normalizeEthValue(value: string): string {
-  const num = parseFloat(value);
-  if (isNaN(num)) return '0';
-  return num.toString();
-}
+// Determine which admin functions are available
+const AVAILABLE_FUNCTIONS = {
+  pause: abiHasFunction('pause'),
+  unpause: abiHasFunction('unpause'),
+  setThrottle: abiHasFunction('setThrottle'),
+  // These do NOT exist in MemoryMintUltra
+  setWalletMintLimit: abiHasFunction('setWalletMintLimit'),
+  setMintPriceETH: abiHasFunction('setMintPriceETH'),
+  setMintPriceUSDC: abiHasFunction('setMintPriceUSDC'),
+  setSignatureRequired: abiHasFunction('setSignatureRequired'),
+  setAntiBotMode: abiHasFunction('setAntiBotMode'),
+  pauseMinting: abiHasFunction('pauseMinting'),
+};
 
 export function AdminMintControls({ 
   config, 
   isPreviewMode,
-  onSaveChanges,
+  onPause,
+  onUnpause,
+  onSetThrottle,
   isPending,
 }: AdminMintControlsProps) {
-  const [localSettings, setLocalSettings] = useState<MintSettingsData>({
-    mintEnabled: config?.mintEnabled ?? false,
-    freeMint: (config?.mintPriceETH ?? 0n) === 0n && (config?.mintPriceUSDC ?? 0n) === 0n,
-    antiBotEnabled: (config?.antiBotMode ?? 0) > 0,
-    signatureRequired: config?.signatureRequired ?? true,
-    mintPriceETH: config ? formatEther(config.mintPriceETH) : '0',
-    mintPriceUSDC: config ? formatUnits(config.mintPriceUSDC, USDC_DECIMALS) : '0',
-    maxMintsPerWallet: Number(config?.walletMintLimit ?? 10n),
-  });
+  const [localPaused, setLocalPaused] = useState(config?.paused ?? false);
+  const [localThrottle, setLocalThrottle] = useState(config?.throttleEnabled ?? false);
 
-  // Store the on-chain state as source of truth for comparison
-  const onChainState = useMemo(() => {
-    if (!config) return null;
-    return {
-      mintEnabled: config.mintEnabled,
-      freeMint: config.mintPriceETH === 0n && config.mintPriceUSDC === 0n,
-      antiBotEnabled: config.antiBotMode > 0,
-      signatureRequired: config.signatureRequired,
-      mintPriceETH: normalizeEthValue(formatEther(config.mintPriceETH)),
-      mintPriceUSDC: normalizeEthValue(formatUnits(config.mintPriceUSDC, USDC_DECIMALS)),
-      maxMintsPerWallet: Number(config.walletMintLimit),
-    };
-  }, [config]);
-
-  // Sync local settings when on-chain config changes (after tx confirmation)
+  // Sync with on-chain state
   useEffect(() => {
     if (config) {
-      setLocalSettings({
-        mintEnabled: config.mintEnabled,
-        freeMint: config.mintPriceETH === 0n && config.mintPriceUSDC === 0n,
-        antiBotEnabled: config.antiBotMode > 0,
-        signatureRequired: config.signatureRequired,
-        mintPriceETH: formatEther(config.mintPriceETH),
-        mintPriceUSDC: formatUnits(config.mintPriceUSDC, USDC_DECIMALS),
-        maxMintsPerWallet: Number(config.walletMintLimit),
-      });
+      setLocalPaused(config.paused);
+      setLocalThrottle(config.throttleEnabled);
     }
   }, [config]);
 
-  const handleChange = <K extends keyof MintSettingsData>(
-    key: K,
-    value: MintSettingsData[K]
-  ) => {
-    setLocalSettings(prev => ({ ...prev, [key]: value }));
+  // Check if pause/unpause functions are available
+  const canControlPause = AVAILABLE_FUNCTIONS.pause && AVAILABLE_FUNCTIONS.unpause;
+  const canControlThrottle = AVAILABLE_FUNCTIONS.setThrottle;
+  
+  // Check for unsupported features to show info message
+  const hasUnsupportedFeatures = 
+    !AVAILABLE_FUNCTIONS.setWalletMintLimit ||
+    !AVAILABLE_FUNCTIONS.setMintPriceETH ||
+    !AVAILABLE_FUNCTIONS.setSignatureRequired;
+
+  const hasChanges = useMemo(() => {
+    if (!config) return false;
+    return localPaused !== config.paused || localThrottle !== config.throttleEnabled;
+  }, [localPaused, localThrottle, config]);
+
+  const handleTogglePause = async () => {
+    if (localPaused) {
+      const success = await onUnpause();
+      if (success) setLocalPaused(false);
+    } else {
+      const success = await onPause();
+      if (success) setLocalPaused(true);
+    }
   };
 
-  // Compare local settings against ON-CHAIN state (not UI-to-UI)
-  const hasChanges = useMemo(() => {
-    if (!onChainState) return false;
-    
-    const localMintEnabled = localSettings.mintEnabled;
-    const localFreeMint = localSettings.freeMint;
-    const localAntiBotEnabled = localSettings.antiBotEnabled;
-    const localSignatureRequired = localSettings.signatureRequired;
-    const localPriceETH = normalizeEthValue(localSettings.mintPriceETH);
-    const localPriceUSDC = normalizeEthValue(localSettings.mintPriceUSDC);
-    const localMaxMints = localSettings.maxMintsPerWallet;
-
-    return (
-      localMintEnabled !== onChainState.mintEnabled ||
-      localAntiBotEnabled !== onChainState.antiBotEnabled ||
-      localSignatureRequired !== onChainState.signatureRequired ||
-      localMaxMints !== onChainState.maxMintsPerWallet ||
-      // Only compare prices if not free mint
-      (!localFreeMint && (
-        localPriceETH !== onChainState.mintPriceETH ||
-        localPriceUSDC !== onChainState.mintPriceUSDC
-      )) ||
-      // Free mint state changed
-      localFreeMint !== onChainState.freeMint
-    );
-  }, [localSettings, onChainState]);
-
-  const handleSave = async () => {
-    await onSaveChanges(localSettings);
-    // Config will be refetched after tx confirmation, which will update onChainState
+  const handleToggleThrottle = async (enabled: boolean) => {
+    const success = await onSetThrottle(enabled);
+    if (success) setLocalThrottle(enabled);
   };
 
   return (
@@ -134,182 +102,102 @@ export function AdminMintControls({
           <Coins className="h-5 w-5 text-primary" />
           Mint Controls
         </h3>
-        {hasChanges && (
-          <Badge variant="outline" className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30">
-            Unsaved Changes
-          </Badge>
-        )}
+        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+          Free Mint Contract
+        </Badge>
       </div>
 
-      <Card className="border-border/50">
-        <CardContent className="p-4 space-y-6">
-          {/* Mint Enabled Toggle */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-base">Mint Enabled</Label>
-              <p className="text-sm text-muted-foreground">
-                Allow players to mint NFTs
+      {/* Contract type info */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <Info className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
+            <div className="text-sm">
+              <p className="font-medium text-foreground">MemoryMintUltra (Free Mint)</p>
+              <p className="text-muted-foreground mt-1">
+                This contract supports free minting (gas only). Advanced features like wallet limits, 
+                pricing, and signatures are not available.
               </p>
             </div>
-            <Switch
-              checked={localSettings.mintEnabled}
-              onCheckedChange={(checked) => handleChange('mintEnabled', checked)}
-              disabled={isPreviewMode}
-            />
-          </div>
-
-          {/* Free Mint Toggle */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-base flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
-                Free Mint
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Disable minting fees (gas only)
-              </p>
-            </div>
-            <Switch
-              checked={localSettings.freeMint}
-              onCheckedChange={(checked) => {
-                handleChange('freeMint', checked);
-                if (checked) {
-                  handleChange('mintPriceETH', '0');
-                  handleChange('mintPriceUSDC', '0');
-                }
-              }}
-              disabled={isPreviewMode}
-            />
-          </div>
-
-          {/* Anti-Bot Toggle */}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-base flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                Anti-Bot Protection
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Prevent automated minting
-              </p>
-            </div>
-            <Switch
-              checked={localSettings.antiBotEnabled}
-              onCheckedChange={(checked) => handleChange('antiBotEnabled', checked)}
-              disabled={isPreviewMode}
-            />
-          </div>
-
-          {/* Signature Required Toggle - CRITICAL for unsigned minting */}
-          <div className={`flex items-center justify-between p-3 rounded-lg ${
-            localSettings.signatureRequired 
-              ? 'bg-destructive/10 border border-destructive/30' 
-              : 'bg-emerald-500/10 border border-emerald-500/30'
-          }`}>
-            <div className="space-y-0.5">
-              <Label className="text-base flex items-center gap-2">
-                <KeyRound className="h-4 w-4" />
-                Require Signatures
-                {localSettings.signatureRequired && (
-                  <Badge variant="destructive" className="text-xs">
-                    <AlertTriangle className="h-3 w-3 mr-1" />
-                    Blocking Mints
-                  </Badge>
-                )}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {localSettings.signatureRequired 
-                  ? 'Users must have signed authorization to mint (causes "Invalid signature" errors)'
-                  : 'Users can mint directly without signatures'}
-              </p>
-            </div>
-            <Switch
-              checked={localSettings.signatureRequired}
-              onCheckedChange={(checked) => handleChange('signatureRequired', checked)}
-              disabled={isPreviewMode}
-            />
-          </div>
-
-          {/* Mint Prices */}
-          {!localSettings.freeMint && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>ETH Mint Price</Label>
-                <Input
-                  type="text"
-                  value={localSettings.mintPriceETH}
-                  onChange={(e) => handleChange('mintPriceETH', e.target.value)}
-                  placeholder="0.01"
-                  disabled={isPreviewMode}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Current: {config ? formatEther(config.mintPriceETH) : '0'} ETH
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>USDC Mint Price</Label>
-                <Input
-                  type="text"
-                  value={localSettings.mintPriceUSDC}
-                  onChange={(e) => handleChange('mintPriceUSDC', e.target.value)}
-                  placeholder="10"
-                  disabled={isPreviewMode}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Current: ${config ? formatUnits(config.mintPriceUSDC, USDC_DECIMALS) : '0'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Max Mints Per Wallet */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Max Mints Per Wallet
-            </Label>
-            <Input
-              type="number"
-              value={localSettings.maxMintsPerWallet}
-              onChange={(e) => handleChange('maxMintsPerWallet', parseInt(e.target.value) || 1)}
-              min="1"
-              max="100"
-              disabled={isPreviewMode}
-            />
-            <p className="text-xs text-muted-foreground">
-              Current: {config?.walletMintLimit?.toString() ?? '10'}
-            </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Save Button */}
-      <Button
-        className="w-full"
-        onClick={handleSave}
-        disabled={!hasChanges || isPending || isPreviewMode}
-      >
-        {isPending ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            Processing...
-          </>
-        ) : (
-          <>
-            <Fuel className="h-4 w-4 mr-2" />
-            Save Changes
-            {hasChanges && (
-              <Badge variant="secondary" className="ml-2 text-xs">
-                Gas Required
-              </Badge>
-            )}
-          </>
-        )}
-      </Button>
+      <Card className="border-border/50">
+        <CardContent className="p-4 space-y-6">
+          {/* Pause/Unpause Toggle */}
+          {canControlPause && (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-base flex items-center gap-2">
+                  {localPaused ? (
+                    <PauseCircle className="h-4 w-4 text-destructive" />
+                  ) : (
+                    <PlayCircle className="h-4 w-4 text-emerald-500" />
+                  )}
+                  Contract Status
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  {localPaused ? 'Contract is paused - minting disabled' : 'Contract is active - minting enabled'}
+                </p>
+              </div>
+              <Button
+                variant={localPaused ? 'default' : 'destructive'}
+                size="sm"
+                onClick={handleTogglePause}
+                disabled={isPreviewMode || isPending}
+              >
+                {isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : localPaused ? (
+                  'Unpause'
+                ) : (
+                  'Pause'
+                )}
+              </Button>
+            </div>
+          )}
 
-      {!hasChanges && !isPending && (
-        <p className="text-center text-sm text-muted-foreground">
-          Settings match on-chain values
+          {/* Throttle Toggle */}
+          {canControlThrottle && (
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-base">Rate Limiting</Label>
+                <p className="text-sm text-muted-foreground">
+                  {localThrottle ? 'Throttling is active' : 'Throttling is disabled'}
+                </p>
+              </div>
+              <Switch
+                checked={localThrottle}
+                onCheckedChange={handleToggleThrottle}
+                disabled={isPreviewMode || isPending}
+              />
+            </div>
+          )}
+
+          {/* Current Stats */}
+          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border/50">
+            <div className="text-center p-3 rounded-lg bg-muted/30">
+              <p className="text-2xl font-bold">{config?.totalSupply?.toString() ?? '0'}</p>
+              <p className="text-xs text-muted-foreground">Total Minted</p>
+            </div>
+            <div className="text-center p-3 rounded-lg bg-muted/30">
+              <p className="text-2xl font-bold">{config?.nextTokenId?.toString() ?? '1'}</p>
+              <p className="text-xs text-muted-foreground">Next Token ID</p>
+            </div>
+          </div>
+
+          {!canControlPause && !canControlThrottle && (
+            <div className="text-center py-4 text-sm text-muted-foreground">
+              No mint controls available for this contract
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {hasUnsupportedFeatures && (
+        <p className="text-center text-xs text-muted-foreground">
+          Wallet limits, pricing, and signature settings are not supported by this contract
         </p>
       )}
     </div>
