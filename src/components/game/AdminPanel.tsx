@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { encodeFunctionData, parseEther, parseUnits } from 'viem';
+import { encodeFunctionData } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -10,16 +10,10 @@ import {
   NFT_CONTRACT_ADDRESS,
   BASE_CHAIN_ID,
   CONTRACT_ABI,
-  USDC_DECIMALS,
-  ClaimModeEnum,
-  PaymentCurrencyEnum,
 } from '@/contracts/MemoryMintContract';
 import {
   AdminSystemStatus,
-  AdminRewardTiers,
-  AdminClaimSettings,
   AdminMintControls,
-  AdminEmergencyControls,
   AdminPreviewMode,
   AdminFooter,
   AdminHealthCheck,
@@ -140,165 +134,21 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     }
   }, [walletAddress, isPreviewMode, refreshConfig]);
 
-  // Handler functions for each section
-  const handleConfigureTier = async (
-    level: number,
-    amountETH: string,
-    amountUSDC: string,
-    active: boolean,
-    maxClaims: string
-  ) => {
-    return sendAdminTx('configureBonusLevel', [
-      BigInt(level),
-      parseEther(amountETH || '0'),
-      parseUnits(amountUSDC || '0', USDC_DECIMALS),
-      active,
-      BigInt(maxClaims),
-      false,
-    ]);
+  // Handler functions for AVAILABLE contract functions only
+  // MemoryMintUltra only supports: pause(), unpause(), setThrottle()
+
+  const handlePause = async () => {
+    return sendAdminTx('pause', []);
   };
 
-  const handleSaveClaimSettings = async (settings: any) => {
-    let success = true;
-    let anyChangeMade = false;
-
-    // Check claim mode / enabled state
-    const targetClaimMode = settings.claimsEnabled ? ClaimModeEnum.UNLIMITED : ClaimModeEnum.DISABLED;
-    if (targetClaimMode !== config?.claimMode) {
-      success = await sendAdminTx('setClaimMode', [targetClaimMode]);
-      if (!success) return false;
-      anyChangeMade = true;
-    }
-
-    // Check active bonus currency
-    if (settings.activeBonusCurrency !== config?.activeBonusCurrency) {
-      const currencyValue = settings.activeBonusCurrency === 'USDC' 
-        ? PaymentCurrencyEnum.USDC 
-        : PaymentCurrencyEnum.ETH;
-      success = await sendAdminTx('setActiveBonusCurrency', [currencyValue]);
-      if (!success) return false;
-      anyChangeMade = true;
-    }
-
-    if (!anyChangeMade) {
-      toast.info('No changes detected');
-    }
-
-    return success;
+  const handleUnpause = async () => {
+    return sendAdminTx('unpause', []);
   };
 
-  const handleSaveMintSettings = async (settings: any) => {
-    // Compare against on-chain values and send transactions for changed settings
-    let success = true;
-    let anyChangeMade = false;
-
-    // Check mintEnabled (uses pauseMinting with inverted logic)
-    if (settings.mintEnabled !== config?.mintEnabled) {
-      success = await sendAdminTx('pauseMinting', [!settings.mintEnabled]);
-      if (!success) return false;
-      anyChangeMade = true;
-    }
-
-    // CRITICAL: Check signatureRequired - this is what causes "Invalid signature" errors
-    if (settings.signatureRequired !== config?.signatureRequired) {
-      success = await sendAdminTx('setSignatureRequired', [settings.signatureRequired]);
-      if (!success) return false;
-      anyChangeMade = true;
-    }
-
-    // Check ETH price - compare parsed values
-    const currentPriceETH = config?.mintPriceETH ?? 0n;
-    const newPriceETH = parseEther(settings.mintPriceETH || '0');
-    if (newPriceETH !== currentPriceETH) {
-      success = await sendAdminTx('setMintPriceETH', [newPriceETH]);
-      if (!success) return false;
-      anyChangeMade = true;
-    }
-
-    // Check USDC price - compare parsed values
-    const currentPriceUSDC = config?.mintPriceUSDC ?? 0n;
-    const newPriceUSDC = parseUnits(settings.mintPriceUSDC || '0', USDC_DECIMALS);
-    if (newPriceUSDC !== currentPriceUSDC) {
-      success = await sendAdminTx('setMintPriceUSDC', [newPriceUSDC]);
-      if (!success) return false;
-      anyChangeMade = true;
-    }
-
-    // Check max mints per wallet
-    const currentMaxMints = Number(config?.walletMintLimit ?? 10n);
-    const newMaxMints = settings.maxMintsPerWallet;
-    if (newMaxMints !== currentMaxMints) {
-      success = await sendAdminTx('setWalletMintLimit', [BigInt(newMaxMints)]);
-      if (!success) return false;
-      anyChangeMade = true;
-    }
-
-    // Check anti-bot setting
-    const currentAntiBotEnabled = (config?.antiBotMode ?? 0) > 0;
-    if (settings.antiBotEnabled !== currentAntiBotEnabled) {
-      success = await sendAdminTx('setAntiBotMode', [settings.antiBotEnabled ? 1 : 0]);
-      if (!success) return false;
-      anyChangeMade = true;
-    }
-
-    if (!anyChangeMade) {
-      toast.info('No changes detected');
-    }
-
-    return success;
+  const handleSetThrottle = async (enabled: boolean) => {
+    return sendAdminTx('setThrottle', [enabled]);
   };
 
-  const handlePauseMinting = async () => {
-    return sendAdminTx('pauseMinting', [true]);
-  };
-
-  const handlePauseClaims = async () => {
-    return sendAdminTx('setClaimMode', [ClaimModeEnum.DISABLED]);
-  };
-
-  const handleDepositETH = async (amount: string) => {
-    const value = parseEther(amount || '0');
-    if (value <= 0n) {
-      toast.error('Invalid amount');
-      return false;
-    }
-    return sendAdminTx('depositBonusFundsETH', [], value);
-  };
-
-  const handleDepositUSDC = async (amount: string) => {
-    const value = parseUnits(amount || '0', USDC_DECIMALS);
-    if (value <= 0n) {
-      toast.error('Invalid amount');
-      return false;
-    }
-    return sendAdminTx('depositBonusFundsUSDC', [value]);
-  };
-
-  const handleWithdrawETH = async (amount: string) => {
-    const value = parseEther(amount || '0');
-    if (value <= 0n) {
-      toast.error('Invalid amount');
-      return false;
-    }
-    if (config && value > config.bonusPoolETH) {
-      toast.error('Insufficient pool balance');
-      return false;
-    }
-    return sendAdminTx('withdrawBonusFundsETH', [value]);
-  };
-
-  const handleWithdrawUSDC = async (amount: string) => {
-    const value = parseUnits(amount || '0', USDC_DECIMALS);
-    if (value <= 0n) {
-      toast.error('Invalid amount');
-      return false;
-    }
-    if (config && value > config.bonusPoolUSDC) {
-      toast.error('Insufficient pool balance');
-      return false;
-    }
-    return sendAdminTx('withdrawBonusFundsUSDC', [value]);
-  };
 
   // Always render a visible state (never blank)
   if (!isReady) {
@@ -442,53 +292,19 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
           <Separator />
 
-          {/* Section 2: Reward Tiers */}
-          <AdminRewardTiers
-            bonusLevels={bonusLevels}
-            isPreviewMode={isPreviewMode}
-            onConfigureTier={handleConfigureTier}
-            isPending={isSubmitting}
-          />
-
-          <Separator />
-
-          {/* Section 3: Claim Settings */}
-          <AdminClaimSettings
-            config={config}
-            bonusLevels={bonusLevels}
-            isPreviewMode={isPreviewMode}
-            onSaveChanges={handleSaveClaimSettings}
-            onDepositETH={handleDepositETH}
-            onDepositUSDC={handleDepositUSDC}
-            onWithdrawETH={handleWithdrawETH}
-            onWithdrawUSDC={handleWithdrawUSDC}
-            isPending={isSubmitting}
-          />
-
-          <Separator />
-
-          {/* Section 4: Mint Controls */}
+          {/* Section 2: Mint Controls (MemoryMintUltra - Free Mint) */}
           <AdminMintControls
             config={config}
             isPreviewMode={isPreviewMode}
-            onSaveChanges={handleSaveMintSettings}
+            onPause={handlePause}
+            onUnpause={handleUnpause}
+            onSetThrottle={handleSetThrottle}
             isPending={isSubmitting}
           />
 
           <Separator />
 
-          {/* Section 5: Emergency Controls */}
-          <AdminEmergencyControls
-            walletAddress={walletAddress}
-            isPreviewMode={isPreviewMode}
-            onPauseMinting={handlePauseMinting}
-            onPauseClaims={handlePauseClaims}
-            isPending={isSubmitting}
-          />
-
-          <Separator />
-
-          {/* Section 6: Preview Mode */}
+          {/* Section 3: Preview Mode */}
           <AdminPreviewMode isEnabled={isPreviewMode} onToggle={setIsPreviewMode} />
 
           <Separator />
