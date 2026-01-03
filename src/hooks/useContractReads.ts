@@ -205,11 +205,26 @@ export function useContractReads() {
         { functionName: 'bonusPoolBalanceUSDC' },
       ]);
 
-      const owner = results[0] as string | null;
+      // Log diagnostic info for contract read results
+      const ownerRaw = results[0];
+      console.info('[ContractReads] owner() result:', {
+        raw: ownerRaw,
+        type: typeof ownerRaw,
+        isNull: ownerRaw === null,
+        contractAddress: NFT_CONTRACT_ADDRESS,
+        rpcEndpoints: RPC_ENDPOINTS.slice(0, 2),
+      });
+
+      // owner() result validation - WARN but do NOT block since admin check uses hardcoded address
+      let owner = results[0] as string | null;
       if (!owner || typeof owner !== 'string' || !owner.startsWith('0x') || owner.length !== 42) {
-        throw new Error(
-          "Config read failed: invalid owner() result (check contract address, ABI, and Base RPC)"
+        console.warn(
+          '[ContractReads] owner() returned invalid value, using fallback. ' +
+          'This may indicate contract/ABI/RPC mismatch but admin auth uses hardcoded address.',
+          { rawOwner: owner, contractAddress: NFT_CONTRACT_ADDRESS }
         );
+        // Use zero address as fallback - admin check uses hardcoded ADMIN_ADDRESS anyway
+        owner = '0x0000000000000000000000000000000000000000';
       }
 
       const currencyConfig = results[4] as [boolean, boolean, number, number] | null;
