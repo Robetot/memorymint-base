@@ -50,12 +50,17 @@ export function RewardsClaimPanel({ walletAddress, onClaimSuccess }: RewardsClai
   // Refresh data
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await fetchContractConfig(true);
-    if (walletAddress) {
-      invalidateWalletCache(walletAddress);
-      await fetchBonusLevels(walletAddress);
+    try {
+      await fetchContractConfig(true);
+      if (walletAddress) {
+        invalidateWalletCache(walletAddress);
+        await fetchBonusLevels(walletAddress);
+      }
+    } catch (e) {
+      console.error('[RewardsClaimPanel] Refresh failed', e);
+    } finally {
+      setIsRefreshing(false);
     }
-    setIsRefreshing(false);
   }, [walletAddress, fetchContractConfig, fetchBonusLevels, invalidateWalletCache]);
 
   // Handle claim
