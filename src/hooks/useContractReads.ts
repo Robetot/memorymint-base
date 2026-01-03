@@ -74,9 +74,10 @@ export interface BonusLevelInfo {
 // ============ CACHE ============
 const configCache: { data: ContractConfig | null; timestamp: number } = { data: null, timestamp: 0 };
 const walletCache: Map<string, { data: WalletState; timestamp: number }> = new Map();
+let contractVerified = false; // Track if contract existence has been verified
 
 // ============ RPC HELPER ============
-async function rpcCall(method: string, params: unknown[], timeout = 10000): Promise<unknown> {
+async function rpcCall(method: string, params: unknown[], timeout = 4000): Promise<unknown> {
   const errors: string[] = [];
   
   for (const endpoint of RPC_ENDPOINTS) {
@@ -94,7 +95,7 @@ async function rpcCall(method: string, params: unknown[], timeout = 10000): Prom
       clearTimeout(timeoutId);
       
       if (response.status === 429) {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 500));
         continue;
       }
       
@@ -111,12 +112,57 @@ async function rpcCall(method: string, params: unknown[], timeout = 10000): Prom
       
       return data.result;
     } catch (err) {
-      errors.push(`${endpoint}: ${err instanceof Error ? err.message : 'Unknown'}`);
+      const msg = err instanceof Error ? err.message : 'Unknown';
+      errors.push(`${endpoint}: ${msg}`);
+      // On timeout/abort, try next endpoint immediately
       continue;
     }
   }
   
   throw new Error(`All RPCs failed: ${errors.join(', ')}`);
+}
+
+// ============ CONTRACT PREFLIGHT CHECK ============
+async function verifyContractExists(): Promise<void> {
+  if (contractVerified) return;
+  
+  console.info('[ContractReads] Preflight: verifying contract exists at', NFT_CONTRACT_ADDRESS);
+  
+  try {
+    const code = await rpcCall('eth_getCode', [NFT_CONTRACT_ADDRESS, 'latest'], 3000) as string;
+    
+    if (!code || code === '0x' || code === '0x0') {
+      console.error('[ContractReads] PREFLIGHT FAILED: No contract at address', {
+        address: NFT_CONTRACT_ADDRESS,
+        code,
+        hint: 'Check if address is correct and deployed on Base Mainnet (8453)',
+      });
+      throw new Error(
+        `No contract found at ${NFT_CONTRACT_ADDRESS}. ` +
+        `Verify the address is deployed on Base Mainnet (chainId 8453).`
+      );
+    }
+    
+    console.info('[ContractReads] Preflight passed: contract exists', { 
+      address: NFT_CONTRACT_ADDRESS,
+      codeLength: code.length,
+    });
+    contractVerified = true;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('No contract found')) {
+      throw err; // Re-throw our specific error
+    }
+    console.error('[ContractReads] Preflight RPC failed:', err);
+    throw new Error(
+      `Failed to verify contract at ${NFT_CONTRACT_ADDRESS}: ` +
+      `${err instanceof Error ? err.message : 'RPC error'}. Check network connection.`
+    );
+  }
+}
+
+// Reset verification on network change (call this from useAdminState if needed)
+export function resetContractVerification(): void {
+  contractVerified = false;
 }
 
 // ============ BATCH READ HELPER (with graceful error handling) ============
@@ -188,6 +234,9 @@ export function useContractReads() {
     setIsLoading(true);
 
     try {
+      // PREFLIGHT: Verify contract exists before any reads
+      await verifyContractExists();
+      
       const results = await batchReadContract([
         { functionName: 'owner' },
         { functionName: 'mintEnabled' },

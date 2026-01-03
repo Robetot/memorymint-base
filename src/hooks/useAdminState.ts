@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useContractReads, type BonusLevelInfo, type ContractConfig } from "./useContractReads";
+import { useContractReads, resetContractVerification, type BonusLevelInfo, type ContractConfig } from "./useContractReads";
 import { BASE_CHAIN_ID } from "@/contracts/MemoryMintContract";
 
 // ============ TYPES ============
@@ -464,6 +464,7 @@ export function useAdminState(walletAddress: string) {
       clearCache();
       invalidateConfigCache();
       invalidateWalletCache();
+      resetContractVerification(); // Reset preflight check for new network
       resetState();
       // Chain can change without walletAddress prop changing; force re-init.
       queueMicrotask(() => {
