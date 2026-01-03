@@ -76,127 +76,206 @@ const configCache: { data: ContractConfig | null; timestamp: number } = { data: 
 const walletCache: Map<string, { data: WalletState; timestamp: number }> = new Map();
 let contractVerified = false; // Track if contract existence has been verified
 
-// ============ RPC HELPER ============
-async function rpcCall(method: string, params: unknown[], timeout = 4000): Promise<unknown> {
-  const errors: string[] = [];
-  
-  for (const endpoint of RPC_ENDPOINTS) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-      
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (response.status === 429) {
-        await new Promise(r => setTimeout(r, 500));
-        continue;
-      }
-      
-      if (!response.ok) {
-        errors.push(`${endpoint}: HTTP ${response.status}`);
-        continue;
-      }
-      
-      const data = await response.json();
-      if (data.error) {
-        errors.push(`${endpoint}: ${data.error.message}`);
-        continue;
-      }
-      
-      return data.result;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown';
-      errors.push(`${endpoint}: ${msg}`);
-      // On timeout/abort, try next endpoint immediately
-      continue;
-    }
+// ============ TIMEOUT HELPER ============
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(message)), ms);
+  });
+
+  return (Promise.race([promise, timeoutPromise]) as Promise<T>).finally(() => {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  });
+}
+
+// ============ ABI HELPERS ============
+function abiHasFunction(functionName: string): boolean {
+  const abiItems = CONTRACT_ABI as unknown as readonly any[];
+  return abiItems.some(
+    (i) => i && i.type === 'function' && typeof i.name === 'string' && i.name === functionName
+  );
+}
+
+function assertAbiHasFunction(functionName: string): void {
+  if (!abiHasFunction(functionName)) {
+    throw new Error(`ABI missing function \"${functionName}\". Re-export ABI from deployed build.`);
   }
-  
-  throw new Error(`All RPCs failed: ${errors.join(', ')}`);
+}
+
+// ============ RPC HELPER (HARD OVERALL TIMEOUT) ============
+async function rpcCall(method: string, params: unknown[], timeoutMs = 4000): Promise<unknown> {
+  const errors: string[] = [];
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    for (const endpoint of RPC_ENDPOINTS) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+          signal: controller.signal,
+        });
+
+        if (response.status === 429) {
+          // brief backoff; still bounded by the overall AbortController timeout
+          await new Promise((r) => setTimeout(r, 250));
+          continue;
+        }
+
+        if (!response.ok) {
+          errors.push(`${endpoint}: HTTP ${response.status}`);
+          continue;
+        }
+
+        const data = await response.json();
+        if (data.error) {
+          errors.push(`${endpoint}: ${data.error.message}`);
+          continue;
+        }
+
+        return data.result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown';
+        errors.push(`${endpoint}: ${msg}`);
+        continue;
+      }
+    }
+
+    throw new Error(`All RPCs failed: ${errors.join(', ')}`);
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(`RPC ${method} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+// ============ NETWORK GUARD (ADMIN/WALLET CALLS ONLY) ============
+async function getConnectedChainId(): Promise<string | null> {
+  if (!window.ethereum) return null;
+  try {
+    return await (window.ethereum as any).request({ method: 'eth_chainId' });
+  } catch {
+    return null;
+  }
+}
+
+async function assertConnectedToBase(): Promise<void> {
+  const chainId = await getConnectedChainId();
+  if (!chainId) return; // no wallet context available
+  if (chainId.toLowerCase() !== '0x2105') {
+    throw new Error(`Wrong network: expected Base Mainnet (8453), got ${chainId}`);
+  }
 }
 
 // ============ CONTRACT PREFLIGHT CHECK ============
-async function verifyContractExists(): Promise<void> {
+async function verifyContractExists(requireConnectedBaseNetwork: boolean): Promise<void> {
   if (contractVerified) return;
-  
+
+  if (requireConnectedBaseNetwork) {
+    await assertConnectedToBase();
+  }
+
   console.info('[ContractReads] Preflight: verifying contract exists at', NFT_CONTRACT_ADDRESS);
-  
-  try {
-    const code = await rpcCall('eth_getCode', [NFT_CONTRACT_ADDRESS, 'latest'], 3000) as string;
-    
-    if (!code || code === '0x' || code === '0x0') {
-      console.error('[ContractReads] PREFLIGHT FAILED: No contract at address', {
-        address: NFT_CONTRACT_ADDRESS,
-        code,
-        hint: 'Check if address is correct and deployed on Base Mainnet (8453)',
-      });
-      throw new Error(
-        `No contract found at ${NFT_CONTRACT_ADDRESS}. ` +
-        `Verify the address is deployed on Base Mainnet (chainId 8453).`
-      );
-    }
-    
-    console.info('[ContractReads] Preflight passed: contract exists', { 
+
+  const code = (await withTimeout(
+    rpcCall('eth_getCode', [NFT_CONTRACT_ADDRESS, 'latest'], 2800) as Promise<string>,
+    3000,
+    'eth_getCode timed out'
+  )) as string;
+
+  if (!code || code === '0x' || code === '0x0') {
+    console.error('[ContractReads] PREFLIGHT FAILED: No contract at address', {
       address: NFT_CONTRACT_ADDRESS,
-      codeLength: code.length,
+      code,
+      chainId: await getConnectedChainId(),
     });
-    contractVerified = true;
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('No contract found')) {
-      throw err; // Re-throw our specific error
-    }
-    console.error('[ContractReads] Preflight RPC failed:', err);
     throw new Error(
-      `Failed to verify contract at ${NFT_CONTRACT_ADDRESS}: ` +
-      `${err instanceof Error ? err.message : 'RPC error'}. Check network connection.`
+      `No contract found at ${NFT_CONTRACT_ADDRESS}. Verify the address is deployed on Base Mainnet (chainId 8453).`
     );
   }
+
+  contractVerified = true;
+  console.info('[ContractReads] Preflight passed: contract exists', {
+    address: NFT_CONTRACT_ADDRESS,
+    codeLength: code.length,
+  });
 }
 
-// Reset verification on network change (call this from useAdminState if needed)
+// Reset verification on network change (call this from useAdminState)
 export function resetContractVerification(): void {
   contractVerified = false;
 }
 
-// ============ BATCH READ HELPER (with graceful error handling) ============
-async function batchReadContract(calls: Array<{ functionName: string; args?: unknown[] }>): Promise<unknown[]> {
-  const results = await Promise.allSettled(
-    calls.map(async ({ functionName, args = [] }) => {
-      // Use type assertion to avoid deep type instantiation
-      const data = encodeFunctionData({
-        abi: CONTRACT_ABI as any,
-        functionName: functionName,
-        args: args as any[],
-      });
-      
-      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-      
-      // Graceful handling: treat empty/null/undefined as null
-      if (!result || result === '0x' || result === '' || result === null) {
-        return null;
-      }
-      
-      try {
-        return decodeFunctionResult({
-          abi: CONTRACT_ABI as any,
-          functionName: functionName,
-          data: result as `0x${string}`,
-        });
-      } catch {
-        // Decoding failed - return null instead of throwing
-        return null;
-      }
-    })
-  );
-  
-  return results.map(r => r.status === 'fulfilled' ? r.value : null);
+// ============ SINGLE ENTRYPOINT FOR NFT CONTRACT READS ============
+async function readNft(functionName: string, args: unknown[] = []): Promise<unknown> {
+  if (!contractVerified) {
+    throw new Error(`Contract preflight not verified; refusing to call ${functionName}`);
+  }
+
+  assertAbiHasFunction(functionName);
+
+  console.info(`[AdminInit] Reading ${functionName}`);
+
+  const data = encodeFunctionData({
+    abi: CONTRACT_ABI as any,
+    functionName: functionName as any,
+    args: args as any[],
+  });
+
+  const result = (await withTimeout(
+    rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest'], 2800) as Promise<string>,
+    3000,
+    `${functionName} timed out`
+  )) as string;
+
+  if (!result || result === '0x' || result === '') {
+    throw new Error(`${functionName} returned empty result`);
+  }
+
+  try {
+    return decodeFunctionResult({
+      abi: CONTRACT_ABI as any,
+      functionName: functionName as any,
+      data: result as `0x${string}`,
+    });
+  } catch {
+    throw new Error(`${functionName} decode failed (ABI mismatch?)`);
+  }
+}
+
+// ============ SINGLE ENTRYPOINT FOR ERC20 READS (USDC) ============
+async function readErc20(functionName: 'balanceOf' | 'allowance', args: unknown[]): Promise<bigint> {
+  console.info(`[ContractReads] Reading USDC ${functionName}`);
+
+  const data = encodeFunctionData({
+    abi: ERC20_ABI as any,
+    functionName,
+    args: args as any[],
+  });
+
+  const result = (await withTimeout(
+    rpcCall('eth_call', [{ to: BASE_USDC_ADDRESS, data }, 'latest'], 2800) as Promise<string>,
+    3000,
+    `USDC ${functionName} timed out`
+  )) as string;
+
+  if (!result || result === '0x' || result === '') return 0n;
+
+  try {
+    return decodeFunctionResult({
+      abi: ERC20_ABI,
+      functionName,
+      data: result as `0x${string}`,
+    }) as bigint;
+  } catch {
+    throw new Error(`USDC ${functionName} decode failed`);
+  }
 }
 
 // ============ HOOK ============
@@ -206,11 +285,11 @@ export function useContractReads() {
   const [bonusLevels, setBonusLevels] = useState<BonusLevelInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const isFetchingConfigRef = useRef(false);
   const isFetchingWalletRef = useRef(false);
 
-  // ============ FETCH CONTRACT CONFIG (Batched) ============
+  // ============ FETCH CONTRACT CONFIG (SEQUENTIAL, FAIL-FAST) ============
   const fetchContractConfig = useCallback(async (force = false): Promise<ContractConfig | null> => {
     const now = Date.now();
 
@@ -223,7 +302,7 @@ export function useContractReads() {
     // If a fetch is already in-flight, never silently return null on a forced read
     if (isFetchingConfigRef.current) {
       if (force && !configCache.data) {
-        const e = new Error("Config fetch already in progress and no cached config available");
+        const e = new Error('Config fetch already in progress and no cached config available');
         setError(e.message);
         throw e;
       }
@@ -233,69 +312,88 @@ export function useContractReads() {
     isFetchingConfigRef.current = true;
     setIsLoading(true);
 
-    try {
-      // PREFLIGHT: Verify contract exists before any reads
-      await verifyContractExists();
-      
-      const results = await batchReadContract([
-        { functionName: 'owner' },
-        { functionName: 'mintEnabled' },
-        { functionName: 'claimEnabled' },
-        { functionName: 'totalSupply' },
-        { functionName: 'currencyConfig' },
-        { functionName: 'mintPriceETH' },
-        { functionName: 'mintPriceUSDC' },
-        { functionName: 'antiBotMode' },
-        { functionName: 'walletMintLimit' },
-        { functionName: 'mintCooldownBlocks' },
-        { functionName: 'signatureRequired' },
-        { functionName: 'claimMode' },
-        { functionName: 'bonusPoolBalanceETH' },
-        { functionName: 'bonusPoolBalanceUSDC' },
-      ]);
+    const deadline = performance.now() + 4500; // ensure we fail before the 5s admin init timeout
+    const chainId = await getConnectedChainId();
 
-      // Log diagnostic info for contract read results
-      const ownerRaw = results[0];
-      console.info('[ContractReads] owner() result:', {
-        raw: ownerRaw,
-        type: typeof ownerRaw,
-        isNull: ownerRaw === null,
-        contractAddress: NFT_CONTRACT_ADDRESS,
-        rpcEndpoints: RPC_ENDPOINTS.slice(0, 2),
-      });
-
-      // owner() result validation - WARN but do NOT block since admin check uses hardcoded address
-      let owner = results[0] as string | null;
-      if (!owner || typeof owner !== 'string' || !owner.startsWith('0x') || owner.length !== 42) {
-        console.warn(
-          '[ContractReads] owner() returned invalid value, using fallback. ' +
-          'This may indicate contract/ABI/RPC mismatch but admin auth uses hardcoded address.',
-          { rawOwner: owner, contractAddress: NFT_CONTRACT_ADDRESS }
-        );
-        // Use zero address as fallback - admin check uses hardcoded ADMIN_ADDRESS anyway
-        owner = '0x0000000000000000000000000000000000000000';
+    const readStep = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+      if (performance.now() > deadline) {
+        throw new Error(`Config read budget exceeded before ${label}`);
       }
 
-      const currencyConfig = results[4] as [boolean, boolean, number, number] | null;
+      try {
+        return await fn();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.error('[AdminInit][FAIL DETAIL]', {
+          chainId,
+          contractAddress: NFT_CONTRACT_ADDRESS,
+          abiHasMethod: abiHasFunction(label.replace(/\(\)$/, '')),
+          failingStep: label,
+          error: message,
+        });
+        throw new Error(`Config read failed at ${label}: ${message}`);
+      }
+    };
+
+    try {
+      // Preflight + hard gate
+      await readStep('preflight', async () => {
+        await verifyContractExists(force); // enforce connected network only on forced/admin reads
+        if (!contractVerified) throw new Error('contractVerified=false after preflight');
+      });
+
+      // Required methods
+      ['owner', 'mintEnabled', 'claimEnabled', 'totalSupply', 'currencyConfig', 'mintPriceETH', 'mintPriceUSDC', 'antiBotMode', 'walletMintLimit', 'mintCooldownBlocks', 'signatureRequired', 'claimMode', 'bonusPoolBalanceETH', 'bonusPoolBalanceUSDC'].forEach(
+        (fn) => {
+          if (!abiHasFunction(fn)) {
+            throw new Error(`ABI missing function \"${fn}\"`);
+          }
+        }
+      );
+
+      const owner = (await readStep('owner()', async () => readNft('owner'))) as string;
+      if (!owner || typeof owner !== 'string' || !owner.startsWith('0x') || owner.length !== 42) {
+        throw new Error(`invalid owner() result: ${String(owner)}`);
+      }
+
+      const mintEnabled = (await readStep('mintEnabled()', async () => readNft('mintEnabled'))) as boolean;
+      const claimEnabled = (await readStep('claimEnabled()', async () => readNft('claimEnabled'))) as boolean;
+      const totalSupply = (await readStep('totalSupply()', async () => readNft('totalSupply'))) as bigint;
+
+      const currencyConfig = (await readStep('currencyConfig()', async () => readNft('currencyConfig'))) as
+        | [boolean, boolean, number, number]
+        | null;
+
+      const mintPriceETH = (await readStep('mintPriceETH()', async () => readNft('mintPriceETH'))) as bigint;
+      const mintPriceUSDC = (await readStep('mintPriceUSDC()', async () => readNft('mintPriceUSDC'))) as bigint;
+
+      const antiBotMode = (await readStep('antiBotMode()', async () => readNft('antiBotMode'))) as number;
+      const walletMintLimit = (await readStep('walletMintLimit()', async () => readNft('walletMintLimit'))) as bigint;
+      const mintCooldownBlocks = (await readStep('mintCooldownBlocks()', async () => readNft('mintCooldownBlocks'))) as bigint;
+      const signatureRequired = (await readStep('signatureRequired()', async () => readNft('signatureRequired'))) as boolean;
+
+      const claimMode = (await readStep('claimMode()', async () => readNft('claimMode'))) as number;
+      const bonusPoolETH = (await readStep('bonusPoolBalanceETH()', async () => readNft('bonusPoolBalanceETH'))) as bigint;
+      const bonusPoolUSDC = (await readStep('bonusPoolBalanceUSDC()', async () => readNft('bonusPoolBalanceUSDC'))) as bigint;
 
       const configData: ContractConfig = {
         owner,
-        mintEnabled: (results[1] as boolean) ?? false,
-        claimEnabled: (results[2] as boolean) ?? false,
-        totalSupply: (results[3] as bigint) ?? 0n,
+        mintEnabled: mintEnabled ?? false,
+        claimEnabled: claimEnabled ?? false,
+        totalSupply: totalSupply ?? 0n,
         ethEnabled: currencyConfig?.[0] ?? true,
         usdcEnabled: currencyConfig?.[1] ?? false,
         activeMintCurrency: currencyConfig?.[2] === 1 ? 'USDC' : 'ETH',
         activeBonusCurrency: currencyConfig?.[3] === 1 ? 'USDC' : 'ETH',
-        mintPriceETH: (results[5] as bigint) ?? 0n,
-        mintPriceUSDC: (results[6] as bigint) ?? 0n,
-        antiBotMode: (results[7] as number) ?? 2,
-        walletMintLimit: (results[8] as bigint) ?? 10n,
-        mintCooldownBlocks: (results[9] as bigint) ?? 2n,
-        signatureRequired: (results[10] as boolean) ?? true,
-        claimMode: (results[11] as number) ?? 0,
-        bonusPoolETH: (results[12] as bigint) ?? 0n,
-        bonusPoolUSDC: (results[13] as bigint) ?? 0n,
+        mintPriceETH: mintPriceETH ?? 0n,
+        mintPriceUSDC: mintPriceUSDC ?? 0n,
+        antiBotMode: antiBotMode ?? 2,
+        walletMintLimit: walletMintLimit ?? 10n,
+        mintCooldownBlocks: mintCooldownBlocks ?? 2n,
+        signatureRequired: signatureRequired ?? true,
+        claimMode: claimMode ?? 0,
+        bonusPoolETH: bonusPoolETH ?? 0n,
+        bonusPoolUSDC: bonusPoolUSDC ?? 0n,
         lastFetched: now,
         isLoaded: true,
       };
@@ -319,86 +417,57 @@ export function useContractReads() {
     }
   }, []);
 
-  // ============ FETCH WALLET STATE (Batched) ============
+  // ============ FETCH WALLET STATE (SEQUENTIAL, TIME-BOUNDED) ============
   const fetchWalletState = useCallback(async (address: string, force = false): Promise<WalletState | null> => {
     if (!address) return null;
-    
+
     const now = Date.now();
     const cached = walletCache.get(address.toLowerCase());
-    
+
     if (!force && cached && now - cached.timestamp < BALANCE_CACHE_TTL) {
       setWalletState(cached.data);
       return cached.data;
     }
-    
+
     if (isFetchingWalletRef.current) return cached?.data ?? null;
     isFetchingWalletRef.current = true;
-    
+
     try {
-      // Batch contract reads
-      const contractResults = await batchReadContract([
-        { functionName: 'canMint', args: [address] },
-        { functionName: 'balanceOf', args: [address] },
-        { functionName: 'getNonce', args: [address] },
-        { functionName: 'allowlist', args: [address] },
-        { functionName: 'denylist', args: [address] },
-      ]);
-      
-      // Get ETH balance
-      const ethBalanceHex = await rpcCall('eth_getBalance', [address, 'latest']) as string;
+      // Wallet-driven reads should enforce connected network + preflight
+      await verifyContractExists(true);
+
+      const canMint = (await readNft('canMint', [address])) as boolean;
+      const nftBalance = (await readNft('balanceOf', [address])) as bigint;
+      const nonce = (await readNft('getNonce', [address])) as bigint;
+      const isOnAllowlist = (await readNft('allowlist', [address])) as boolean;
+      const isOnDenylist = (await readNft('denylist', [address])) as boolean;
+
+      const ethBalanceHex = (await withTimeout(
+        rpcCall('eth_getBalance', [address, 'latest'], 2800) as Promise<string>,
+        3000,
+        'eth_getBalance timed out'
+      )) as string;
       const ethBalance = BigInt(ethBalanceHex || '0');
-      
-      // Get USDC balance and allowance
-      const usdcCalls = await Promise.allSettled([
-        rpcCall('eth_call', [{
-          to: BASE_USDC_ADDRESS,
-          data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'balanceOf', args: [address as `0x${string}`] }),
-        }, 'latest']),
-        rpcCall('eth_call', [{
-          to: BASE_USDC_ADDRESS,
-          data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'allowance', args: [address as `0x${string}`, NFT_CONTRACT_ADDRESS] }),
-        }, 'latest']),
-      ]);
-      
-      let usdcBalance = 0n;
-      let usdcAllowance = 0n;
-      
-      if (usdcCalls[0].status === 'fulfilled' && usdcCalls[0].value) {
-        try {
-          usdcBalance = decodeFunctionResult({
-            abi: ERC20_ABI,
-            functionName: 'balanceOf',
-            data: usdcCalls[0].value as `0x${string}`,
-          }) as bigint;
-        } catch {}
-      }
-      
-      if (usdcCalls[1].status === 'fulfilled' && usdcCalls[1].value) {
-        try {
-          usdcAllowance = decodeFunctionResult({
-            abi: ERC20_ABI,
-            functionName: 'allowance',
-            data: usdcCalls[1].value as `0x${string}`,
-          }) as bigint;
-        } catch {}
-      }
-      
+
+      const usdcBalance = await readErc20('balanceOf', [address as `0x${string}`]);
+      const usdcAllowance = await readErc20('allowance', [address as `0x${string}`, NFT_CONTRACT_ADDRESS]);
+
       const state: WalletState = {
         address,
-        canMint: (contractResults[0] as boolean) ?? false,
-        nftBalance: (contractResults[1] as bigint) ?? 0n,
-        nonce: (contractResults[2] as bigint) ?? 0n,
-        isOnAllowlist: (contractResults[3] as boolean) ?? false,
-        isOnDenylist: (contractResults[4] as boolean) ?? false,
+        canMint: canMint ?? false,
+        nftBalance: nftBalance ?? 0n,
+        nonce: nonce ?? 0n,
+        isOnAllowlist: isOnAllowlist ?? false,
+        isOnDenylist: isOnDenylist ?? false,
         ethBalance,
         usdcBalance,
         usdcAllowance,
         lastFetched: now,
       };
-      
+
       walletCache.set(address.toLowerCase(), { data: state, timestamp: now });
       setWalletState(state);
-      
+
       return state;
     } catch (err) {
       console.error('[ContractReads] Wallet state fetch failed:', err);
@@ -408,23 +477,33 @@ export function useContractReads() {
     }
   }, []);
 
-  // ============ FETCH BONUS LEVELS ============
+  // ============ FETCH BONUS LEVELS (SEQUENTIAL, NO HANGS) ============
   const fetchBonusLevels = useCallback(async (walletAddress?: string): Promise<BonusLevelInfo[]> => {
     const levels: BonusLevelInfo[] = [];
     let hadFailures = false;
 
+    try {
+      await verifyContractExists(Boolean(walletAddress));
+    } catch (e) {
+      console.error('[ContractReads] Bonus levels preflight failed:', e);
+      setBonusLevels([]);
+      return [];
+    }
+
     // Fetch levels 1-10 (common range)
     for (let level = 1; level <= 10; level++) {
       try {
-        const results = await batchReadContract([
-          { functionName: 'bonusLevels', args: [BigInt(level)] },
-          ...(walletAddress ? [{ functionName: 'canClaim', args: [walletAddress, BigInt(level)] }] : []),
-        ]);
-
-        const levelData = results[0] as [bigint, bigint, boolean, bigint, bigint, boolean] | null;
+        const levelData = (await readNft('bonusLevels', [BigInt(level)])) as
+          | [bigint, bigint, boolean, bigint, bigint, boolean]
+          | null;
 
         if (levelData && levelData[2]) {
           // Only include active levels
+          let canClaim = false;
+          if (walletAddress) {
+            canClaim = ((await readNft('canClaim', [walletAddress, BigInt(level)])) as boolean) ?? false;
+          }
+
           levels.push({
             level,
             amountETH: levelData[0],
@@ -432,11 +511,12 @@ export function useContractReads() {
             active: levelData[2],
             claimsRemaining: levelData[3],
             requiresNFT: levelData[5],
-            canClaim: walletAddress ? (results[1] as boolean) ?? false : false,
+            canClaim,
           });
         }
       } catch (err) {
         hadFailures = true;
+        console.error('[ContractReads] Bonus level read failed:', { level, err });
         // Non-fatal: keep rendering partial UI.
       }
     }
