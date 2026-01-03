@@ -257,7 +257,35 @@ async function readNft(functionName: string, args: unknown[] = [], optional = fa
   }
 }
 
+// ============ SAFE OPTIONAL READ HELPERS (NEVER THROW) ============
+async function safeReadBoolean(fn: string, fallback: boolean): Promise<boolean> {
+  if (!abiHasFunction(fn)) return fallback;
+  try {
+    const res = await readNft(fn, [], true);
+    if (typeof res === 'boolean') return res;
+    console.warn(`[ContractReads] ${fn}() failed — defaulting`);
+    return fallback;
+  } catch {
+    console.warn(`[ContractReads] ${fn}() failed — defaulting`);
+    return fallback;
+  }
+}
+
+async function safeReadBigInt(fn: string, fallback: bigint): Promise<bigint> {
+  if (!abiHasFunction(fn)) return fallback;
+  try {
+    const res = await readNft(fn, [], true);
+    if (typeof res === 'bigint') return res;
+    console.warn(`[ContractReads] ${fn}() failed — defaulting`);
+    return fallback;
+  } catch {
+    console.warn(`[ContractReads] ${fn}() failed — defaulting`);
+    return fallback;
+  }
+}
+
 // ============ SINGLE ENTRYPOINT FOR ERC20 READS (USDC) ============
+
 async function readErc20(functionName: 'balanceOf' | 'allowance', args: unknown[]): Promise<bigint> {
   console.info(`[ContractReads] Reading USDC ${functionName}`);
 
@@ -319,14 +347,9 @@ export function useContractReads() {
     isFetchingConfigRef.current = true;
     setIsLoading(true);
 
-    const deadline = performance.now() + 4500;
     const chainId = await getConnectedChainId();
 
     const readStep = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
-      if (performance.now() > deadline) {
-        throw new Error(`Config read budget exceeded before ${label}`);
-      }
-
       try {
         return await fn();
       } catch (err) {
@@ -365,30 +388,16 @@ export function useContractReads() {
 
       const totalSupply = (await readStep('totalSupply()', async () => readNft('totalSupply'))) as bigint;
 
-      // OPTIONAL reads - these default to safe values if missing or empty
-      let paused = false;
-      try {
-        const pausedResult = await readNft('paused', [], true); // optional=true
-        paused = typeof pausedResult === 'boolean' ? pausedResult : false;
-      } catch {
-        console.warn('[ContractReads] paused() unavailable — defaulting to false');
-      }
+      // OPTIONAL reads - must NEVER block init or throw
+      const [pausedRes, throttleRes, nextTokenIdRes] = await Promise.allSettled([
+        safeReadBoolean('paused', false),
+        safeReadBoolean('throttleEnabled', false),
+        safeReadBigInt('nextTokenId', totalSupply + 1n),
+      ]);
 
-      let throttleEnabled = false;
-      try {
-        const throttleResult = await readNft('throttleEnabled', [], true); // optional=true
-        throttleEnabled = typeof throttleResult === 'boolean' ? throttleResult : false;
-      } catch {
-        console.warn('[ContractReads] throttleEnabled() unavailable — defaulting to false');
-      }
-
-      let nextTokenId = 1n;
-      try {
-        const nextTokenResult = await readNft('nextTokenId', [], true); // optional=true
-        nextTokenId = typeof nextTokenResult === 'bigint' ? nextTokenResult : 1n;
-      } catch {
-        console.warn('[ContractReads] nextTokenId() unavailable — defaulting to 1');
-      }
+      const paused = pausedRes.status === 'fulfilled' ? pausedRes.value : false;
+      const throttleEnabled = throttleRes.status === 'fulfilled' ? throttleRes.value : false;
+      const nextTokenId = nextTokenIdRes.status === 'fulfilled' ? nextTokenIdRes.value : totalSupply + 1n;
 
       // Build config with compatibility fields for UI
       const configData: ContractConfig = {
@@ -418,6 +427,8 @@ export function useContractReads() {
         lastFetched: now,
         isLoaded: true,
       };
+
+      console.info('[ContractReads] Config built');
 
       configCache.data = configData;
       configCache.timestamp = now;
