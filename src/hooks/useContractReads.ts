@@ -204,12 +204,20 @@ export function resetContractVerification(): void {
 }
 
 // ============ SINGLE ENTRYPOINT FOR NFT CONTRACT READS ============
-async function readNft(functionName: string, args: unknown[] = []): Promise<unknown> {
+// If optional=true, returns null on empty result instead of throwing
+async function readNft(functionName: string, args: unknown[] = [], optional = false): Promise<unknown> {
   if (!contractVerified) {
     throw new Error(`Contract preflight not verified; refusing to call ${functionName}`);
   }
 
-  assertAbiHasFunction(functionName);
+  // Check if function exists in ABI
+  if (!abiHasFunction(functionName)) {
+    if (optional) {
+      console.warn(`[ContractReads] ${functionName}() not in ABI — skipping (optional)`);
+      return null;
+    }
+    throw new Error(`ABI missing function "${functionName}". Re-export ABI from deployed build.`);
+  }
 
   console.info(`[AdminInit] Reading ${functionName}`);
 
@@ -225,7 +233,12 @@ async function readNft(functionName: string, args: unknown[] = []): Promise<unkn
     `${functionName} timed out`
   )) as string;
 
+  // Handle empty result
   if (!result || result === '0x' || result === '') {
+    if (optional) {
+      console.warn(`[ContractReads] ${functionName}() returned empty — defaulting to null (optional)`);
+      return null;
+    }
     throw new Error(`${functionName} returned empty result`);
   }
 
@@ -235,7 +248,11 @@ async function readNft(functionName: string, args: unknown[] = []): Promise<unkn
       functionName: functionName as any,
       data: result as `0x${string}`,
     });
-  } catch {
+  } catch (decodeErr) {
+    if (optional) {
+      console.warn(`[ContractReads] ${functionName}() decode failed — defaulting to null (optional)`);
+      return null;
+    }
     throw new Error(`${functionName} decode failed (ABI mismatch?)`);
   }
 }
@@ -332,24 +349,46 @@ export function useContractReads() {
         if (!contractVerified) throw new Error('contractVerified=false after preflight');
       });
 
-      // Verify required methods exist in ABI
-      const requiredMethods = ['owner', 'paused', 'throttleEnabled', 'totalSupply', 'nextTokenId'];
+      // Verify only REQUIRED methods exist in ABI (owner, totalSupply are required)
+      const requiredMethods = ['owner', 'totalSupply'];
       for (const fn of requiredMethods) {
         if (!abiHasFunction(fn)) {
-          throw new Error(`ABI missing function "${fn}"`);
+          throw new Error(`ABI missing required function "${fn}"`);
         }
       }
 
-      // Sequential reads - only functions that exist in MemoryMintUltra
+      // Sequential reads - owner and totalSupply are REQUIRED
       const owner = (await readStep('owner()', async () => readNft('owner'))) as string;
       if (!owner || typeof owner !== 'string' || !owner.startsWith('0x') || owner.length !== 42) {
         throw new Error(`invalid owner() result: ${String(owner)}`);
       }
 
-      const paused = (await readStep('paused()', async () => readNft('paused'))) as boolean;
-      const throttleEnabled = (await readStep('throttleEnabled()', async () => readNft('throttleEnabled'))) as boolean;
       const totalSupply = (await readStep('totalSupply()', async () => readNft('totalSupply'))) as bigint;
-      const nextTokenId = (await readStep('nextTokenId()', async () => readNft('nextTokenId'))) as bigint;
+
+      // OPTIONAL reads - these default to safe values if missing or empty
+      let paused = false;
+      try {
+        const pausedResult = await readNft('paused', [], true); // optional=true
+        paused = typeof pausedResult === 'boolean' ? pausedResult : false;
+      } catch {
+        console.warn('[ContractReads] paused() unavailable — defaulting to false');
+      }
+
+      let throttleEnabled = false;
+      try {
+        const throttleResult = await readNft('throttleEnabled', [], true); // optional=true
+        throttleEnabled = typeof throttleResult === 'boolean' ? throttleResult : false;
+      } catch {
+        console.warn('[ContractReads] throttleEnabled() unavailable — defaulting to false');
+      }
+
+      let nextTokenId = 1n;
+      try {
+        const nextTokenResult = await readNft('nextTokenId', [], true); // optional=true
+        nextTokenId = typeof nextTokenResult === 'bigint' ? nextTokenResult : 1n;
+      } catch {
+        console.warn('[ContractReads] nextTokenId() unavailable — defaulting to 1');
+      }
 
       // Build config with compatibility fields for UI
       const configData: ContractConfig = {
