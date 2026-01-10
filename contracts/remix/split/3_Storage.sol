@@ -97,4 +97,8 @@ abstract contract MemoryMintUltraSafe_Storage {
     // ============ REENTRANCY GUARD ============
     
     uint256 internal _reentrancyStatus;
+    
+    // ============ KILL SWITCH (EMERGENCY STOP) ============
+    
+    bool public killSwitch;  // When true, ALL minting and claiming is disabled
 }

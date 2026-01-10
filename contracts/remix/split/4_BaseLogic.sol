@@ -58,6 +58,9 @@ abstract contract MemoryMintUltraSafe_Base is MemoryMintUltraSafe_Storage {
     event NonceIncremented(address indexed wallet, uint256 newNonce);
     event UnexpectedETHDeposit(address indexed sender, uint256 amount);
     
+    // v5: Kill Switch Event
+    event KillSwitchUpdated(bool enabled);
+    
     // ============ MODIFIERS ============
     
     modifier onlyOwner() {
@@ -75,6 +78,11 @@ abstract contract MemoryMintUltraSafe_Base is MemoryMintUltraSafe_Storage {
     modifier whenNotPaused() {
         if (mintingPaused) revert MintingPaused();
         if (emergencyMintDisabled) revert EmergencyMintDisabled();
+        _;
+    }
+    
+    modifier whenNotKilled() {
+        if (killSwitch) revert KillSwitchActive();
         _;
     }
     

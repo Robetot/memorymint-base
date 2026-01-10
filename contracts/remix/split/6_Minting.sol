@@ -12,7 +12,7 @@ abstract contract MemoryMintUltraSafe_Minting is MemoryMintUltraSafe_FeatureCore
     // ============ MINTING - ETH ============
     
     function mintNFT(string calldata metadataURI) 
-        external payable nonReentrant whenNotPaused onlyBaseMainnet returns (uint256) 
+        external payable nonReentrant whenNotKilled whenNotPaused onlyBaseMainnet returns (uint256) 
     {
         if (signatureRequired) revert InvalidSignature();
         if (currencyConfig.activeMintCurrency != PaymentCurrency.ETH) revert CurrencyNotEnabled();
@@ -37,7 +37,7 @@ abstract contract MemoryMintUltraSafe_Minting is MemoryMintUltraSafe_FeatureCore
         uint256 nonce,
         uint256 expiration,
         bytes calldata signature
-    ) external payable nonReentrant whenNotPaused onlyBaseMainnet returns (uint256) {
+    ) external payable nonReentrant whenNotKilled whenNotPaused onlyBaseMainnet returns (uint256) {
         if (currencyConfig.activeMintCurrency != PaymentCurrency.ETH) revert CurrencyNotEnabled();
         if (!currencyConfig.ethEnabled) revert CurrencyNotEnabled();
         
@@ -54,7 +54,7 @@ abstract contract MemoryMintUltraSafe_Minting is MemoryMintUltraSafe_FeatureCore
     // ============ MINTING - USDC ============
     
     function mintWithUSDC(string calldata metadataURI) 
-        external nonReentrant whenNotPaused onlyBaseMainnet returns (uint256) 
+        external nonReentrant whenNotKilled whenNotPaused onlyBaseMainnet returns (uint256) 
     {
         if (signatureRequired) revert InvalidSignature();
         if (currencyConfig.activeMintCurrency != PaymentCurrency.USDC) revert CurrencyNotEnabled();
@@ -75,7 +75,7 @@ abstract contract MemoryMintUltraSafe_Minting is MemoryMintUltraSafe_FeatureCore
         uint256 nonce,
         uint256 expiration,
         bytes calldata signature
-    ) external nonReentrant whenNotPaused onlyBaseMainnet returns (uint256) {
+    ) external nonReentrant whenNotKilled whenNotPaused onlyBaseMainnet returns (uint256) {
         if (currencyConfig.activeMintCurrency != PaymentCurrency.USDC) revert CurrencyNotEnabled();
         if (!currencyConfig.usdcEnabled) revert CurrencyNotEnabled();
         
