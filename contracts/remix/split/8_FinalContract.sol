@@ -188,6 +188,17 @@ contract MemoryMintUltraSafe is MemoryMintUltraSafe_Claim {
         emit SignatureExpirationUpdated(seconds_);
     }
     
+    // ============ ADMIN: KILL SWITCH ============
+    
+    /**
+     * @notice Enable/disable kill switch - completely stops all minting and claiming
+     * @dev v5: Added kill switch for emergency situations
+     */
+    function setKillSwitch(bool enabled) external onlyOwner {
+        killSwitch = enabled;
+        emit KillSwitchUpdated(enabled);
+    }
+    
     // ============ ADMIN: CLAIM BONUS ============
     
     function setClaimMode(ClaimMode mode) external onlyOwner {
@@ -380,6 +391,7 @@ contract MemoryMintUltraSafe is MemoryMintUltraSafe_Claim {
     
     function canMint(address wallet) external view returns (bool canMintResult, string memory reason) {
         if (block.chainid != BASE_MAINNET_CHAIN_ID) return (false, "Wrong chain");
+        if (killSwitch) return (false, "Kill switch active");
         if (mintingPaused) return (false, "Paused");
         if (emergencyMintDisabled) return (false, "Emergency disabled");
         if (denylistEnabled && denylist[wallet]) return (false, "Denylisted");
@@ -411,6 +423,7 @@ contract MemoryMintUltraSafe is MemoryMintUltraSafe_Claim {
         external view returns (bool canClaimResult, string memory reason) 
     {
         if (block.chainid != BASE_MAINNET_CHAIN_ID) return (false, "Wrong chain");
+        if (killSwitch) return (false, "Kill switch active");
         if (claimMode == ClaimMode.DISABLED) return (false, "Claims disabled");
         
         PaymentCurrency payoutCurrency = currencyConfig.activeBonusCurrency;

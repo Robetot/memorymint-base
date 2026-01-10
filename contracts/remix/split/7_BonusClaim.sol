@@ -20,7 +20,7 @@ abstract contract MemoryMintUltraSafe_Claim is MemoryMintUltraSafe_Minting {
      * @param levelProof Signed proof of level completion
      */
     function claimBonus(uint256 level, uint256 gameLevel, bytes calldata levelProof) 
-        external nonReentrant onlyBaseMainnet returns (uint256) 
+        external nonReentrant whenNotKilled onlyBaseMainnet returns (uint256) 
     {
         ClaimMode currentMode = claimMode;
         if (currentMode == ClaimMode.DISABLED) revert ClaimNotActive();

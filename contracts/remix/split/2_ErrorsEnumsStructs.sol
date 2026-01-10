@@ -98,3 +98,4 @@ error InvalidCurrencySelection();
 error ZeroAmount();                          // v4: Zero amount validation
 error InvalidNonce(uint256 expected, uint256 provided);  // v4: Nonce mismatch
 error SignatureExpirationTooFar();           // v4: Expiration too far in future
+error KillSwitchActive();                    // v5: Kill switch is enabled
