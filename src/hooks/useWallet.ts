@@ -1,7 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import EthereumProvider from '@walletconnect/ethereum-provider';
 
 // Base Mainnet chain configuration
 const BASE_CHAIN_ID = '0x2105'; // 8453 in hex
+const BASE_CHAIN_ID_NUMERIC = 8453;
 const BASE_CHAIN_CONFIG = {
   chainId: BASE_CHAIN_ID,
   chainName: 'Base',
@@ -14,7 +16,10 @@ const BASE_CHAIN_CONFIG = {
   blockExplorerUrls: ['https://basescan.org'],
 };
 
-export type WalletType = 'metamask' | 'coinbase' | 'baseapp';
+// WalletConnect Project ID - you can get one at https://cloud.walletconnect.com
+const WALLETCONNECT_PROJECT_ID = '0a1f57c6ab5b07dc8c5bf79e1ee4a8b1';
+
+export type WalletType = 'metamask' | 'coinbase' | 'baseapp' | 'walletconnect';
 
 export interface WalletState {
   isConnected: boolean;
@@ -104,6 +109,9 @@ export function useWallet() {
     isSmartWallet: false,
     isBaseApp: false,
   });
+  
+  // WalletConnect provider instance
+  const wcProviderRef = useRef<EthereumProvider | null>(null);
 
   // Detect Base App and restore connection on mount
   useEffect(() => {
@@ -185,6 +193,11 @@ export function useWallet() {
     setWalletState(prev => ({ ...prev, isConnecting: true, error: null }));
 
     try {
+      // Handle WalletConnect separately
+      if (walletType === 'walletconnect') {
+        return await connectWalletConnect();
+      }
+
       if (!window.ethereum) {
         // Redirect based on wallet type
         let walletUrl: string;
@@ -258,7 +271,114 @@ export function useWallet() {
     }
   }, [checkChain, switchToBase]);
 
-  const disconnectWallet = useCallback(() => {
+  // WalletConnect connection handler
+  const connectWalletConnect = useCallback(async () => {
+    try {
+      // Initialize WalletConnect provider
+      const provider = await EthereumProvider.init({
+        projectId: WALLETCONNECT_PROJECT_ID,
+        chains: [BASE_CHAIN_ID_NUMERIC],
+        showQrModal: true,
+        optionalChains: [1, 8453], // Ethereum mainnet and Base
+        metadata: {
+          name: 'MemoryMint',
+          description: 'Play memory games and mint NFTs on Base',
+          url: window.location.origin,
+          icons: [`${window.location.origin}/favicon.ico`],
+        },
+        qrModalOptions: {
+          themeMode: 'dark' as const,
+        },
+      });
+
+      wcProviderRef.current = provider;
+
+      // Set up event listeners
+      provider.on('display_uri', (uri: string) => {
+        console.log('WalletConnect URI:', uri);
+      });
+
+      provider.on('session_delete', () => {
+        disconnectWallet();
+      });
+
+      provider.on('accountsChanged', (accounts: string[]) => {
+        if (accounts.length === 0) {
+          disconnectWallet();
+        } else {
+          setWalletState(prev => ({ ...prev, address: accounts[0] }));
+        }
+      });
+
+      provider.on('chainChanged', (chainIdRaw: string | number) => {
+        const chainIdNum = typeof chainIdRaw === 'string' ? parseInt(chainIdRaw, 16) : chainIdRaw;
+        const chainIdHex = `0x${chainIdNum.toString(16)}`;
+        const isCorrect = chainIdHex.toLowerCase() === BASE_CHAIN_ID.toLowerCase();
+        setWalletState(prev => ({ ...prev, chainId: chainIdHex, isCorrectChain: isCorrect }));
+      });
+
+      // Connect and get accounts
+      const accounts = await provider.enable();
+
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No accounts found');
+      }
+
+      const address = accounts[0];
+      const chainId = provider.chainId;
+      const chainIdHex = `0x${chainId.toString(16)}`;
+      const isCorrectChain = chainId === BASE_CHAIN_ID_NUMERIC;
+
+      // If not on Base, try to switch
+      if (!isCorrectChain) {
+        try {
+          await provider.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: BASE_CHAIN_ID }],
+          });
+        } catch (switchError) {
+          console.log('Could not auto-switch to Base via WalletConnect');
+        }
+      }
+
+      const finalState: WalletState = {
+        isConnected: true,
+        isConnecting: false,
+        address,
+        walletType: 'walletconnect',
+        chainId: chainIdHex,
+        isCorrectChain,
+        error: null,
+        isSmartWallet: false,
+        isBaseApp: false,
+      };
+
+      setWalletState(finalState);
+      saveWalletState('walletconnect', address);
+
+      return true;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to connect via WalletConnect';
+      setWalletState(prev => ({
+        ...prev,
+        isConnecting: false,
+        error: errorMessage,
+      }));
+      return false;
+    }
+  }, []);
+
+  const disconnectWallet = useCallback(async () => {
+    // Disconnect WalletConnect if active
+    if (wcProviderRef.current) {
+      try {
+        await wcProviderRef.current.disconnect();
+      } catch (err) {
+        console.log('WalletConnect disconnect error:', err);
+      }
+      wcProviderRef.current = null;
+    }
+    
     setWalletState({
       isConnected: false,
       isConnecting: false,
