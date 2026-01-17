@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { encodeFunctionData } from 'viem';
+import { encodeFunctionData, parseEther, parseUnits } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -23,6 +23,8 @@ import {
   AdminFooter,
   AdminHealthCheck,
   AdminLoadingState,
+  AdminPricingSection,
+  AdminTreasurySection,
   logAdminAction,
   detectContractCapabilities,
   ContractCapabilities,
@@ -170,7 +172,9 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     }
   }, [walletAddress, isPreviewMode, refreshConfig]);
 
-  // Handler functions for AVAILABLE contract functions only
+  // ============ V3 HANDLER FUNCTIONS ============
+
+  // Pause/Unpause (legacy)
   const handlePause = async () => {
     return sendAdminTx('pause', [], undefined, 'Pause Contract');
   };
@@ -179,8 +183,63 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     return sendAdminTx('unpause', [], undefined, 'Unpause Contract');
   };
 
+  // V3: setMintPaused(bool)
+  const handleSetMintPaused = async (paused: boolean) => {
+    return sendAdminTx('setMintPaused', [paused], undefined, paused ? 'Pause Minting' : 'Resume Minting');
+  };
+
+  // V3: activateKillSwitch() / deactivateKillSwitch()
+  const handleActivateKillSwitch = async () => {
+    return sendAdminTx('activateKillSwitch', [], undefined, 'Activate Kill Switch');
+  };
+
+  const handleDeactivateKillSwitch = async () => {
+    return sendAdminTx('deactivateKillSwitch', [], undefined, 'Deactivate Kill Switch');
+  };
+
+  // V3: setAntiBotMode(uint8)
+  const handleSetAntiBotMode = async (mode: number) => {
+    return sendAdminTx('setAntiBotMode', [mode], undefined, `Set Anti-Bot Mode: ${mode}`);
+  };
+
+  // V3: setWalletMintLimit(uint256)
+  const handleSetWalletMintLimit = async (limit: bigint) => {
+    return sendAdminTx('setWalletMintLimit', [limit], undefined, `Set Wallet Limit: ${limit}`);
+  };
+
+  // V3: setMintPrice(uint256 priceETH, uint256 priceUSDC) - COMBINED SETTER
+  const handleSetMintPrice = async (priceETH: bigint, priceUSDC: bigint) => {
+    return sendAdminTx('setMintPrice', [priceETH, priceUSDC], undefined, 
+      `Set Prices: ${Number(priceETH) / 1e18} ETH, ${Number(priceUSDC) / 1e6} USDC`);
+  };
+
+  // V3: setClaimMode(uint8)
+  const handleSetClaimMode = async (mode: number) => {
+    return sendAdminTx('setClaimMode', [mode], undefined, `Set Claim Mode: ${mode}`);
+  };
+
+  // Legacy: setThrottle (not in V3, but keep for compatibility)
   const handleSetThrottle = async (enabled: boolean) => {
-    return sendAdminTx('setThrottle', [enabled], undefined, enabled ? 'Enable Throttle' : 'Disable Throttle');
+    // V3 doesn't have setThrottle, use setAntiBotMode instead
+    const mode = enabled ? 1 : 0; // 1 = Signature mode, 0 = Disabled
+    return handleSetAntiBotMode(mode);
+  };
+
+  // V3: Treasury functions
+  const handleDepositETH = async (amount: bigint) => {
+    return sendAdminTx('depositBonusPoolETH', [], amount, `Deposit ${Number(amount) / 1e18} ETH`);
+  };
+
+  const handleDepositUSDC = async (amount: bigint) => {
+    return sendAdminTx('depositBonusPoolUSDC', [amount], undefined, `Deposit ${Number(amount) / 1e6} USDC`);
+  };
+
+  const handleWithdrawFees = async () => {
+    return sendAdminTx('withdrawFees', [], undefined, 'Withdraw ETH Fees');
+  };
+
+  const handleWithdrawFeesUSDC = async () => {
+    return sendAdminTx('withdrawFeesUSDC', [], undefined, 'Withdraw USDC Fees');
   };
 
   const handleApplyChanges = async () => {
@@ -256,7 +315,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
             <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-amber-400 via-yellow-500 to-orange-500 bg-clip-text text-transparent">
               Admin Panel
             </h1>
-            <p className="text-xs md:text-sm text-muted-foreground">MemoryMintUltra (Base Mainnet)</p>
+            <p className="text-xs md:text-sm text-muted-foreground">MemoryMintUltraV3 (Base Mainnet)</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -371,34 +430,64 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 2: Emergency Controls */}
+        {/* SECTION 2: Pricing & Limits (NEW) */}
+        <AdminPricingSection
+          config={config}
+          capabilities={caps}
+          isPreviewMode={isPreviewMode}
+          onSetMintPrice={handleSetMintPrice}
+          onSetWalletMintLimit={handleSetWalletMintLimit}
+          isPending={isSubmitting}
+        />
+
+        <Separator className="my-6" />
+
+        {/* SECTION 3: Treasury Management */}
+        <AdminTreasurySection
+          config={config}
+          capabilities={caps}
+          isPreviewMode={isPreviewMode}
+          onDepositETH={handleDepositETH}
+          onDepositUSDC={handleDepositUSDC}
+          onWithdrawFees={handleWithdrawFees}
+          onWithdrawFeesUSDC={handleWithdrawFeesUSDC}
+          onRefresh={refreshConfig}
+          isPending={isSubmitting}
+        />
+
+        <Separator className="my-6" />
+
+        {/* SECTION 4: Emergency Controls */}
         <AdminEmergencySection
           config={config}
           capabilities={caps}
           isPreviewMode={isPreviewMode}
           onPause={handlePause}
+          onKillSwitch={handleActivateKillSwitch}
           isPending={isSubmitting}
         />
 
         <Separator className="my-6" />
 
-        {/* SECTION 3: Anti-Bot Protection */}
+        {/* SECTION 5: Anti-Bot Protection */}
         <AdminAntiBotSection
           config={config}
           capabilities={caps}
           isPreviewMode={isPreviewMode}
           onSetThrottle={handleSetThrottle}
+          onSetAntiBotMode={handleSetAntiBotMode}
+          onSetWalletLimit={async (limit) => handleSetWalletMintLimit(BigInt(limit))}
           isPending={isSubmitting}
         />
 
         <Separator className="my-6" />
 
-        {/* SECTION 4: Unsupported Features Notice */}
+        {/* SECTION 6: Unsupported Features Notice */}
         <AdminUnsupportedFeatures capabilities={caps} />
 
         <Separator className="my-6" />
 
-        {/* SECTION 5: Action Preview */}
+        {/* SECTION 7: Action Preview */}
         <AdminActionPreview
           config={config}
           capabilities={caps}
@@ -409,12 +498,12 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 6: Preview Mode Toggle */}
+        {/* SECTION 8: Preview Mode Toggle */}
         <AdminPreviewMode isEnabled={isPreviewMode} onToggle={setIsPreviewMode} />
 
         <Separator className="my-6" />
 
-        {/* SECTION 7: Audit Log */}
+        {/* SECTION 9: Audit Log */}
         <AdminAuditLog walletAddress={walletAddress} />
 
         <Separator className="my-6" />

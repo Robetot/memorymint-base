@@ -17,6 +17,8 @@ export { AdminAntiBotSection } from './AdminAntiBotSection';
 export { AdminUnsupportedFeatures } from './AdminUnsupportedFeatures';
 export { AdminAuditLog, logAdminAction } from './AdminAuditLog';
 export { AdminActionPreview } from './AdminActionPreview';
+export { AdminPricingSection } from './AdminPricingSection';
+export { AdminTreasurySection } from './AdminTreasurySection';
 
 // Types and utilities
 export * from './types';
