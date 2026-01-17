@@ -89,6 +89,11 @@ export interface ContractCapabilities {
   hasSetBonusLevel: boolean;
   hasGlobalKillSwitch: boolean;
   hasEmergencyWithdraw: boolean;
+  
+  // V3 specific - read-only pricing (dynamic, not settable)
+  hasDynamicPricing: boolean;
+  hasMintPriceETH: boolean;
+  hasMintPriceUSDC: boolean;
 }
 
 // ============ ABI CAPABILITY DETECTION ============
@@ -102,10 +107,12 @@ function abiHasFunction(functionName: string): boolean {
 export function detectContractCapabilities(): ContractCapabilities {
   return {
     hasOwner: abiHasFunction('owner'),
-    hasTotalSupply: abiHasFunction('totalSupply'),
+    // V3 uses totalMinted instead of totalSupply
+    hasTotalSupply: abiHasFunction('totalSupply') || abiHasFunction('totalMinted'),
     hasPause: abiHasFunction('pause'),
     hasUnpause: abiHasFunction('unpause'),
     hasSetThrottle: abiHasFunction('setThrottle'),
+    // V3 doesn't have setter functions - pricing is dynamic/read-only
     hasSetWalletMintLimit: abiHasFunction('setWalletMintLimit'),
     hasSetMintPriceETH: abiHasFunction('setMintPriceETH'),
     hasSetMintPriceUSDC: abiHasFunction('setMintPriceUSDC'),
@@ -117,6 +124,10 @@ export function detectContractCapabilities(): ContractCapabilities {
     hasSetBonusLevel: abiHasFunction('setBonusLevel') || abiHasFunction('configureBonusLevel'),
     hasGlobalKillSwitch: abiHasFunction('emergencyStop') || abiHasFunction('killSwitch'),
     hasEmergencyWithdraw: abiHasFunction('emergencyWithdraw'),
+    // V3 read-only dynamic pricing
+    hasDynamicPricing: abiHasFunction('currentSupplyTier') || abiHasFunction('getSupplyTier'),
+    hasMintPriceETH: abiHasFunction('mintPriceETH') || abiHasFunction('getMintPriceETH'),
+    hasMintPriceUSDC: abiHasFunction('mintPriceUSDC') || abiHasFunction('getMintPriceUSDC'),
   };
 }
 
@@ -130,18 +141,20 @@ export interface UnsupportedFeature {
 export function getUnsupportedFeatures(caps: ContractCapabilities): UnsupportedFeature[] {
   const features: UnsupportedFeature[] = [];
   
+  // For V3 contracts with dynamic pricing, setWalletMintLimit is optional
   if (!caps.hasSetWalletMintLimit) {
     features.push({
       name: 'Wallet Mint Limits',
       missingFunctions: ['setWalletMintLimit'],
-      reason: 'Contract does not support per-wallet mint limits',
+      reason: 'Contract uses dynamic pricing without settable wallet limits',
     });
   }
   
-  if (!caps.hasSetMintPriceETH && !caps.hasSetMintPriceUSDC) {
+  // V3 uses read-only dynamic pricing, so setMintPrice functions are not needed
+  if (!caps.hasSetMintPriceETH && !caps.hasSetMintPriceUSDC && !caps.hasDynamicPricing && !caps.hasMintPriceETH) {
     features.push({
       name: 'Paid Minting',
-      missingFunctions: ['setMintPriceETH', 'setMintPriceUSDC'],
+      missingFunctions: ['setMintPriceETH', 'setMintPriceUSDC', 'mintPriceETH', 'mintPriceUSDC'],
       reason: 'Contract is free-mint only, no pricing support',
     });
   }

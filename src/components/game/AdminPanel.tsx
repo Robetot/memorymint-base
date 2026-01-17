@@ -210,7 +210,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   };
 
   // Use safe defaults for capabilities if not loaded
-  const caps = capabilities ?? {
+  const caps: ContractCapabilities = capabilities ?? {
     hasOwner: true,
     hasTotalSupply: true,
     hasPause: true,
@@ -227,6 +227,10 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     hasSetBonusLevel: false,
     hasGlobalKillSwitch: false,
     hasEmergencyWithdraw: false,
+    // V3 specific capabilities
+    hasDynamicPricing: true,
+    hasMintPriceETH: true,
+    hasMintPriceUSDC: true,
   };
 
   return (

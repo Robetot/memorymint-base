@@ -359,9 +359,34 @@ export function useContractReads() {
       }
 
       // Sequential reads - owner and totalMinted are REQUIRED
-      const owner = (await readStep('owner()', async () => readNft('owner'))) as string;
-      if (!owner || typeof owner !== 'string' || !owner.startsWith('0x') || owner.length !== 42) {
-        throw new Error(`invalid owner() result: ${String(owner)}`);
+      // Retry owner() read up to 3 times with different endpoints
+      let owner: string | null = null;
+      let ownerAttempts = 0;
+      const maxOwnerAttempts = 3;
+      
+      while (!owner && ownerAttempts < maxOwnerAttempts) {
+        ownerAttempts++;
+        try {
+          const ownerResult = await readNft('owner', [], false);
+          if (ownerResult && typeof ownerResult === 'string' && ownerResult.startsWith('0x') && ownerResult.length === 42) {
+            owner = ownerResult;
+          } else {
+            console.warn(`[ContractReads] owner() attempt ${ownerAttempts} returned invalid:`, ownerResult);
+            // Short delay before retry
+            if (ownerAttempts < maxOwnerAttempts) {
+              await new Promise(r => setTimeout(r, 1000 * ownerAttempts));
+            }
+          }
+        } catch (e) {
+          console.warn(`[ContractReads] owner() attempt ${ownerAttempts} failed:`, e);
+          if (ownerAttempts < maxOwnerAttempts) {
+            await new Promise(r => setTimeout(r, 1000 * ownerAttempts));
+          }
+        }
+      }
+      
+      if (!owner) {
+        throw new Error(`owner() returned empty after ${maxOwnerAttempts} attempts`);
       }
 
       const totalSupply = (await readStep('totalMinted()', async () => readNft('totalMinted'))) as bigint;
