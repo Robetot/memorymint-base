@@ -11,6 +11,8 @@ import {
   Loader2,
   Timer,
   Users,
+  Lock,
+  FileSignature,
 } from 'lucide-react';
 import { ContractConfig } from '@/hooks/useContractReads';
 import { 
@@ -27,6 +29,7 @@ interface AdminAntiBotSectionProps {
   capabilities: ContractCapabilities;
   isPreviewMode: boolean;
   onSetThrottle: (enabled: boolean) => Promise<boolean>;
+  onSetAntiBotMode?: (mode: number) => Promise<boolean>;
   onSetWalletLimit?: (limit: number) => Promise<boolean>;
   isPending: boolean;
 }
@@ -41,22 +44,33 @@ function EnforcementBadge({ type }: { type: EnforcementType }) {
   );
 }
 
+const MODE_ICONS: Record<AntiBotModeType, React.ReactNode> = {
+  disabled: <Timer className="h-4 w-4 text-muted-foreground" />,
+  signature: <FileSignature className="h-4 w-4 text-amber-500" />,
+  allowlist: <Users className="h-4 w-4 text-blue-500" />,
+  hybrid: <Lock className="h-4 w-4 text-destructive" />,
+};
+
 export function AdminAntiBotSection({ 
   config, 
   capabilities,
   isPreviewMode,
   onSetThrottle,
+  onSetAntiBotMode,
   onSetWalletLimit,
   isPending,
 }: AdminAntiBotSectionProps) {
   const [antiBotEnabled, setAntiBotEnabled] = useState<boolean>(SAFE_DEFAULTS.antiBotEnabled);
-  const [mode, setMode] = useState<AntiBotModeType>('soft');
+  const [mode, setMode] = useState<AntiBotModeType>('disabled');
   const [walletLimit, setWalletLimit] = useState('');
 
   useEffect(() => {
     if (config) {
-      setAntiBotEnabled(config.throttleEnabled || config.antiBotMode > 0);
-      setMode(config.antiBotMode >= 2 ? 'hard' : 'soft');
+      const antiBotModeValue = config.antiBotMode || 0;
+      setAntiBotEnabled(config.throttleEnabled || antiBotModeValue > 0);
+      // Map contract value to mode type
+      const modeMap: AntiBotModeType[] = ['disabled', 'signature', 'allowlist', 'hybrid'];
+      setMode(modeMap[antiBotModeValue] || 'disabled');
       if (config.walletMintLimit > 0n) {
         setWalletLimit(config.walletMintLimit.toString());
       }
@@ -64,6 +78,7 @@ export function AdminAntiBotSection({
   }, [config]);
 
   const canControlThrottle = capabilities.hasSetThrottle;
+  const canControlAntiBotMode = capabilities.hasSetAntiBotMode;
   const canControlWalletLimit = capabilities.hasSetWalletMintLimit;
 
   const handleToggleAntiBot = async (enabled: boolean) => {
@@ -72,6 +87,16 @@ export function AdminAntiBotSection({
       if (success) setAntiBotEnabled(enabled);
     } else {
       setAntiBotEnabled(enabled);
+    }
+  };
+
+  const handleModeChange = async (newMode: AntiBotModeType) => {
+    if (canControlAntiBotMode && onSetAntiBotMode) {
+      const modeValue = ANTI_BOT_MODES[newMode].value;
+      const success = await onSetAntiBotMode(modeValue);
+      if (success) setMode(newMode);
+    } else {
+      setMode(newMode);
     }
   };
 
@@ -116,16 +141,16 @@ export function AdminAntiBotSection({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <EnforcementBadge type={canControlThrottle ? 'onchain' : 'admin'} />
+              <EnforcementBadge type={canControlAntiBotMode ? 'onchain' : 'admin'} />
               <Switch
                 checked={antiBotEnabled}
                 onCheckedChange={handleToggleAntiBot}
-                disabled={isPreviewMode || isPending || !canControlThrottle}
+                disabled={isPreviewMode || isPending}
               />
             </div>
           </div>
 
-          {/* Mode Selector */}
+          {/* Mode Selector - V3 supports 4 modes */}
           {antiBotEnabled && (
             <div className="space-y-3">
               <Label className="text-sm font-medium">Protection Mode</Label>
@@ -133,20 +158,16 @@ export function AdminAntiBotSection({
                 {(Object.keys(ANTI_BOT_MODES) as AntiBotModeType[]).map((modeKey) => (
                   <button
                     key={modeKey}
-                    onClick={() => setMode(modeKey)}
-                    disabled={modeKey === 'hard' && !canControlWalletLimit}
+                    onClick={() => handleModeChange(modeKey)}
+                    disabled={!canControlAntiBotMode && modeKey !== mode}
                     className={`p-3 rounded-lg border text-left transition-all ${
                       mode === modeKey
                         ? 'border-primary bg-primary/10'
                         : 'border-border/50 bg-muted/30 hover:bg-muted/50'
-                    } ${modeKey === 'hard' && !canControlWalletLimit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    } ${!canControlAntiBotMode && modeKey !== mode ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      {modeKey === 'soft' ? (
-                        <Timer className="h-4 w-4 text-amber-500" />
-                      ) : (
-                        <Users className="h-4 w-4 text-destructive" />
-                      )}
+                      {MODE_ICONS[modeKey]}
                       <span className="font-medium">{ANTI_BOT_MODES[modeKey].label}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -158,8 +179,8 @@ export function AdminAntiBotSection({
             </div>
           )}
 
-          {/* Wallet Limit (Hard Mode) */}
-          {antiBotEnabled && mode === 'hard' && canControlWalletLimit && (
+          {/* Wallet Limit */}
+          {antiBotEnabled && canControlWalletLimit && (
             <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
               <Label className="text-sm font-medium flex items-center gap-2">
                 <Users className="h-4 w-4" />
@@ -194,21 +215,13 @@ export function AdminAntiBotSection({
             </div>
           )}
 
-          {/* Throttle Status */}
-          {canControlThrottle && (
-            <div className="flex items-center justify-between text-sm p-2 bg-muted/30 rounded">
-              <span className="text-muted-foreground">Cooldown Active</span>
-              <Badge variant={config?.throttleEnabled ? 'default' : 'secondary'}>
-                {config?.throttleEnabled ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-          )}
-
-          {!canControlThrottle && !canControlWalletLimit && (
-            <div className="text-center py-4 text-sm text-muted-foreground">
-              Limited anti-bot controls available for this contract
-            </div>
-          )}
+          {/* Current Config Status */}
+          <div className="flex items-center justify-between text-sm p-2 bg-muted/30 rounded">
+            <span className="text-muted-foreground">Current Mode</span>
+            <Badge variant={mode !== 'disabled' ? 'default' : 'secondary'}>
+              {ANTI_BOT_MODES[mode].label}
+            </Badge>
+          </div>
         </CardContent>
       </Card>
     </div>

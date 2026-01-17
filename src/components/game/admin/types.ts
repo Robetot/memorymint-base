@@ -1,6 +1,7 @@
 // ============================================================
 // Admin Panel Types & Constants
 // Production-grade types for Base Mainnet NFT game admin
+// Full V3 Contract Support
 // ============================================================
 
 import { CONTRACT_ABI } from '@/contracts/MemoryMintContract';
@@ -17,9 +18,9 @@ export const ENFORCEMENT_LABELS: Record<EnforcementType, { icon: string; label: 
 // ============ SAFE DEFAULTS (ABSOLUTE) ============
 export const SAFE_DEFAULTS = {
   mintEnabled: true,
-  freeMint: true,
+  freeMint: false, // V3 supports paid minting
   paused: false,
-  bonusesEnabled: false,
+  bonusesEnabled: true,
   antiBotEnabled: true,
   throttleEnabled: true,
 } as const;
@@ -37,11 +38,14 @@ export interface BonusLevelConfig {
 }
 
 // ============ ANTI-BOT MODES ============
-export type AntiBotModeType = 'soft' | 'hard';
+// Maps to contract: 0 = Disabled, 1 = Signature, 2 = Allowlist, 3 = Hybrid
+export type AntiBotModeType = 'disabled' | 'signature' | 'allowlist' | 'hybrid';
 
-export const ANTI_BOT_MODES: Record<AntiBotModeType, { label: string; description: string }> = {
-  soft: { label: 'Soft', description: 'Cooldown / throttle between mints' },
-  hard: { label: 'Hard', description: 'Wallet mint limits enforced' },
+export const ANTI_BOT_MODES: Record<AntiBotModeType, { value: number; label: string; description: string }> = {
+  disabled: { value: 0, label: 'Disabled', description: 'No anti-bot protection' },
+  signature: { value: 1, label: 'Signature', description: 'Requires valid signature from backend' },
+  allowlist: { value: 2, label: 'Allowlist', description: 'Only allowlisted addresses can mint' },
+  hybrid: { value: 3, label: 'Hybrid', description: 'Signature + Allowlist combined' },
 };
 
 // ============ POOL STATUS ============
@@ -73,27 +77,49 @@ export interface ContractCapabilities {
   // Pause controls
   hasPause: boolean;
   hasUnpause: boolean;
+  hasMintPaused: boolean; // V3: setMintPaused(bool)
   
-  // Throttle
+  // Throttle (legacy)
   hasSetThrottle: boolean;
   
-  // Advanced (may not exist in simple contracts)
+  // Wallet Mint Limits (V3 SUPPORTED)
+  hasWalletMintLimit: boolean;
   hasSetWalletMintLimit: boolean;
-  hasSetMintPriceETH: boolean;
+  
+  // Pricing (V3 SUPPORTED - combined setter)
+  hasSetMintPrice: boolean; // Combined ETH/USDC setter
+  hasSetMintPriceETH: boolean; // Legacy individual setters
   hasSetMintPriceUSDC: boolean;
+  
+  // Treasury & Pools
   hasBonusPool: boolean;
   hasDepositETH: boolean;
   hasDepositUSDC: boolean;
   hasWithdrawETH: boolean;
   hasWithdrawUSDC: boolean;
   hasSetBonusLevel: boolean;
-  hasGlobalKillSwitch: boolean;
+  
+  // Emergency Controls (V3 SUPPORTED)
+  hasKillSwitch: boolean; // View function
+  hasActivateKillSwitch: boolean;
+  hasDeactivateKillSwitch: boolean;
+  hasGlobalKillSwitch: boolean; // Combined check
   hasEmergencyWithdraw: boolean;
   
-  // V3 specific - read-only pricing (dynamic, not settable)
+  // Anti-Bot (V3 SUPPORTED)
+  hasAntiBotMode: boolean;
+  hasSetAntiBotMode: boolean;
+  
+  // Claim Mode (V3 SUPPORTED)
+  hasClaimMode: boolean;
+  hasSetClaimMode: boolean;
+  hasSetEligibilityRules: boolean;
+  
+  // V3 Dynamic Pricing - Read-only
   hasDynamicPricing: boolean;
   hasMintPriceETH: boolean;
   hasMintPriceUSDC: boolean;
+  hasGetEffectiveBonus: boolean;
 }
 
 // ============ ABI CAPABILITY DETECTION ============
@@ -106,28 +132,56 @@ function abiHasFunction(functionName: string): boolean {
 
 export function detectContractCapabilities(): ContractCapabilities {
   return {
+    // Core
     hasOwner: abiHasFunction('owner'),
-    // V3 uses totalMinted instead of totalSupply
     hasTotalSupply: abiHasFunction('totalSupply') || abiHasFunction('totalMinted'),
+    
+    // Pause controls
     hasPause: abiHasFunction('pause'),
     hasUnpause: abiHasFunction('unpause'),
+    hasMintPaused: abiHasFunction('setMintPaused'),
+    
+    // Throttle (legacy)
     hasSetThrottle: abiHasFunction('setThrottle'),
-    // V3 doesn't have setter functions - pricing is dynamic/read-only
+    
+    // Wallet Mint Limits - V3 SUPPORTED
+    hasWalletMintLimit: abiHasFunction('walletMintLimit'),
     hasSetWalletMintLimit: abiHasFunction('setWalletMintLimit'),
+    
+    // Pricing - V3 uses combined setter
+    hasSetMintPrice: abiHasFunction('setMintPrice'),
     hasSetMintPriceETH: abiHasFunction('setMintPriceETH'),
     hasSetMintPriceUSDC: abiHasFunction('setMintPriceUSDC'),
+    
+    // Treasury
     hasBonusPool: abiHasFunction('bonusPoolETH') || abiHasFunction('getBonusPoolBalance'),
-    hasDepositETH: abiHasFunction('depositBonusPoolETH') || abiHasFunction('depositETH') || abiHasFunction('deposit'),
+    hasDepositETH: abiHasFunction('depositBonusPoolETH') || abiHasFunction('depositETH'),
     hasDepositUSDC: abiHasFunction('depositBonusPoolUSDC') || abiHasFunction('depositUSDC'),
-    hasWithdrawETH: abiHasFunction('withdrawBonusPoolETH') || abiHasFunction('withdrawETH') || abiHasFunction('withdraw'),
+    hasWithdrawETH: abiHasFunction('withdrawBonusPoolETH') || abiHasFunction('withdrawETH'),
     hasWithdrawUSDC: abiHasFunction('withdrawBonusPoolUSDC') || abiHasFunction('withdrawUSDC'),
     hasSetBonusLevel: abiHasFunction('setBonusLevel') || abiHasFunction('configureBonusLevel'),
-    hasGlobalKillSwitch: abiHasFunction('emergencyStop') || abiHasFunction('killSwitch'),
+    
+    // Emergency Controls - V3 SUPPORTED
+    hasKillSwitch: abiHasFunction('killSwitch'),
+    hasActivateKillSwitch: abiHasFunction('activateKillSwitch'),
+    hasDeactivateKillSwitch: abiHasFunction('deactivateKillSwitch'),
+    hasGlobalKillSwitch: abiHasFunction('activateKillSwitch') && abiHasFunction('deactivateKillSwitch'),
     hasEmergencyWithdraw: abiHasFunction('emergencyWithdraw'),
-    // V3 read-only dynamic pricing
+    
+    // Anti-Bot - V3 SUPPORTED
+    hasAntiBotMode: abiHasFunction('antiBotMode'),
+    hasSetAntiBotMode: abiHasFunction('setAntiBotMode'),
+    
+    // Claim Mode - V3 SUPPORTED
+    hasClaimMode: abiHasFunction('claimMode'),
+    hasSetClaimMode: abiHasFunction('setClaimMode'),
+    hasSetEligibilityRules: abiHasFunction('setEligibilityRules'),
+    
+    // V3 Dynamic Pricing - Read-only
     hasDynamicPricing: abiHasFunction('currentSupplyTier') || abiHasFunction('getSupplyTier'),
     hasMintPriceETH: abiHasFunction('mintPriceETH') || abiHasFunction('getMintPriceETH'),
     hasMintPriceUSDC: abiHasFunction('mintPriceUSDC') || abiHasFunction('getMintPriceUSDC'),
+    hasGetEffectiveBonus: abiHasFunction('getEffectiveBonus'),
   };
 }
 
@@ -141,53 +195,59 @@ export interface UnsupportedFeature {
 export function getUnsupportedFeatures(caps: ContractCapabilities): UnsupportedFeature[] {
   const features: UnsupportedFeature[] = [];
   
-  // For V3 contracts with dynamic pricing, setWalletMintLimit is optional
-  if (!caps.hasSetWalletMintLimit) {
+  // V3 contract HAS wallet mint limits - only show if truly missing
+  if (!caps.hasSetWalletMintLimit && !caps.hasWalletMintLimit) {
     features.push({
       name: 'Wallet Mint Limits',
-      missingFunctions: ['setWalletMintLimit'],
-      reason: 'Contract uses dynamic pricing without settable wallet limits',
+      missingFunctions: ['setWalletMintLimit', 'walletMintLimit'],
+      reason: 'Contract does not support per-wallet mint limits',
     });
   }
   
-  // V3 uses read-only dynamic pricing, so setMintPrice functions are not needed
-  if (!caps.hasSetMintPriceETH && !caps.hasSetMintPriceUSDC && !caps.hasDynamicPricing && !caps.hasMintPriceETH) {
+  // V3 contract HAS paid minting - only show if truly missing
+  const hasPaidMinting = caps.hasSetMintPrice || caps.hasSetMintPriceETH || caps.hasSetMintPriceUSDC || 
+                         caps.hasMintPriceETH || caps.hasMintPriceUSDC || caps.hasDynamicPricing;
+  if (!hasPaidMinting) {
     features.push({
-      name: 'Paid Minting',
-      missingFunctions: ['setMintPriceETH', 'setMintPriceUSDC', 'mintPriceETH', 'mintPriceUSDC'],
+      name: 'Paid Minting (ETH/USDC)',
+      missingFunctions: ['setMintPrice', 'mintPriceETH', 'mintPriceUSDC'],
       reason: 'Contract is free-mint only, no pricing support',
     });
   }
   
+  // V3 contract HAS emergency controls - only show if truly missing
+  if (!caps.hasGlobalKillSwitch && !caps.hasKillSwitch) {
+    features.push({
+      name: 'Emergency Stop / Kill Switch',
+      missingFunctions: ['activateKillSwitch', 'deactivateKillSwitch', 'killSwitch'],
+      reason: 'Contract does not have emergency stop functionality',
+    });
+  }
+  
+  // V3 contract HAS anti-bot - only show if truly missing
+  if (!caps.hasSetAntiBotMode && !caps.hasAntiBotMode) {
+    features.push({
+      name: 'Anti-Bot Protection',
+      missingFunctions: ['setAntiBotMode', 'antiBotMode'],
+      reason: 'Contract does not support anti-bot mode configuration',
+    });
+  }
+  
+  // Only show bonus system as unsupported if BOTH pool and level config are missing
   if (!caps.hasBonusPool && !caps.hasSetBonusLevel) {
     features.push({
       name: 'Bonus System',
-      missingFunctions: ['bonusPoolETH', 'setBonusLevel', 'configureBonusLevel'],
+      missingFunctions: ['bonusPoolETH', 'setBonusLevel'],
       reason: 'Contract does not have bonus pool functionality',
     });
   }
   
-  if (!caps.hasDepositETH && !caps.hasDepositUSDC) {
+  // Only show claim mode as unsupported if truly missing
+  if (!caps.hasSetClaimMode && !caps.hasClaimMode) {
     features.push({
-      name: 'Pool Deposits',
-      missingFunctions: ['depositETH', 'depositUSDC', 'deposit'],
-      reason: 'Contract does not support pool deposits',
-    });
-  }
-  
-  if (!caps.hasWithdrawETH && !caps.hasWithdrawUSDC) {
-    features.push({
-      name: 'Pool Withdrawals',
-      missingFunctions: ['withdrawETH', 'withdrawUSDC'],
-      reason: 'Contract does not support pool withdrawals',
-    });
-  }
-  
-  if (!caps.hasGlobalKillSwitch) {
-    features.push({
-      name: 'Global Kill Switch',
-      missingFunctions: ['emergencyStop', 'killSwitch'],
-      reason: 'Contract does not have global kill switch',
+      name: 'Claim Mode Configuration',
+      missingFunctions: ['setClaimMode', 'claimMode'],
+      reason: 'Contract does not support claim mode configuration',
     });
   }
   
@@ -279,4 +339,32 @@ export function validateUSDCAmount(value: string): boolean {
   const parts = value.split('.');
   if (parts.length === 2 && parts[1].length > 6) return false;
   return true;
+}
+
+// ============ AUDIT LOG HELPER ============
+export function logAdminAction(
+  action: string,
+  walletAddress: string,
+  details?: string,
+  txHash?: string
+): void {
+  try {
+    const stored = localStorage.getItem(ADMIN_STORAGE_KEYS.auditLog);
+    const logs: AdminAction[] = stored ? JSON.parse(stored) : [];
+    
+    logs.unshift({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: Date.now(),
+      wallet: walletAddress,
+      action,
+      details,
+      txHash,
+    });
+    
+    // Keep only last 100 entries
+    const trimmed = logs.slice(0, 100);
+    localStorage.setItem(ADMIN_STORAGE_KEYS.auditLog, JSON.stringify(trimmed));
+  } catch (e) {
+    console.warn('[AdminTypes] Failed to log action:', e);
+  }
 }
