@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { PaymentCurrency } from '@/contracts/MemoryMintContract';
+import { encodeFunctionData, formatEther, formatUnits } from 'viem';
+import { PaymentCurrency, NFT_CONTRACT_ADDRESS, CONTRACT_ABI, RPC_ENDPOINTS, USDC_DECIMALS } from '@/contracts/MemoryMintContract';
 
 // ============ TYPES ============
 export interface ClaimState {
@@ -21,9 +22,31 @@ export interface BonusClaimResult {
   error: string | null;
 }
 
+// RPC helper
+async function rpcCall(method: string, params: unknown[], timeout = 8000): Promise<unknown> {
+  for (const endpoint of RPC_ENDPOINTS) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) continue;
+      const data = await response.json();
+      if (data.error) continue;
+      return data.result;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error('RPC call failed');
+}
+
 // ============ HOOK ============
-// NOTE: MemoryMintUltra contract does not have bonus claim functionality.
-// This hook returns stub implementations for compatibility.
 export function useBonusClaim() {
   const [state, setState] = useState<ClaimState>({
     isClaiming: false,
@@ -36,33 +59,69 @@ export function useBonusClaim() {
     estimatedGas: null,
   });
 
-  // Stub: No claim functionality in MemoryMintUltra
   const claimBonus = useCallback(async (
-    _walletAddress: string,
-    _level: number,
+    walletAddress: string,
+    levelId: number,
     _gameLevel?: number,
     _levelProof?: string,
   ): Promise<BonusClaimResult> => {
-    setState(prev => ({
-      ...prev,
-      error: 'Bonus claiming is not available for this contract',
-      success: false,
-    }));
+    if (!window.ethereum || !walletAddress) {
+      return { success: false, txHash: null, amount: null, currency: null, error: 'Wallet not connected' };
+    }
 
-    return {
-      success: false,
-      txHash: null,
-      amount: null,
-      currency: null,
-      error: 'Bonus claiming is not available for this contract',
-    };
+    setState(prev => ({ ...prev, isClaiming: true, error: null, success: false, txHash: null }));
+
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'claimBonus',
+        args: [BigInt(levelId)],
+      });
+
+      const txHash = await (window.ethereum as any).request({
+        method: 'eth_sendTransaction',
+        params: [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }],
+      }) as string;
+
+      setState(prev => ({ ...prev, txHash }));
+
+      // Wait for receipt
+      let receipt: any = null;
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        receipt = await rpcCall('eth_getTransactionReceipt', [txHash]);
+        if (receipt) break;
+      }
+
+      if (receipt?.status === '0x1') {
+        setState(prev => ({ ...prev, isClaiming: false, success: true, claimedCurrency: 'ETH' }));
+        return { success: true, txHash, amount: '0', currency: 'ETH', error: null };
+      }
+
+      setState(prev => ({ ...prev, isClaiming: false, error: 'Transaction failed' }));
+      return { success: false, txHash, amount: null, currency: null, error: 'Transaction failed' };
+    } catch (err: any) {
+      const msg = err?.code === 4001 ? 'Transaction cancelled' : 'Claim failed';
+      setState(prev => ({ ...prev, isClaiming: false, error: msg }));
+      return { success: false, txHash: null, amount: null, currency: null, error: msg };
+    }
   }, []);
 
   const estimateClaimGas = useCallback(async (
-    _walletAddress: string,
-    _level: number,
+    walletAddress: string,
+    levelId: number,
   ): Promise<bigint | null> => {
-    return null;
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'claimBonus',
+        args: [BigInt(levelId)],
+      });
+      const result = await rpcCall('eth_estimateGas', [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }]);
+      return BigInt(result as string);
+    } catch {
+      return null;
+    }
   }, []);
 
   const resetClaimState = useCallback(() => {
@@ -78,10 +137,5 @@ export function useBonusClaim() {
     });
   }, []);
 
-  return {
-    ...state,
-    claimBonus,
-    estimateClaimGas,
-    resetClaimState,
-  };
+  return { ...state, claimBonus, estimateClaimGas, resetClaimState };
 }
