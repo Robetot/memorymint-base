@@ -209,28 +209,39 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     toast.success('Address copied');
   };
 
-  // Use safe defaults for capabilities if not loaded
+  // Use safe defaults for capabilities if not loaded - matches V3 contract
   const caps: ContractCapabilities = capabilities ?? {
     hasOwner: true,
     hasTotalSupply: true,
     hasPause: true,
     hasUnpause: true,
-    hasSetThrottle: true,
-    hasSetWalletMintLimit: false,
+    hasMintPaused: true,
+    hasSetThrottle: false,
+    hasWalletMintLimit: true,
+    hasSetWalletMintLimit: true,
+    hasSetMintPrice: true,
     hasSetMintPriceETH: false,
     hasSetMintPriceUSDC: false,
-    hasBonusPool: false,
-    hasDepositETH: false,
-    hasDepositUSDC: false,
-    hasWithdrawETH: false,
-    hasWithdrawUSDC: false,
-    hasSetBonusLevel: false,
-    hasGlobalKillSwitch: false,
+    hasBonusPool: true,
+    hasDepositETH: true,
+    hasDepositUSDC: true,
+    hasWithdrawETH: true,
+    hasWithdrawUSDC: true,
+    hasSetBonusLevel: true,
+    hasKillSwitch: true,
+    hasActivateKillSwitch: true,
+    hasDeactivateKillSwitch: true,
+    hasGlobalKillSwitch: true,
     hasEmergencyWithdraw: false,
-    // V3 specific capabilities
+    hasAntiBotMode: true,
+    hasSetAntiBotMode: true,
+    hasClaimMode: true,
+    hasSetClaimMode: true,
+    hasSetEligibilityRules: true,
     hasDynamicPricing: true,
     hasMintPriceETH: true,
     hasMintPriceUSDC: true,
+    hasGetEffectiveBonus: true,
   };
 
   return (
