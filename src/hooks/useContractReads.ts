@@ -350,46 +350,41 @@ export function useContractReads() {
         if (!contractVerified) throw new Error('contractVerified=false after preflight');
       });
 
-      // Verify only REQUIRED methods exist in ABI
-      const requiredMethods = ['owner', 'totalSupply'];
+      // Verify only REQUIRED methods exist in ABI - V3 uses totalMinted not totalSupply
+      const requiredMethods = ['owner', 'totalMinted'];
       for (const fn of requiredMethods) {
         if (!abiHasFunction(fn)) {
           throw new Error(`ABI missing required function "${fn}"`);
         }
       }
 
-      // Sequential reads - owner and totalSupply are REQUIRED
+      // Sequential reads - owner and totalMinted are REQUIRED
       const owner = (await readStep('owner()', async () => readNft('owner'))) as string;
       if (!owner || typeof owner !== 'string' || !owner.startsWith('0x') || owner.length !== 42) {
         throw new Error(`invalid owner() result: ${String(owner)}`);
       }
 
-      const totalSupply = (await readStep('totalSupply()', async () => readNft('totalSupply'))) as bigint;
+      const totalSupply = (await readStep('totalMinted()', async () => readNft('totalMinted'))) as bigint;
 
       // OPTIONAL reads in parallel - must NEVER block init or throw
+      // V3 uses mintPaused not paused, and doesn't have nextTokenId, MAX_SUPPLY, MAX_BATCH_SIZE
       const [
-        pausedRes,
-        throttleRes,
-        nextTokenIdRes,
+        mintPausedRes,
+        killSwitchRes,
         mintPriceETHRes,
         mintPriceUSDCRes,
         currentSupplyTierRes,
-        maxSupplyRes,
-        maxBatchSizeRes,
         bonusPoolETHRes,
         bonusPoolUSDCRes,
         currentBonusTierRes,
         totalFeesETHRes,
         totalFeesUSDCRes,
       ] = await Promise.allSettled([
-        safeReadBoolean('paused', false),
-        safeReadBoolean('throttleEnabled', false),
-        safeReadBigInt('nextTokenId', totalSupply + 1n),
-        safeReadBigInt('getMintPriceETH', 0n),
-        safeReadBigInt('getMintPriceUSDC', 0n),
+        safeReadBoolean('mintPaused', false),
+        safeReadBoolean('killSwitch', false),
+        safeReadBigInt('mintPriceETH', 0n),
+        safeReadBigInt('mintPriceUSDC', 0n),
         safeReadNumber('currentSupplyTier', 0),
-        safeReadBigInt('MAX_SUPPLY', 10000n),
-        safeReadBigInt('MAX_BATCH_SIZE', 10n),
         safeReadBigInt('bonusPoolETH', 0n),
         safeReadBigInt('bonusPoolUSDC', 0n),
         safeReadNumber('currentBonusTier', 0),
@@ -397,36 +392,34 @@ export function useContractReads() {
         safeReadBigInt('totalFeesCollectedUSDC', 0n),
       ]);
 
-      const paused = pausedRes.status === 'fulfilled' ? pausedRes.value : false;
-      const throttleEnabled = throttleRes.status === 'fulfilled' ? throttleRes.value : false;
-      const nextTokenId = nextTokenIdRes.status === 'fulfilled' ? nextTokenIdRes.value : totalSupply + 1n;
+      const mintPaused = mintPausedRes.status === 'fulfilled' ? mintPausedRes.value : false;
+      const killSwitch = killSwitchRes.status === 'fulfilled' ? killSwitchRes.value : false;
       const mintPriceETH = mintPriceETHRes.status === 'fulfilled' ? mintPriceETHRes.value : 0n;
       const mintPriceUSDC = mintPriceUSDCRes.status === 'fulfilled' ? mintPriceUSDCRes.value : 0n;
       const currentSupplyTier = currentSupplyTierRes.status === 'fulfilled' ? currentSupplyTierRes.value : 0;
-      const maxSupply = maxSupplyRes.status === 'fulfilled' ? maxSupplyRes.value : 10000n;
-      const maxBatchSize = maxBatchSizeRes.status === 'fulfilled' ? maxBatchSizeRes.value : 10n;
       const bonusPoolETH = bonusPoolETHRes.status === 'fulfilled' ? bonusPoolETHRes.value : 0n;
       const bonusPoolUSDC = bonusPoolUSDCRes.status === 'fulfilled' ? bonusPoolUSDCRes.value : 0n;
       const currentBonusTier = currentBonusTierRes.status === 'fulfilled' ? currentBonusTierRes.value : 0;
       const totalFeesCollectedETH = totalFeesETHRes.status === 'fulfilled' ? totalFeesETHRes.value : 0n;
       const totalFeesCollectedUSDC = totalFeesUSDCRes.status === 'fulfilled' ? totalFeesUSDCRes.value : 0n;
 
+      const paused = mintPaused || killSwitch;
       const isFreeMint = mintPriceETH === 0n;
 
-      // Build config
+      // Build config - V3 has unlimited supply
       const configData: ContractConfig = {
         owner,
         paused,
-        throttleEnabled,
+        throttleEnabled: false,
         totalSupply,
-        nextTokenId,
+        nextTokenId: totalSupply + 1n,
         
         // V3 Dynamic Pricing
         mintPriceETH,
         mintPriceUSDC,
         currentSupplyTier,
-        maxSupply,
-        maxBatchSize,
+        maxSupply: 0n, // Unlimited in V3
+        maxBatchSize: 50n, // MAX_BATCH_SIZE constant in V3
         
         // V3 Bonus Pools
         bonusPoolETH,
@@ -444,9 +437,9 @@ export function useContractReads() {
         usdcEnabled: mintPriceUSDC > 0n,
         activeMintCurrency: 'ETH',
         activeBonusCurrency: 'ETH',
-        antiBotMode: throttleEnabled ? 1 : 0,
+        antiBotMode: 0,
         walletMintLimit: 0n,
-        mintCooldownBlocks: throttleEnabled ? 1n : 0n,
+        mintCooldownBlocks: 0n,
         signatureRequired: false,
         claimMode: bonusPoolETH > 0n ? 1 : 0,
         
