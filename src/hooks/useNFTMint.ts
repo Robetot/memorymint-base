@@ -461,6 +461,8 @@ async function probeRequiredMintValueWei(params: {
     return null;
   }
 }
+
+function supportsWalletSendCalls(): boolean {
   const ethereum = window.ethereum as any;
   if (!ethereum) return false;
   return !!(ethereum.isSmartWallet || ethereum.isPasskeyWallet || ethereum.isCoinbaseWallet);
