@@ -647,6 +647,28 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
               )}
             </CardHeader>
           </Card>
+
+          {/* WalletConnect */}
+          <Card 
+            className="cursor-pointer hover:border-[#3B99FC]/50 transition-all hover:scale-[1.02] group"
+            onClick={() => !isConnecting && handleConnect('walletconnect')}
+          >
+            <CardHeader className="flex flex-row items-center gap-4 pb-2">
+              <div className="w-12 h-12 rounded-xl bg-[#3B99FC]/10 flex items-center justify-center">
+                <svg viewBox="0 0 40 40" className="w-8 h-8">
+                  <rect width="40" height="40" rx="8" fill="#3B99FC"/>
+                  <path d="M12.5 15.5c4.14-4.14 10.86-4.14 15 0l.5.5c.21.21.21.54 0 .75l-1.71 1.71c-.1.1-.27.1-.37 0l-.69-.69c-2.89-2.89-7.57-2.89-10.46 0l-.74.74c-.1.1-.27.1-.37 0l-1.71-1.71c-.21-.21-.21-.54 0-.75l.55-.55zm18.53 3.53l1.53 1.53c.21.21.21.54 0 .75l-6.88 6.88c-.21.21-.54.21-.75 0l-4.88-4.88c-.05-.05-.13-.05-.19 0l-4.88 4.88c-.21.21-.54.21-.75 0l-6.88-6.88c-.21-.21-.21-.54 0-.75l1.53-1.53c.21-.21.54-.21.75 0l4.88 4.88c.05.05.13.05.19 0l4.88-4.88c.21-.21.54-.21.75 0l4.88 4.88c.05.05.13.05.19 0l4.88-4.88c.21-.21.54-.21.75 0z" fill="white"/>
+                </svg>
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-lg group-hover:text-[#3B99FC] transition-colors">WalletConnect</CardTitle>
+                <CardDescription className="font-body">Connect any mobile wallet via QR code</CardDescription>
+              </div>
+              {isConnecting && (
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              )}
+            </CardHeader>
+          </Card>
         </div>
       )}
 
