@@ -3,8 +3,8 @@ import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult, 
 import { CONTRACT_ERRORS as VERIFIED_CONTRACT_ERRORS } from '@/contracts/MemoryMintContract';
 
 // ============ CONFIGURATION ============
-// Deployed MemoryMintUltraSafe_Bonus contract on Base Mainnet
-const NFT_CONTRACT_ADDRESS = '0x9B84d4e689000ab050e9754c5b123fC87E55A9f6';
+// Deployed MemoryMintUltraV3 contract on Base Mainnet
+const NFT_CONTRACT_ADDRESS = '0xA26e44EA246a1BA59Fd417380204Bce6a6A3Dc7E';
 
 // Base Mainnet USDC address
 const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
