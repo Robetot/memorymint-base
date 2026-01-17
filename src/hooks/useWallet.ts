@@ -16,8 +16,9 @@ const BASE_CHAIN_CONFIG = {
   blockExplorerUrls: ['https://basescan.org'],
 };
 
-// WalletConnect Project ID - you can get one at https://cloud.walletconnect.com
-const WALLETCONNECT_PROJECT_ID = '0a1f57c6ab5b07dc8c5bf79e1ee4a8b1';
+// WalletConnect Project ID - Get your own at https://cloud.walletconnect.com
+// Using WalletConnect's public demo project ID for initial testing
+const WALLETCONNECT_PROJECT_ID = '3a8170812b534d0ff9d794f19a901d64';
 
 export type WalletType = 'metamask' | 'coinbase' | 'baseapp' | 'walletconnect';
 
