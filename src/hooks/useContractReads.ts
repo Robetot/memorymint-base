@@ -3,13 +3,18 @@ import { encodeFunctionData, decodeFunctionResult } from 'viem';
 import {
   NFT_CONTRACT_ADDRESS,
   BASE_USDC_ADDRESS,
-  RPC_ENDPOINTS,
   CONTRACT_ABI,
   ERC20_ABI,
   CONFIG_CACHE_TTL,
   BALANCE_CACHE_TTL,
   PaymentCurrency,
 } from '@/contracts/MemoryMintContract';
+import {
+  robustRpcCall,
+  verifyContractWithCache,
+  RPC_CONFIG,
+  clearContractCodeCache,
+} from '@/utils/rpcHandler';
 
 // ============ TYPES ============
 export interface ContractConfig {
@@ -20,22 +25,34 @@ export interface ContractConfig {
   totalSupply: bigint;
   nextTokenId: bigint;
   
-  // Compatibility fields (not used in MemoryMintUltra, but kept for UI)
-  mintEnabled: boolean; // derived from !paused
-  claimEnabled: boolean; // always false for this contract
+  // V3 Dynamic Pricing
+  mintPriceETH: bigint;
+  mintPriceUSDC: bigint;
+  currentSupplyTier: number;
+  maxSupply: bigint;
+  maxBatchSize: bigint;
+  
+  // V3 Bonus Pools
+  bonusPoolETH: bigint;
+  bonusPoolUSDC: bigint;
+  currentBonusTier: number;
+  
+  // V3 Fees
+  totalFeesCollectedETH: bigint;
+  totalFeesCollectedUSDC: bigint;
+  
+  // Compatibility fields
+  mintEnabled: boolean;
+  claimEnabled: boolean;
   ethEnabled: boolean;
   usdcEnabled: boolean;
   activeMintCurrency: PaymentCurrency;
   activeBonusCurrency: PaymentCurrency;
-  mintPriceETH: bigint;
-  mintPriceUSDC: bigint;
   antiBotMode: number;
   walletMintLimit: bigint;
   mintCooldownBlocks: bigint;
   signatureRequired: boolean;
   claimMode: number;
-  bonusPoolETH: bigint;
-  bonusPoolUSDC: bigint;
   
   // Meta
   lastFetched: number;
@@ -52,6 +69,7 @@ export interface WalletState {
   nonce: bigint;
   isOnAllowlist: boolean;
   isOnDenylist: boolean;
+  mintCount: bigint;
   lastFetched: number;
 }
 
@@ -63,6 +81,21 @@ export interface BonusLevelInfo {
   claimsRemaining: bigint;
   requiresNFT: boolean;
   canClaim: boolean;
+  minMints: bigint;
+  allowlistOnly: boolean;
+}
+
+export interface SupplyTierInfo {
+  tier: number;
+  threshold: bigint;
+  priceETH: bigint;
+  priceUSDC: bigint;
+}
+
+export interface BonusTierInfo {
+  tier: number;
+  threshold: bigint;
+  multiplierBps: bigint;
 }
 
 // ============ CACHE ============
@@ -70,81 +103,12 @@ const configCache: { data: ContractConfig | null; timestamp: number } = { data: 
 const walletCache: Map<string, { data: WalletState; timestamp: number }> = new Map();
 let contractVerified = false;
 
-// ============ TIMEOUT HELPER ============
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timeoutId: number | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = window.setTimeout(() => reject(new Error(message)), ms);
-  });
-
-  return (Promise.race([promise, timeoutPromise]) as Promise<T>).finally(() => {
-    if (timeoutId) window.clearTimeout(timeoutId);
-  });
-}
-
 // ============ ABI HELPERS ============
 function abiHasFunction(functionName: string): boolean {
   const abiItems = CONTRACT_ABI as unknown as readonly any[];
   return abiItems.some(
     (i) => i && i.type === 'function' && typeof i.name === 'string' && i.name === functionName
   );
-}
-
-function assertAbiHasFunction(functionName: string): void {
-  if (!abiHasFunction(functionName)) {
-    throw new Error(`ABI missing function "${functionName}". Re-export ABI from deployed build.`);
-  }
-}
-
-// ============ RPC HELPER ============
-async function rpcCall(method: string, params: unknown[], timeoutMs = 4000): Promise<unknown> {
-  const errors: string[] = [];
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    for (const endpoint of RPC_ENDPOINTS) {
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
-          signal: controller.signal,
-        });
-
-        if (response.status === 429) {
-          await new Promise((r) => setTimeout(r, 250));
-          continue;
-        }
-
-        if (!response.ok) {
-          errors.push(`${endpoint}: HTTP ${response.status}`);
-          continue;
-        }
-
-        const data = await response.json();
-        if (data.error) {
-          errors.push(`${endpoint}: ${data.error.message}`);
-          continue;
-        }
-
-        return data.result;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown';
-        errors.push(`${endpoint}: ${msg}`);
-        continue;
-      }
-    }
-
-    throw new Error(`All RPCs failed: ${errors.join(', ')}`);
-  } catch (err) {
-    if (controller.signal.aborted) {
-      throw new Error(`RPC ${method} timed out after ${timeoutMs}ms`);
-    }
-    throw err;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
 }
 
 // ============ NETWORK GUARD ============
@@ -175,36 +139,31 @@ async function verifyContractExists(requireConnectedBaseNetwork: boolean): Promi
 
   console.info('[ContractReads] Preflight: verifying contract exists at', NFT_CONTRACT_ADDRESS);
 
-  const code = (await withTimeout(
-    rpcCall('eth_getCode', [NFT_CONTRACT_ADDRESS, 'latest'], 2800) as Promise<string>,
-    3000,
-    'eth_getCode timed out'
-  )) as string;
-
-  if (!code || code === '0x' || code === '0x0') {
-    console.error('[ContractReads] PREFLIGHT FAILED: No contract at address', {
+  const result = await verifyContractWithCache(NFT_CONTRACT_ADDRESS);
+  
+  if (!result.exists) {
+    console.error('[ContractReads] PREFLIGHT FAILED:', result.error, {
       address: NFT_CONTRACT_ADDRESS,
-      code,
       chainId: await getConnectedChainId(),
     });
     throw new Error(
-      `No contract found at ${NFT_CONTRACT_ADDRESS}. Verify the address is deployed on Base Mainnet (chainId 8453).`
+      result.error || `No contract found at ${NFT_CONTRACT_ADDRESS}. Verify the address is deployed on Base Mainnet (chainId 8453).`
     );
   }
 
   contractVerified = true;
   console.info('[ContractReads] Preflight passed: contract exists', {
     address: NFT_CONTRACT_ADDRESS,
-    codeLength: code.length,
+    codeLength: result.code?.length,
   });
 }
 
 export function resetContractVerification(): void {
   contractVerified = false;
+  clearContractCodeCache(NFT_CONTRACT_ADDRESS);
 }
 
 // ============ SINGLE ENTRYPOINT FOR NFT CONTRACT READS ============
-// If optional=true, returns null on empty result instead of throwing
 async function readNft(functionName: string, args: unknown[] = [], optional = false): Promise<unknown> {
   if (!contractVerified) {
     throw new Error(`Contract preflight not verified; refusing to call ${functionName}`);
@@ -219,7 +178,7 @@ async function readNft(functionName: string, args: unknown[] = [], optional = fa
     throw new Error(`ABI missing function "${functionName}". Re-export ABI from deployed build.`);
   }
 
-  console.info(`[AdminInit] Reading ${functionName}`);
+  console.info(`[ContractReads] Reading ${functionName}`);
 
   const data = encodeFunctionData({
     abi: CONTRACT_ABI as any,
@@ -227,14 +186,22 @@ async function readNft(functionName: string, args: unknown[] = [], optional = fa
     args: args as any[],
   });
 
-  const result = (await withTimeout(
-    rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest'], 2800) as Promise<string>,
-    3000,
-    `${functionName} timed out`
-  )) as string;
+  const result = await robustRpcCall<string>(
+    'eth_call',
+    [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest'],
+    { timeoutMs: RPC_CONFIG.defaultTimeoutMs }
+  );
+
+  if (!result.success) {
+    if (optional) {
+      console.warn(`[ContractReads] ${functionName}() failed — defaulting to null (optional):`, result.error);
+      return null;
+    }
+    throw new Error(`${functionName} RPC failed: ${result.error}`);
+  }
 
   // Handle empty result
-  if (!result || result === '0x' || result === '') {
+  if (!result.data || result.data === '0x' || result.data === '') {
     if (optional) {
       console.warn(`[ContractReads] ${functionName}() returned empty — defaulting to null (optional)`);
       return null;
@@ -246,7 +213,7 @@ async function readNft(functionName: string, args: unknown[] = [], optional = fa
     return decodeFunctionResult({
       abi: CONTRACT_ABI as any,
       functionName: functionName as any,
-      data: result as `0x${string}`,
+      data: result.data as `0x${string}`,
     });
   } catch (decodeErr) {
     if (optional) {
@@ -263,29 +230,36 @@ async function safeReadBoolean(fn: string, fallback: boolean): Promise<boolean> 
   try {
     const res = await readNft(fn, [], true);
     if (typeof res === 'boolean') return res;
-    console.warn(`[ContractReads] ${fn}() failed — defaulting`);
     return fallback;
   } catch {
-    console.warn(`[ContractReads] ${fn}() failed — defaulting`);
     return fallback;
   }
 }
 
-async function safeReadBigInt(fn: string, fallback: bigint): Promise<bigint> {
+async function safeReadBigInt(fn: string, fallback: bigint, args: unknown[] = []): Promise<bigint> {
+  if (!abiHasFunction(fn)) return fallback;
+  try {
+    const res = await readNft(fn, args, true);
+    if (typeof res === 'bigint') return res;
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function safeReadNumber(fn: string, fallback: number): Promise<number> {
   if (!abiHasFunction(fn)) return fallback;
   try {
     const res = await readNft(fn, [], true);
-    if (typeof res === 'bigint') return res;
-    console.warn(`[ContractReads] ${fn}() failed — defaulting`);
+    if (typeof res === 'number') return res;
+    if (typeof res === 'bigint') return Number(res);
     return fallback;
   } catch {
-    console.warn(`[ContractReads] ${fn}() failed — defaulting`);
     return fallback;
   }
 }
 
 // ============ SINGLE ENTRYPOINT FOR ERC20 READS (USDC) ============
-
 async function readErc20(functionName: 'balanceOf' | 'allowance', args: unknown[]): Promise<bigint> {
   console.info(`[ContractReads] Reading USDC ${functionName}`);
 
@@ -295,19 +269,21 @@ async function readErc20(functionName: 'balanceOf' | 'allowance', args: unknown[
     args: args as any[],
   });
 
-  const result = (await withTimeout(
-    rpcCall('eth_call', [{ to: BASE_USDC_ADDRESS, data }, 'latest'], 2800) as Promise<string>,
-    3000,
-    `USDC ${functionName} timed out`
-  )) as string;
+  const result = await robustRpcCall<string>(
+    'eth_call',
+    [{ to: BASE_USDC_ADDRESS, data }, 'latest'],
+    { timeoutMs: RPC_CONFIG.defaultTimeoutMs }
+  );
 
-  if (!result || result === '0x' || result === '') return 0n;
+  if (!result.success || !result.data || result.data === '0x' || result.data === '') {
+    return 0n;
+  }
 
   try {
     return decodeFunctionResult({
       abi: ERC20_ABI,
       functionName,
-      data: result as `0x${string}`,
+      data: result.data as `0x${string}`,
     }) as bigint;
   } catch {
     throw new Error(`USDC ${functionName} decode failed`);
@@ -319,13 +295,15 @@ export function useContractReads() {
   const [config, setConfig] = useState<ContractConfig | null>(null);
   const [walletState, setWalletState] = useState<WalletState | null>(null);
   const [bonusLevels, setBonusLevels] = useState<BonusLevelInfo[]>([]);
+  const [supplyTiers, setSupplyTiers] = useState<SupplyTierInfo[]>([]);
+  const [bonusTiers, setBonusTiers] = useState<BonusTierInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isFetchingConfigRef = useRef(false);
   const isFetchingWalletRef = useRef(false);
 
-  // ============ FETCH CONTRACT CONFIG (SEQUENTIAL, FAIL-FAST) ============
+  // ============ FETCH CONTRACT CONFIG ============
   const fetchContractConfig = useCallback(async (force = false): Promise<ContractConfig | null> => {
     const now = Date.now();
 
@@ -372,7 +350,7 @@ export function useContractReads() {
         if (!contractVerified) throw new Error('contractVerified=false after preflight');
       });
 
-      // Verify only REQUIRED methods exist in ABI (owner, totalSupply are required)
+      // Verify only REQUIRED methods exist in ABI
       const requiredMethods = ['owner', 'totalSupply'];
       for (const fn of requiredMethods) {
         if (!abiHasFunction(fn)) {
@@ -388,47 +366,101 @@ export function useContractReads() {
 
       const totalSupply = (await readStep('totalSupply()', async () => readNft('totalSupply'))) as bigint;
 
-      // OPTIONAL reads - must NEVER block init or throw
-      const [pausedRes, throttleRes, nextTokenIdRes] = await Promise.allSettled([
+      // OPTIONAL reads in parallel - must NEVER block init or throw
+      const [
+        pausedRes,
+        throttleRes,
+        nextTokenIdRes,
+        mintPriceETHRes,
+        mintPriceUSDCRes,
+        currentSupplyTierRes,
+        maxSupplyRes,
+        maxBatchSizeRes,
+        bonusPoolETHRes,
+        bonusPoolUSDCRes,
+        currentBonusTierRes,
+        totalFeesETHRes,
+        totalFeesUSDCRes,
+      ] = await Promise.allSettled([
         safeReadBoolean('paused', false),
         safeReadBoolean('throttleEnabled', false),
         safeReadBigInt('nextTokenId', totalSupply + 1n),
+        safeReadBigInt('getMintPriceETH', 0n),
+        safeReadBigInt('getMintPriceUSDC', 0n),
+        safeReadNumber('currentSupplyTier', 0),
+        safeReadBigInt('MAX_SUPPLY', 10000n),
+        safeReadBigInt('MAX_BATCH_SIZE', 10n),
+        safeReadBigInt('bonusPoolETH', 0n),
+        safeReadBigInt('bonusPoolUSDC', 0n),
+        safeReadNumber('currentBonusTier', 0),
+        safeReadBigInt('totalFeesCollectedETH', 0n),
+        safeReadBigInt('totalFeesCollectedUSDC', 0n),
       ]);
 
       const paused = pausedRes.status === 'fulfilled' ? pausedRes.value : false;
       const throttleEnabled = throttleRes.status === 'fulfilled' ? throttleRes.value : false;
       const nextTokenId = nextTokenIdRes.status === 'fulfilled' ? nextTokenIdRes.value : totalSupply + 1n;
+      const mintPriceETH = mintPriceETHRes.status === 'fulfilled' ? mintPriceETHRes.value : 0n;
+      const mintPriceUSDC = mintPriceUSDCRes.status === 'fulfilled' ? mintPriceUSDCRes.value : 0n;
+      const currentSupplyTier = currentSupplyTierRes.status === 'fulfilled' ? currentSupplyTierRes.value : 0;
+      const maxSupply = maxSupplyRes.status === 'fulfilled' ? maxSupplyRes.value : 10000n;
+      const maxBatchSize = maxBatchSizeRes.status === 'fulfilled' ? maxBatchSizeRes.value : 10n;
+      const bonusPoolETH = bonusPoolETHRes.status === 'fulfilled' ? bonusPoolETHRes.value : 0n;
+      const bonusPoolUSDC = bonusPoolUSDCRes.status === 'fulfilled' ? bonusPoolUSDCRes.value : 0n;
+      const currentBonusTier = currentBonusTierRes.status === 'fulfilled' ? currentBonusTierRes.value : 0;
+      const totalFeesCollectedETH = totalFeesETHRes.status === 'fulfilled' ? totalFeesETHRes.value : 0n;
+      const totalFeesCollectedUSDC = totalFeesUSDCRes.status === 'fulfilled' ? totalFeesUSDCRes.value : 0n;
 
-      // Build config with compatibility fields for UI
+      const isFreeMint = mintPriceETH === 0n;
+
+      // Build config
       const configData: ContractConfig = {
         owner,
-        paused: paused ?? false,
-        throttleEnabled: throttleEnabled ?? false,
-        totalSupply: totalSupply ?? 0n,
-        nextTokenId: nextTokenId ?? 1n,
+        paused,
+        throttleEnabled,
+        totalSupply,
+        nextTokenId,
         
-        // Derived/compatibility fields
-        mintEnabled: !paused, // mintEnabled = not paused
-        claimEnabled: false, // no claim in this contract
-        ethEnabled: true, // free minting, no currency needed
-        usdcEnabled: false,
+        // V3 Dynamic Pricing
+        mintPriceETH,
+        mintPriceUSDC,
+        currentSupplyTier,
+        maxSupply,
+        maxBatchSize,
+        
+        // V3 Bonus Pools
+        bonusPoolETH,
+        bonusPoolUSDC,
+        currentBonusTier,
+        
+        // V3 Fees
+        totalFeesCollectedETH,
+        totalFeesCollectedUSDC,
+        
+        // Compatibility fields
+        mintEnabled: !paused,
+        claimEnabled: bonusPoolETH > 0n || bonusPoolUSDC > 0n,
+        ethEnabled: true,
+        usdcEnabled: mintPriceUSDC > 0n,
         activeMintCurrency: 'ETH',
         activeBonusCurrency: 'ETH',
-        mintPriceETH: 0n, // FREE minting
-        mintPriceUSDC: 0n,
         antiBotMode: throttleEnabled ? 1 : 0,
-        walletMintLimit: 0n, // no limit
+        walletMintLimit: 0n,
         mintCooldownBlocks: throttleEnabled ? 1n : 0n,
         signatureRequired: false,
-        claimMode: 0,
-        bonusPoolETH: 0n,
-        bonusPoolUSDC: 0n,
+        claimMode: bonusPoolETH > 0n ? 1 : 0,
         
         lastFetched: now,
         isLoaded: true,
       };
 
-      console.info('[ContractReads] Config built');
+      console.info('[ContractReads] Config built', {
+        owner,
+        totalSupply: totalSupply.toString(),
+        mintPriceETH: mintPriceETH.toString(),
+        bonusPoolETH: bonusPoolETH.toString(),
+        isFreeMint,
+      });
 
       configCache.data = configData;
       configCache.timestamp = now;
@@ -446,6 +478,77 @@ export function useContractReads() {
     } finally {
       isFetchingConfigRef.current = false;
       setIsLoading(false);
+    }
+  }, []);
+
+  // ============ FETCH SUPPLY TIERS ============
+  const fetchSupplyTiers = useCallback(async (): Promise<SupplyTierInfo[]> => {
+    if (!abiHasFunction('supplyTierCount') || !abiHasFunction('getSupplyTier')) {
+      return [];
+    }
+
+    try {
+      await verifyContractExists(false);
+      const tierCount = await safeReadNumber('supplyTierCount', 0);
+      
+      const tiers: SupplyTierInfo[] = [];
+      for (let i = 0; i < tierCount; i++) {
+        try {
+          const tierData = await readNft('getSupplyTier', [i], true) as [bigint, bigint, bigint] | null;
+          if (tierData) {
+            tiers.push({
+              tier: i,
+              threshold: tierData[0],
+              priceETH: tierData[1],
+              priceUSDC: tierData[2],
+            });
+          }
+        } catch {
+          console.warn(`[ContractReads] Failed to fetch supply tier ${i}`);
+        }
+      }
+
+      setSupplyTiers(tiers);
+      return tiers;
+    } catch (err) {
+      console.error('[ContractReads] Failed to fetch supply tiers:', err);
+      return [];
+    }
+  }, []);
+
+  // ============ FETCH BONUS TIERS ============
+  const fetchBonusTiers = useCallback(async (): Promise<BonusTierInfo[]> => {
+    if (!abiHasFunction('getBonusTier')) {
+      return [];
+    }
+
+    try {
+      await verifyContractExists(false);
+      
+      const tiers: BonusTierInfo[] = [];
+      // Fetch up to 10 tiers
+      for (let i = 0; i < 10; i++) {
+        try {
+          const tierData = await readNft('getBonusTier', [i], true) as [bigint, bigint] | null;
+          if (tierData && tierData[0] > 0n) {
+            tiers.push({
+              tier: i,
+              threshold: tierData[0],
+              multiplierBps: tierData[1],
+            });
+          } else {
+            break; // No more tiers
+          }
+        } catch {
+          break;
+        }
+      }
+
+      setBonusTiers(tiers);
+      return tiers;
+    } catch (err) {
+      console.error('[ContractReads] Failed to fetch bonus tiers:', err);
+      return [];
     }
   }, []);
 
@@ -470,28 +573,37 @@ export function useContractReads() {
       // Read NFT balance
       const nftBalance = (await readNft('balanceOf', [address])) as bigint;
 
-      // Get ETH balance
-      const ethBalanceHex = (await withTimeout(
-        rpcCall('eth_getBalance', [address, 'latest'], 2800) as Promise<string>,
-        3000,
-        'eth_getBalance timed out'
-      )) as string;
-      const ethBalance = BigInt(ethBalanceHex || '0');
+      // Get ETH balance using robust RPC
+      const ethBalanceResult = await robustRpcCall<string>(
+        'eth_getBalance',
+        [address, 'latest'],
+        { timeoutMs: RPC_CONFIG.defaultTimeoutMs }
+      );
+      const ethBalance = ethBalanceResult.success ? BigInt(ethBalanceResult.data || '0') : 0n;
 
-      // Get USDC balance (optional, for compatibility)
+      // Get USDC balance
       const usdcBalance = await readErc20('balanceOf', [address as `0x${string}`]);
       const usdcAllowance = await readErc20('allowance', [address as `0x${string}`, NFT_CONTRACT_ADDRESS]);
 
+      // Get mint count if available
+      const mintCount = await safeReadBigInt('walletMintCount', 0n, [address]);
+
+      // Check allowlist status if available
+      const isOnAllowlist = abiHasFunction('isAllowlisted') 
+        ? await safeReadBoolean('isAllowlisted', true)
+        : true;
+
       const state: WalletState = {
         address,
-        canMint: true, // anyone can mint (free, no restrictions unless paused)
+        canMint: true,
         nftBalance: nftBalance ?? 0n,
-        nonce: 0n, // no nonce in this contract
-        isOnAllowlist: true, // no allowlist
-        isOnDenylist: false, // no denylist
+        nonce: 0n,
+        isOnAllowlist,
+        isOnDenylist: false,
         ethBalance,
         usdcBalance,
         usdcAllowance,
+        mintCount,
         lastFetched: now,
       };
 
@@ -507,11 +619,62 @@ export function useContractReads() {
     }
   }, []);
 
-  // ============ FETCH BONUS LEVELS (Not supported in this contract) ============
-  const fetchBonusLevels = useCallback(async (_walletAddress?: string): Promise<BonusLevelInfo[]> => {
-    // MemoryMintUltra has no bonus levels
-    setBonusLevels([]);
-    return [];
+  // ============ FETCH BONUS LEVELS ============
+  const fetchBonusLevels = useCallback(async (walletAddress?: string): Promise<BonusLevelInfo[]> => {
+    if (!abiHasFunction('getBonusLevel')) {
+      setBonusLevels([]);
+      return [];
+    }
+
+    try {
+      await verifyContractExists(false);
+      
+      const levels: BonusLevelInfo[] = [];
+      // Fetch levels 1-20 (typical game levels)
+      for (let i = 1; i <= 20; i++) {
+        try {
+          const levelData = await readNft('getBonusLevel', [i], true) as [bigint, boolean, bigint, bigint, boolean] | null;
+          if (levelData) {
+            const [minMints, active, baseAmountETH, baseAmountUSDC, allowlistOnly] = levelData;
+            
+            // Get dynamic amounts
+            const amountETH = await safeReadBigInt('getBonusAmountETH', baseAmountETH, [i]);
+            const amountUSDC = await safeReadBigInt('getBonusAmountUSDC', baseAmountUSDC, [i]);
+            
+            // Check eligibility if wallet provided
+            let canClaim = false;
+            if (walletAddress && abiHasFunction('canClaimBonus')) {
+              try {
+                const eligibility = await readNft('canClaimBonus', [walletAddress, i], true) as [boolean, string] | null;
+                canClaim = eligibility?.[0] ?? false;
+              } catch {
+                canClaim = false;
+              }
+            }
+
+            levels.push({
+              level: i,
+              amountETH,
+              amountUSDC,
+              active,
+              claimsRemaining: 0n, // Not tracked per-level
+              requiresNFT: minMints > 0n,
+              canClaim,
+              minMints,
+              allowlistOnly,
+            });
+          }
+        } catch {
+          // Level doesn't exist, continue
+        }
+      }
+
+      setBonusLevels(levels);
+      return levels;
+    } catch (err) {
+      console.error('[ContractReads] Failed to fetch bonus levels:', err);
+      return [];
+    }
   }, []);
 
   // ============ INVALIDATE CACHE ============
@@ -520,9 +683,9 @@ export function useContractReads() {
     configCache.timestamp = 0;
     walletCache.clear();
     contractVerified = false;
+    clearContractCodeCache();
   }, []);
 
-  // Invalidate specific caches (compatibility)
   const invalidateConfigCache = useCallback(() => {
     configCache.data = null;
     configCache.timestamp = 0;
@@ -537,12 +700,29 @@ export function useContractReads() {
     }
   }, []);
 
-  // Format bonus pool (compatibility - returns 0 for this contract)
+  // Format bonus pool
   const getFormattedBonusPool = useCallback(() => {
-    return { eth: '0.00', usdc: '0.00' };
-  }, []);
+    if (!config) return { eth: '0.00', usdc: '0.00' };
+    const ethValue = Number(config.bonusPoolETH) / 1e18;
+    const usdcValue = Number(config.bonusPoolUSDC) / 1e6;
+    return {
+      eth: ethValue.toFixed(4),
+      usdc: usdcValue.toFixed(2),
+    };
+  }, [config]);
 
-  // Check if connected wallet is owner (compatibility)
+  // Format fees collected
+  const getFormattedFees = useCallback(() => {
+    if (!config) return { eth: '0.00', usdc: '0.00' };
+    const ethValue = Number(config.totalFeesCollectedETH) / 1e18;
+    const usdcValue = Number(config.totalFeesCollectedUSDC) / 1e6;
+    return {
+      eth: ethValue.toFixed(4),
+      usdc: usdcValue.toFixed(2),
+    };
+  }, [config]);
+
+  // Check if connected wallet is owner
   const isOwner = useCallback((address?: string) => {
     if (!address || !config?.owner) return false;
     return address.toLowerCase() === config.owner.toLowerCase();
@@ -552,15 +732,20 @@ export function useContractReads() {
     config,
     walletState,
     bonusLevels,
+    supplyTiers,
+    bonusTiers,
     isLoading,
     error,
     fetchContractConfig,
     fetchWalletState,
     fetchBonusLevels,
+    fetchSupplyTiers,
+    fetchBonusTiers,
     invalidateCache,
     invalidateConfigCache,
     invalidateWalletCache,
     getFormattedBonusPool,
+    getFormattedFees,
     isOwner,
   };
 }
