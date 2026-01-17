@@ -1035,16 +1035,28 @@ export function useNFTMint() {
 
   // ============ GET MINT PRICE ETH (with graceful fallback) ============
   const getMintPriceETH = useCallback(async (): Promise<bigint> => {
-    // FREE MINT: This contract is configured as a free mint (gas only)
-    // The contract constructor sets 0.001 ETH default, but this should be 0 for free minting
-    // Admin should call setMintPrice(0) on contract, but UI enforces free mint regardless
-    return 0n;
-  }, []);
+    // Read actual price from contract - user must pay what contract demands
+    // To enable free mints, admin must call setMintPrice(0, 0) on-chain via BaseScan
+    try {
+      return await safeRpcCall(async () => {
+        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPriceETH', args: [] });
+        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+        return decodeUint256Result(result, 'mintPriceETH', true);
+      }, pendingEthPriceRef, 0n);
+    } catch {
+      return 0n;
+    }
+  }, [safeRpcCall, decodeUint256Result]);
 
   const getBatchMintPriceETH = useCallback(async (quantity: number): Promise<bigint> => {
-    // FREE MINT: Always return 0 for free minting
-    return 0n;
-  }, []);
+    if (quantity <= 0) return 0n;
+    try {
+      const singlePrice = await getMintPriceETH();
+      return singlePrice * BigInt(quantity);
+    } catch {
+      return 0n;
+    }
+  }, [getMintPriceETH]);
 
   // ============ GET MINT PRICE USDC (with graceful fallback) ============
   const getMintPriceUSDC = useCallback(async (): Promise<bigint> => {
