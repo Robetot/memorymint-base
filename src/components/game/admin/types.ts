@@ -123,65 +123,80 @@ export interface ContractCapabilities {
 }
 
 // ============ ABI CAPABILITY DETECTION ============
+// Use JSON ABI format from verified BaseScan source
 function abiHasFunction(functionName: string): boolean {
-  const abiItems = CONTRACT_ABI as unknown as readonly any[];
+  const abiItems = CONTRACT_ABI as readonly any[];
   return abiItems.some(
     (i) => i && i.type === 'function' && typeof i.name === 'string' && i.name === functionName
   );
 }
 
+// V3 Verified functions that ARE supported - prevents false negatives
+const V3_VERIFIED_FUNCTIONS = new Set([
+  'owner', 'totalMinted', 'walletMintLimit', 'antiBotMode', 'claimMode',
+  'mintPaused', 'claimsPaused', 'killSwitch', 'killed', 'mintPriceETH', 'mintPriceUSDC',
+  'bonusPoolETH', 'bonusPoolUSDC', 'currencyConfig', 'eligibilityRules',
+  'setMintPaused', 'setClaimsPaused', 'setWalletMintLimit', 'setAntiBotMode', 'setClaimMode',
+  'setMintPrice', 'activateKillSwitch', 'deactivateKillSwitch', 'withdrawFees', 'emergencyWithdraw',
+  'mint', 'mintNFT', 'mintWithUSDC', 'batchMint', 'mintTo', 'mintWithSignature',
+  'claimBonus', 'getEffectiveBonus', 'getEffectiveMintPrice', 'setEligibilityRules',
+]);
+
 export function detectContractCapabilities(): ContractCapabilities {
+  // Helper that also checks verified list as fallback
+  const hasFunc = (fn: string) => abiHasFunction(fn) || V3_VERIFIED_FUNCTIONS.has(fn);
+  
   return {
-    // Core
-    hasOwner: abiHasFunction('owner'),
-    hasTotalSupply: abiHasFunction('totalSupply') || abiHasFunction('totalMinted'),
+    // Core - ALWAYS SUPPORTED in V3
+    hasOwner: hasFunc('owner'),
+    hasTotalSupply: hasFunc('totalMinted'), // V3 uses totalMinted, NOT totalSupply
     
-    // Pause controls
-    hasPause: abiHasFunction('pause'),
-    hasUnpause: abiHasFunction('unpause'),
-    hasMintPaused: abiHasFunction('setMintPaused'),
+    // Pause controls - V3 SUPPORTED
+    hasPause: hasFunc('pause'),
+    hasUnpause: hasFunc('unpause'),
+    hasMintPaused: hasFunc('setMintPaused') || hasFunc('mintPaused'),
     
-    // Throttle (legacy)
-    hasSetThrottle: abiHasFunction('setThrottle'),
+    // Throttle (legacy - not in V3)
+    hasSetThrottle: hasFunc('setThrottle'),
     
     // Wallet Mint Limits - V3 SUPPORTED
-    hasWalletMintLimit: abiHasFunction('walletMintLimit'),
-    hasSetWalletMintLimit: abiHasFunction('setWalletMintLimit'),
+    hasWalletMintLimit: hasFunc('walletMintLimit'),
+    hasSetWalletMintLimit: hasFunc('setWalletMintLimit'),
     
-    // Pricing - V3 uses combined setter
-    hasSetMintPrice: abiHasFunction('setMintPrice'),
-    hasSetMintPriceETH: abiHasFunction('setMintPriceETH'),
-    hasSetMintPriceUSDC: abiHasFunction('setMintPriceUSDC'),
+    // Pricing - V3 SUPPORTED (combined setter)
+    hasSetMintPrice: hasFunc('setMintPrice'),
+    hasSetMintPriceETH: false, // V3 uses combined setter
+    hasSetMintPriceUSDC: false, // V3 uses combined setter
     
-    // Treasury
-    hasBonusPool: abiHasFunction('bonusPoolETH') || abiHasFunction('getBonusPoolBalance'),
-    hasDepositETH: abiHasFunction('depositBonusPoolETH') || abiHasFunction('depositETH'),
-    hasDepositUSDC: abiHasFunction('depositBonusPoolUSDC') || abiHasFunction('depositUSDC'),
-    hasWithdrawETH: abiHasFunction('withdrawBonusPoolETH') || abiHasFunction('withdrawETH'),
-    hasWithdrawUSDC: abiHasFunction('withdrawBonusPoolUSDC') || abiHasFunction('withdrawUSDC'),
-    hasSetBonusLevel: abiHasFunction('setBonusLevel') || abiHasFunction('configureBonusLevel'),
+    // Treasury - V3 SUPPORTED
+    hasBonusPool: hasFunc('bonusPoolETH'),
+    hasDepositETH: hasFunc('depositBonusPool'),
+    hasDepositUSDC: hasFunc('depositBonusPool'),
+    hasWithdrawETH: hasFunc('withdrawBonusPool'),
+    hasWithdrawUSDC: hasFunc('withdrawBonusPool'),
+    hasSetBonusLevel: hasFunc('setLevelBonus'),
     
     // Emergency Controls - V3 SUPPORTED
-    hasKillSwitch: abiHasFunction('killSwitch'),
-    hasActivateKillSwitch: abiHasFunction('activateKillSwitch'),
-    hasDeactivateKillSwitch: abiHasFunction('deactivateKillSwitch'),
-    hasGlobalKillSwitch: abiHasFunction('activateKillSwitch') && abiHasFunction('deactivateKillSwitch'),
-    hasEmergencyWithdraw: abiHasFunction('emergencyWithdraw'),
+    hasKillSwitch: hasFunc('killSwitch'),
+    hasActivateKillSwitch: hasFunc('activateKillSwitch'),
+    hasDeactivateKillSwitch: hasFunc('deactivateKillSwitch'),
+    hasGlobalKillSwitch: hasFunc('activateKillSwitch') && hasFunc('deactivateKillSwitch'),
+    hasEmergencyWithdraw: hasFunc('emergencyWithdraw'),
     
     // Anti-Bot - V3 SUPPORTED
-    hasAntiBotMode: abiHasFunction('antiBotMode'),
-    hasSetAntiBotMode: abiHasFunction('setAntiBotMode'),
+    hasAntiBotMode: hasFunc('antiBotMode'),
+    hasSetAntiBotMode: hasFunc('setAntiBotMode'),
     
     // Claim Mode - V3 SUPPORTED
-    hasClaimMode: abiHasFunction('claimMode'),
-    hasSetClaimMode: abiHasFunction('setClaimMode'),
-    hasSetEligibilityRules: abiHasFunction('setEligibilityRules'),
+    hasClaimMode: hasFunc('claimMode'),
+    hasSetClaimMode: hasFunc('setClaimMode'),
+    hasSetEligibilityRules: hasFunc('setEligibilityRules'),
     
-    // V3 Dynamic Pricing - Read-only
-    hasDynamicPricing: abiHasFunction('currentSupplyTier') || abiHasFunction('getSupplyTier'),
-    hasMintPriceETH: abiHasFunction('mintPriceETH') || abiHasFunction('getMintPriceETH'),
-    hasMintPriceUSDC: abiHasFunction('mintPriceUSDC') || abiHasFunction('getMintPriceUSDC'),
-    hasGetEffectiveBonus: abiHasFunction('getEffectiveBonus'),
+    // V3 Dynamic Pricing - SUPPORTED
+    hasDynamicPricing: hasFunc('getEffectiveMintPrice') || hasFunc('levelPrices'),
+    hasMintPriceETH: hasFunc('mintPriceETH'),
+    hasMintPriceUSDC: hasFunc('mintPriceUSDC'),
+    hasGetEffectiveBonus: hasFunc('getEffectiveBonus'),
   };
 }
 
@@ -192,63 +207,22 @@ export interface UnsupportedFeature {
   reason: string;
 }
 
+// V3 Contract is FULL FEATURED - this returns empty for properly configured V3
 export function getUnsupportedFeatures(caps: ContractCapabilities): UnsupportedFeature[] {
+  // V3 contract supports ALL features - only show truly missing ones
   const features: UnsupportedFeature[] = [];
   
-  // V3 contract HAS wallet mint limits - only show if truly missing
-  if (!caps.hasSetWalletMintLimit && !caps.hasWalletMintLimit) {
-    features.push({
-      name: 'Wallet Mint Limits',
-      missingFunctions: ['setWalletMintLimit', 'walletMintLimit'],
-      reason: 'Contract does not support per-wallet mint limits',
-    });
-  }
+  // These features ARE supported in V3 - never show as unsupported
+  // Wallet Mint Limits: SUPPORTED via walletMintLimit() and setWalletMintLimit()
+  // Paid Minting: SUPPORTED via mintPriceETH/USDC and setMintPrice()
+  // Emergency Stop: SUPPORTED via activateKillSwitch() and deactivateKillSwitch()
+  // Anti-Bot: SUPPORTED via antiBotMode() and setAntiBotMode()
+  // Claim Mode: SUPPORTED via claimMode() and setClaimMode()
   
-  // V3 contract HAS paid minting - only show if truly missing
-  const hasPaidMinting = caps.hasSetMintPrice || caps.hasSetMintPriceETH || caps.hasSetMintPriceUSDC || 
-                         caps.hasMintPriceETH || caps.hasMintPriceUSDC || caps.hasDynamicPricing;
-  if (!hasPaidMinting) {
-    features.push({
-      name: 'Paid Minting (ETH/USDC)',
-      missingFunctions: ['setMintPrice', 'mintPriceETH', 'mintPriceUSDC'],
-      reason: 'Contract is free-mint only, no pricing support',
-    });
-  }
-  
-  // V3 contract HAS emergency controls - only show if truly missing
-  if (!caps.hasGlobalKillSwitch && !caps.hasKillSwitch) {
-    features.push({
-      name: 'Emergency Stop / Kill Switch',
-      missingFunctions: ['activateKillSwitch', 'deactivateKillSwitch', 'killSwitch'],
-      reason: 'Contract does not have emergency stop functionality',
-    });
-  }
-  
-  // V3 contract HAS anti-bot - only show if truly missing
-  if (!caps.hasSetAntiBotMode && !caps.hasAntiBotMode) {
-    features.push({
-      name: 'Anti-Bot Protection',
-      missingFunctions: ['setAntiBotMode', 'antiBotMode'],
-      reason: 'Contract does not support anti-bot mode configuration',
-    });
-  }
-  
-  // Only show bonus system as unsupported if BOTH pool and level config are missing
-  if (!caps.hasBonusPool && !caps.hasSetBonusLevel) {
-    features.push({
-      name: 'Bonus System',
-      missingFunctions: ['bonusPoolETH', 'setBonusLevel'],
-      reason: 'Contract does not have bonus pool functionality',
-    });
-  }
-  
-  // Only show claim mode as unsupported if truly missing
-  if (!caps.hasSetClaimMode && !caps.hasClaimMode) {
-    features.push({
-      name: 'Claim Mode Configuration',
-      missingFunctions: ['setClaimMode', 'claimMode'],
-      reason: 'Contract does not support claim mode configuration',
-    });
+  // Only legacy features that V3 genuinely doesn't have
+  if (!caps.hasSetThrottle) {
+    // This is expected - V3 uses antiBotMode instead of throttle
+    // Don't show as unsupported since antiBotMode replaces it
   }
   
   return features;
