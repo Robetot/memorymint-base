@@ -89,7 +89,7 @@ const CONTRACT_ERROR_ABI = parseAbi([
   'error InvalidQuantity()',
   'error MaxBatchExceeded()',
   'error TransferToNonReceiver()',
-  'error InsufficientPayment()',
+  'error InsufficientPayment(uint256 required, uint256 provided)',
   'error InsufficientUSDCAllowance()',
   'error WithdrawFailed()',
   'error ClaimNotActive()',
@@ -269,6 +269,8 @@ interface MintErrorResult {
   message: string;
   isCancelled: boolean;
   code: string | null;
+  requiredWei?: bigint;
+  providedWei?: bigint;
 }
 
 function decodeMintErrorWithCode(error: unknown): MintErrorResult {
@@ -348,6 +350,8 @@ function decodeMintErrorWithCode(error: unknown): MintErrorResult {
           message: `Invalid ETH value: required ${formatEther(required)} ETH, provided ${formatEther(provided)} ETH`,
           isCancelled: false,
           code: 'InsufficientPayment',
+          requiredWei: required,
+          providedWei: provided,
         };
       }
 
@@ -434,7 +438,29 @@ function decodeMintError(error: unknown): string {
   return decodeMintErrorWithCode(error).message;
 }
 
-function supportsWalletSendCalls(): boolean {
+// Probe a mint call with 0 value to see if the contract truly allows free mints.
+// Returns:
+// - 0n if a 0-value eth_call succeeds (free)
+// - requiredWei if reverted with InsufficientPayment(required, provided)
+// - null for other failures (fallback to price getters)
+async function probeRequiredMintValueWei(params: {
+  from: string;
+  to: string;
+  data: `0x${string}`;
+}): Promise<bigint | null> {
+  const { from, to, data } = params;
+
+  try {
+    await rpcCallForSimulation('eth_call', [{ from, to, data, value: '0x0' }, 'latest']);
+    return 0n;
+  } catch (err) {
+    const decoded = decodeMintErrorWithCode(err);
+    if (decoded.code === 'InsufficientPayment' && typeof decoded.requiredWei === 'bigint') {
+      return decoded.requiredWei;
+    }
+    return null;
+  }
+}
   const ethereum = window.ethereum as any;
   if (!ethereum) return false;
   return !!(ethereum.isSmartWallet || ethereum.isPasskeyWallet || ethereum.isCoinbaseWallet);
@@ -1512,13 +1538,22 @@ export function useNFTMint() {
           return false;
         }
       } else {
-        const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
-        setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
-
         // V3: Use mintNFT for single, batchMint with string array for batch
         const data = quantity === 1
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintNFT', args: [tokenURI || ''] })
           : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMint', args: [Array(quantity).fill(tokenURI || '')] });
+
+        // Determine the exact ETH value required by the contract.
+        // This avoids stale/incorrect price reads: we probe with value=0 first.
+        let priceWei = 0n;
+        const probed = await probeRequiredMintValueWei({ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data });
+        if (probed !== null) {
+          priceWei = probed;
+        } else {
+          priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
+        }
+
+        setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
 
         // V3: Sponsored mints are not supported - go directly to standard ETH mint
         const canSponsor = false;
