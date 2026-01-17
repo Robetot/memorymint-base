@@ -687,6 +687,14 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
           <span className="text-sm text-muted-foreground font-body">Farcaster</span>
         </div>
         <div className="inline-flex items-center gap-2 px-4 py-2 bg-card/50 rounded-full border border-border">
+          <div className="w-6 h-6 rounded-full bg-[#3B99FC] flex items-center justify-center">
+            <svg viewBox="0 0 40 40" className="w-4 h-4">
+              <path d="M12.5 15.5c4.14-4.14 10.86-4.14 15 0l.5.5c.21.21.21.54 0 .75l-1.71 1.71c-.1.1-.27.1-.37 0l-.69-.69c-2.89-2.89-7.57-2.89-10.46 0l-.74.74c-.1.1-.27.1-.37 0l-1.71-1.71c-.21-.21-.21-.54 0-.75l.55-.55zm18.53 3.53l1.53 1.53c.21.21.21.54 0 .75l-6.88 6.88c-.21.21-.54.21-.75 0l-4.88-4.88c-.05-.05-.13-.05-.19 0l-4.88 4.88c-.21.21-.54.21-.75 0l-6.88-6.88c-.21-.21-.21-.54 0-.75l1.53-1.53c.21-.21.54-.21.75 0l4.88 4.88c.05.05.13.05.19 0l4.88-4.88c.21-.21.54-.21.75 0l4.88 4.88c.05.05.13.05.19 0l4.88-4.88c.21-.21.54-.21.75 0z" fill="white"/>
+            </svg>
+          </div>
+          <span className="text-sm text-muted-foreground font-body">WalletConnect</span>
+        </div>
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-card/50 rounded-full border border-border">
           <div className="w-6 h-6 rounded-full bg-[#0052FF] flex items-center justify-center">
             <BaseAppIcon className="w-4 h-4" />
           </div>
