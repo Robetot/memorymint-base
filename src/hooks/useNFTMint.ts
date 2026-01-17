@@ -1500,6 +1500,8 @@ export function useNFTMint() {
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintNFT', args: [tokenURI || ''] })
           : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMint', args: [Array(quantity).fill(tokenURI || '')] });
 
+        // V3: Sponsored mints are not supported - go directly to standard ETH mint
+        const canSponsor = false;
         if (canSponsor) {
           setMintState(prev => ({ ...prev, pollingMessage: 'Requesting sponsored mint...', txPhase: 'awaiting_wallet' }));
 
@@ -1890,50 +1892,54 @@ export function useNFTMint() {
 
 
   // ============ BONUS CLAIM PRE-ELIGIBILITY CHECK ============
+  // V3: Uses bonusLevels() to check eligibility - no canClaimBonus function
   const checkBonusEligibility = useCallback(async (
     walletAddress: string,
     levelId: bigint
   ): Promise<{ eligible: boolean; reason: string }> => {
     try {
+      // V3: Check if bonus level is active via bonusLevels
       const data = encodeFunctionData({
         abi: CONTRACT_ABI,
-        functionName: 'canClaimBonus',
-        args: [walletAddress as `0x${string}`, levelId],
+        functionName: 'bonusLevels',
+        args: [levelId],
       });
 
       const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
 
       if (!result || result === '0x') {
-        return { eligible: false, reason: 'Unable to check eligibility' };
+        return { eligible: false, reason: 'Unable to check bonus level' };
       }
 
       const decoded = decodeFunctionResult({
         abi: CONTRACT_ABI,
-        functionName: 'canClaimBonus',
+        functionName: 'bonusLevels',
         data: result as `0x${string}`,
-      }) as [boolean, string];
+      }) as readonly [bigint, bigint, bigint, bigint, boolean];
 
-      return { eligible: decoded[0], reason: decoded[1] || (decoded[0] ? 'Eligible' : 'Not eligible') };
+      const isActive = decoded[4];
+      if (!isActive) {
+        return { eligible: false, reason: 'Bonus level is not active' };
+      }
+
+      return { eligible: true, reason: 'Eligible' };
     } catch (error) {
       console.error('[ClaimBonus] Eligibility check failed:', error);
-      return { eligible: false, reason: 'Error checking eligibility' };
+      // Fail-open: let user try, contract will enforce
+      return { eligible: true, reason: 'Unable to verify - try claiming' };
     }
   }, []);
 
   // ============ BONUS CLAIM ============
+  // V3: claimBonus takes only level (uint256)
   const claimBonus = useCallback(async (
     walletAddress: string,
     levelId: bigint,
-    gameLevel: bigint,
-    levelProof: `0x${string}`
+    _gameLevel?: bigint,      // Unused in V3
+    _levelProof?: `0x${string}` // Unused in V3
   ): Promise<{ success: boolean; txHash: string | null; error: string | null }> => {
     if (!window.ethereum || !walletAddress) {
       return { success: false, txHash: null, error: 'Wallet not connected' };
-    }
-
-    // Validate levelProof format
-    if (!levelProof || typeof levelProof !== 'string' || !levelProof.match(/^0x[a-fA-F0-9]*$/)) {
-      return { success: false, txHash: null, error: 'Invalid level proof format' };
     }
 
     // Check eligibility BEFORE wallet prompt
@@ -1942,7 +1948,7 @@ export function useNFTMint() {
       return { success: false, txHash: null, error: eligibility.reason };
     }
 
-    const { allowed, error, config } = await enforceClaimAllowed();
+    const { allowed, error } = await enforceClaimAllowed();
     if (!allowed) {
       return { success: false, txHash: null, error };
     }
@@ -1955,12 +1961,11 @@ export function useNFTMint() {
     setMintState(prev => ({ ...prev, isClaiming: true, error: null, pollingMessage: 'Preparing claim...' }));
 
     try {
-      const functionName = config.activePaymentToken === 'USDC' ? 'claimBonusAsUSDC' : 'claimBonus';
-      
+      // V3: claimBonus takes only level
       const data = encodeFunctionData({
         abi: CONTRACT_ABI,
-        functionName,
-        args: [levelId, gameLevel, levelProof],
+        functionName: 'claimBonus',
+        args: [levelId],
       });
 
       setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...' }));

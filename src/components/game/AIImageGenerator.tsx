@@ -12,6 +12,7 @@ import { getLevel } from '@/data/levels';
 import { toast } from 'sonner';
 import { ANIMALS } from '@/data/animals';
 import { BatchImageGenerator } from './BatchImageGenerator';
+import { ConfigWarningBanner } from './ConfigWarningBanner';
 
 interface AIImageGeneratorProps {
   score: number;
@@ -61,7 +62,7 @@ export function AIImageGenerator({
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting } = useWallet();
-  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getMintPriceEstimate, checkBalance, antiBotConfig } = useNFTMint();
+  const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getMintPriceEstimate, checkBalance, antiBotConfig, adminConfig } = useNFTMint();
   
   // Estimated gas fee for display
   const estimatedGasEth = '0.0002';
@@ -506,6 +507,9 @@ export function AIImageGenerator({
                 </a>
               </div>
             )}
+
+            {/* Config Warning Banner - shows when RPC reads failed but minting still allowed */}
+            <ConfigWarningBanner show={adminConfig?.configFetchFailed === true} />
 
             {/* Cooldown Countdown - Real-time display */}
             {shouldShowCooldown && (
