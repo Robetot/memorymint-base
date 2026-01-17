@@ -53,11 +53,13 @@ export function AdminEmergencySection({
 }: AdminEmergencySectionProps) {
   const [showPauseDialog, setShowPauseDialog] = useState(false);
   const [showKillDialog, setShowKillDialog] = useState(false);
+  const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
 
   const isPaused = config?.paused ?? false;
   const isKillSwitchActive = config?.killSwitch ?? false;
   const canPause = capabilities.hasPause || capabilities.hasMintPaused;
-  const canKillSwitch = capabilities.hasGlobalKillSwitch;
+  const canKillSwitch = capabilities.hasGlobalKillSwitch || capabilities.hasActivateKillSwitch;
+  const canDeactivateKillSwitch = capabilities.hasDeactivateKillSwitch && onDeactivateKillSwitch;
 
   const handleEmergencyPause = async () => {
     setShowPauseDialog(false);
@@ -68,6 +70,13 @@ export function AdminEmergencySection({
     setShowKillDialog(false);
     if (onKillSwitch) {
       await onKillSwitch();
+    }
+  };
+
+  const handleDeactivateKillSwitch = async () => {
+    setShowDeactivateDialog(false);
+    if (onDeactivateKillSwitch) {
+      await onDeactivateKillSwitch();
     }
   };
 
@@ -92,6 +101,19 @@ export function AdminEmergencySection({
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             All minting is currently disabled. Unpause to resume operations.
+          </p>
+        </div>
+      )}
+
+      {/* Active Kill Switch Warning */}
+      {isKillSwitchActive && (
+        <div className="p-4 bg-destructive/20 border-2 border-destructive rounded-lg">
+          <div className="flex items-center gap-2 text-destructive font-bold">
+            <Power className="h-5 w-5" />
+            🚨 KILL SWITCH ACTIVE
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">
+            All minting and bonus claims are disabled. Deactivate to resume operations.
           </p>
         </div>
       )}
@@ -141,21 +163,55 @@ export function AdminEmergencySection({
                   <EnforcementBadge type="onchain" />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Disable ALL minting + ALL bonuses permanently
+                  Disable ALL minting + ALL bonuses
                 </p>
               </div>
               <Button
                 variant="destructive"
                 size="sm"
                 onClick={() => setShowKillDialog(true)}
+                disabled={isPreviewMode || isPending || isKillSwitchActive}
+              >
+                {isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : isKillSwitchActive ? (
+                  'Active'
+                ) : (
+                  <>
+                    <Power className="h-4 w-4 mr-1" />
+                    Kill
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+
+          {/* Deactivate Kill Switch */}
+          {canDeactivateKillSwitch && isKillSwitchActive && (
+            <div className="flex items-center justify-between p-3 bg-green-500/10 rounded-lg border border-green-500/30">
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-green-600" />
+                  <span className="font-medium text-green-700 dark:text-green-400">Deactivate Kill Switch</span>
+                  <EnforcementBadge type="onchain" />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Resume all minting and bonus claims
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-green-500 text-green-600 hover:bg-green-500/10"
+                onClick={() => setShowDeactivateDialog(true)}
                 disabled={isPreviewMode || isPending}
               >
                 {isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    <Power className="h-4 w-4 mr-1" />
-                    Kill
+                    <Shield className="h-4 w-4 mr-1" />
+                    Resume
                   </>
                 )}
               </Button>
@@ -223,6 +279,37 @@ export function AdminEmergencySection({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Activate Kill Switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Deactivate Kill Switch Confirmation Dialog */}
+      <AlertDialog open={showDeactivateDialog} onOpenChange={setShowDeactivateDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-green-600">
+              <Shield className="h-5 w-5" />
+              Deactivate Kill Switch
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will resume all operations:
+              <ul className="list-disc list-inside mt-2 space-y-1">
+                <li>Re-enable minting</li>
+                <li>Re-enable bonus claims</li>
+                <li>Contract will be fully operational</li>
+              </ul>
+              <br />
+              Are you sure you want to proceed?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeactivateKillSwitch}
+              className="bg-green-600 text-white hover:bg-green-700"
+            >
+              Resume Operations
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
