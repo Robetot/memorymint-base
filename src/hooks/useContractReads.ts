@@ -114,12 +114,25 @@ const walletCache: Map<string, { data: WalletState; timestamp: number }> = new M
 let contractVerified = false;
 
 // ============ ABI HELPERS ============
+// Check if function exists in the verified BaseScan ABI
 function abiHasFunction(functionName: string): boolean {
-  const abiItems = CONTRACT_ABI as unknown as readonly any[];
+  const abiItems = CONTRACT_ABI as readonly any[];
   return abiItems.some(
     (i) => i && i.type === 'function' && typeof i.name === 'string' && i.name === functionName
   );
 }
+
+// List of ALL V3 functions that ARE supported (verified from BaseScan)
+// Used to prevent false negatives in feature detection
+const V3_SUPPORTED_FUNCTIONS = new Set([
+  'owner', 'totalMinted', 'walletMintLimit', 'antiBotMode', 'claimMode',
+  'mintPaused', 'claimsPaused', 'killSwitch', 'killed', 'mintPriceETH', 'mintPriceUSDC',
+  'bonusPoolETH', 'bonusPoolUSDC', 'currencyConfig', 'eligibilityRules',
+  'setMintPaused', 'setClaimsPaused', 'setWalletMintLimit', 'setAntiBotMode', 'setClaimMode',
+  'setMintPrice', 'activateKillSwitch', 'deactivateKillSwitch', 'withdrawFees', 'emergencyWithdraw',
+  'mint', 'mintNFT', 'mintWithUSDC', 'batchMint', 'mintTo', 'mintWithSignature',
+  'claimBonus', 'getEffectiveBonus', 'getEffectiveMintPrice',
+]);
 
 // ============ NETWORK GUARD ============
 async function getConnectedChainId(): Promise<string | null> {
