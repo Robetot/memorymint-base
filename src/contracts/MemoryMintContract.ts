@@ -65,7 +65,6 @@ export const CONTRACT_ABI = parseAbi([
   'function tokenURI(uint256 tokenId) view returns (string)',
   'function balanceOf(address owner) view returns (uint256)',
   'function ownerOf(uint256 tokenId) view returns (address)',
-  'function totalSupply() view returns (uint256)',
   'function approve(address to, uint256 tokenId)',
   'function getApproved(uint256 tokenId) view returns (address)',
   'function setApprovalForAll(address operator, bool approved)',
@@ -75,12 +74,13 @@ export const CONTRACT_ABI = parseAbi([
   'function safeTransferFrom(address from, address to, uint256 tokenId, bytes data)',
   'function supportsInterface(bytes4 interfaceId) view returns (bool)',
 
-  // ===== Core View Functions =====
+  // ===== Core View Functions (V3 uses totalMinted, not totalSupply) =====
   'function owner() view returns (address)',
-  'function paused() view returns (bool)',
-  'function nextTokenId() view returns (uint256)',
-  'function MAX_SUPPLY() view returns (uint256)',
-  'function MAX_BATCH_SIZE() view returns (uint256)',
+  'function mintPaused() view returns (bool)',
+  'function killSwitch() view returns (bool)',
+  'function totalMinted() view returns (uint256)',
+  'function mintPriceETH() view returns (uint256)',
+  'function mintPriceUSDC() view returns (uint256)',
 
   // ===== Dynamic Pricing Functions =====
   'function getMintPriceETH() view returns (uint256)',

@@ -82,10 +82,9 @@ export const CONTRACT_ABI_V3 = parseAbi([
 
   // ===== Core View Functions =====
   'function owner() view returns (address)',
-  'function paused() view returns (bool)',
-  'function nextTokenId() view returns (uint256)',
-  'function MAX_SUPPLY() view returns (uint256)',
-  'function MAX_BATCH_SIZE() view returns (uint256)',
+  'function mintPaused() view returns (bool)',
+  'function killSwitch() view returns (bool)',
+  'function totalMinted() view returns (uint256)',
 
   // ===== Dynamic Pricing Functions =====
   'function getMintPriceETH() view returns (uint256)',
