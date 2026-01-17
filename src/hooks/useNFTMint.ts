@@ -40,9 +40,12 @@ const CONTRACT_ABI = parseAbi([
   'function mintWithUSDC(string tokenURI) returns (uint256)',
   // Bonus claim functions
   'function claimBonus(uint256 level) external',
-  // Price getters
+  // Price getters (base/static)
   'function mintPriceUSDC() view returns (uint256)',
   'function mintPriceETH() view returns (uint256)',
+  // Dynamic pricing (effective)
+  'function getEffectiveMintPrice(uint8 level, uint8 currency) view returns (uint256)',
+  'function dynamicPricingConfig() view returns (bool enabled, uint8 priority, uint8 activeLevelCount, uint8 activeSupplyTierCount)',
   // Bonus getters
   'function bonusLevels(uint256) view returns (uint256 bonusAmountETH, uint256 bonusAmountUSDC, uint256 minMintCount, uint256 minHoldDuration, bool isActive)',
   'function owner() view returns (address)',
@@ -1035,10 +1038,39 @@ export function useNFTMint() {
 
   // ============ GET MINT PRICE ETH (with graceful fallback) ============
   const getMintPriceETH = useCallback(async (): Promise<bigint> => {
-    // Read actual price from contract - user must pay what contract demands
-    // To enable free mints, admin must call setMintPrice(0, 0) on-chain via BaseScan
+    // IMPORTANT: In V3, dynamic pricing tiers can override mintPriceETH.
+    // If dynamic pricing is enabled, we must use getEffectiveMintPrice(0, ETH)
+    // otherwise mints can revert with InsufficientPayment even when mintPriceETH==0.
     try {
       return await safeRpcCall(async () => {
+        let dynamicEnabled = false;
+        try {
+          const cfgData = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'dynamicPricingConfig', args: [] });
+          const cfgResult = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: cfgData }, 'latest']);
+          const decoded = decodeFunctionResult({
+            abi: CONTRACT_ABI,
+            functionName: 'dynamicPricingConfig',
+            data: cfgResult as `0x${string}`,
+          }) as readonly [boolean, number, number, number];
+          dynamicEnabled = !!decoded?.[0];
+        } catch {
+          // If we can't read it, fail-open to static price
+        }
+
+        if (dynamicEnabled) {
+          try {
+            const data = encodeFunctionData({
+              abi: CONTRACT_ABI,
+              functionName: 'getEffectiveMintPrice',
+              args: [0, 0], // level=0 (no level), currency=0 (ETH)
+            });
+            const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+            return decodeUint256Result(result, 'getEffectiveMintPrice', true);
+          } catch {
+            // fallback below
+          }
+        }
+
         const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPriceETH', args: [] });
         const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
         return decodeUint256Result(result, 'mintPriceETH', true);
