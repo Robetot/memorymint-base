@@ -25,7 +25,7 @@ interface AdminTreasurySectionProps {
   onDepositUSDC: (amount: bigint) => Promise<boolean>;
   onWithdrawFees: () => Promise<boolean>;
   onWithdrawFeesUSDC: () => Promise<boolean>;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<void> | Promise<any>;
   isPending: boolean;
 }
 

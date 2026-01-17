@@ -28,6 +28,7 @@ interface AdminEmergencySectionProps {
   isPreviewMode: boolean;
   onPause: () => Promise<boolean>;
   onKillSwitch?: () => Promise<boolean>;
+  onDeactivateKillSwitch?: () => Promise<boolean>;
   isPending: boolean;
 }
 
@@ -47,13 +48,15 @@ export function AdminEmergencySection({
   isPreviewMode,
   onPause,
   onKillSwitch,
+  onDeactivateKillSwitch,
   isPending,
 }: AdminEmergencySectionProps) {
   const [showPauseDialog, setShowPauseDialog] = useState(false);
   const [showKillDialog, setShowKillDialog] = useState(false);
 
   const isPaused = config?.paused ?? false;
-  const canPause = capabilities.hasPause;
+  const isKillSwitchActive = config?.killSwitch ?? false;
+  const canPause = capabilities.hasPause || capabilities.hasMintPaused;
   const canKillSwitch = capabilities.hasGlobalKillSwitch;
 
   const handleEmergencyPause = async () => {

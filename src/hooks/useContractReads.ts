@@ -25,6 +25,10 @@ export interface ContractConfig {
   totalSupply: bigint;
   nextTokenId: bigint;
   
+  // V3 Pause / Kill Switch (EXPLICITLY READ)
+  mintPaused: boolean;
+  killSwitch: boolean;
+  
   // V3 Dynamic Pricing
   mintPriceETH: bigint;
   mintPriceUSDC: bigint;
@@ -41,6 +45,15 @@ export interface ContractConfig {
   totalFeesCollectedETH: bigint;
   totalFeesCollectedUSDC: bigint;
   
+  // V3 Wallet Limits (EXPLICITLY READ)
+  walletMintLimit: bigint;
+  
+  // V3 Anti-Bot Mode (EXPLICITLY READ) - 0=Disabled, 1=Signature, 2=Allowlist, 3=Hybrid
+  antiBotMode: number;
+  
+  // V3 Claim Mode (EXPLICITLY READ) - 0=Disabled, 1=FCFS, 2=Unlimited, 3=OneTime, 4=Custom
+  claimMode: number;
+  
   // Compatibility fields
   mintEnabled: boolean;
   claimEnabled: boolean;
@@ -48,11 +61,8 @@ export interface ContractConfig {
   usdcEnabled: boolean;
   activeMintCurrency: PaymentCurrency;
   activeBonusCurrency: PaymentCurrency;
-  antiBotMode: number;
-  walletMintLimit: bigint;
   mintCooldownBlocks: bigint;
   signatureRequired: boolean;
-  claimMode: number;
   
   // Meta
   lastFetched: number;
@@ -391,8 +401,8 @@ export function useContractReads() {
 
       const totalSupply = (await readStep('totalMinted()', async () => readNft('totalMinted'))) as bigint;
 
-      // OPTIONAL reads in parallel - must NEVER block init or throw
-      // V3 uses mintPaused not paused, and doesn't have nextTokenId, MAX_SUPPLY, MAX_BATCH_SIZE
+      // OPTIONAL reads in parallel - EXPLICITLY READ ALL V3 FIELDS
+      // V3 has: mintPaused, killSwitch, walletMintLimit, antiBotMode, claimMode
       const [
         mintPausedRes,
         killSwitchRes,
@@ -404,6 +414,10 @@ export function useContractReads() {
         currentBonusTierRes,
         totalFeesETHRes,
         totalFeesUSDCRes,
+        // V3 EXPLICIT READS
+        walletMintLimitRes,
+        antiBotModeRes,
+        claimModeRes,
       ] = await Promise.allSettled([
         safeReadBoolean('mintPaused', false),
         safeReadBoolean('killSwitch', false),
@@ -415,6 +429,10 @@ export function useContractReads() {
         safeReadNumber('currentBonusTier', 0),
         safeReadBigInt('totalFeesCollectedETH', 0n),
         safeReadBigInt('totalFeesCollectedUSDC', 0n),
+        // V3 EXPLICIT READS
+        safeReadBigInt('walletMintLimit', 0n),
+        safeReadNumber('antiBotMode', 0),
+        safeReadNumber('claimMode', 0),
       ]);
 
       const mintPaused = mintPausedRes.status === 'fulfilled' ? mintPausedRes.value : false;
@@ -427,17 +445,33 @@ export function useContractReads() {
       const currentBonusTier = currentBonusTierRes.status === 'fulfilled' ? currentBonusTierRes.value : 0;
       const totalFeesCollectedETH = totalFeesETHRes.status === 'fulfilled' ? totalFeesETHRes.value : 0n;
       const totalFeesCollectedUSDC = totalFeesUSDCRes.status === 'fulfilled' ? totalFeesUSDCRes.value : 0n;
+      // V3 EXPLICIT FIELDS
+      const walletMintLimit = walletMintLimitRes.status === 'fulfilled' ? walletMintLimitRes.value : 0n;
+      const antiBotMode = antiBotModeRes.status === 'fulfilled' ? antiBotModeRes.value : 0;
+      const claimMode = claimModeRes.status === 'fulfilled' ? claimModeRes.value : 0;
 
       const paused = mintPaused || killSwitch;
-      const isFreeMint = mintPriceETH === 0n;
+      const isFreeMint = mintPriceETH === 0n && mintPriceUSDC === 0n;
 
-      // Build config - V3 has unlimited supply
+      console.info('[ContractReads] V3 fields read:', {
+        mintPaused,
+        killSwitch,
+        walletMintLimit: walletMintLimit.toString(),
+        antiBotMode,
+        claimMode,
+      });
+
+      // Build config - V3 FULL FEATURED
       const configData: ContractConfig = {
         owner,
         paused,
-        throttleEnabled: false,
+        throttleEnabled: antiBotMode > 0,
         totalSupply,
         nextTokenId: totalSupply + 1n,
+        
+        // V3 Pause / Kill Switch (EXPLICIT)
+        mintPaused,
+        killSwitch,
         
         // V3 Dynamic Pricing
         mintPriceETH,
@@ -455,18 +489,24 @@ export function useContractReads() {
         totalFeesCollectedETH,
         totalFeesCollectedUSDC,
         
+        // V3 Wallet Limits (EXPLICIT)
+        walletMintLimit,
+        
+        // V3 Anti-Bot Mode (EXPLICIT)
+        antiBotMode,
+        
+        // V3 Claim Mode (EXPLICIT)
+        claimMode,
+        
         // Compatibility fields
         mintEnabled: !paused,
-        claimEnabled: bonusPoolETH > 0n || bonusPoolUSDC > 0n,
+        claimEnabled: bonusPoolETH > 0n || bonusPoolUSDC > 0n || claimMode > 0,
         ethEnabled: true,
-        usdcEnabled: mintPriceUSDC > 0n,
+        usdcEnabled: true, // V3 always supports USDC
         activeMintCurrency: 'ETH',
         activeBonusCurrency: 'ETH',
-        antiBotMode: 0,
-        walletMintLimit: 0n,
         mintCooldownBlocks: 0n,
-        signatureRequired: false,
-        claimMode: bonusPoolETH > 0n ? 1 : 0,
+        signatureRequired: antiBotMode === 1 || antiBotMode === 3, // Signature or Hybrid mode
         
         lastFetched: now,
         isLoaded: true,
