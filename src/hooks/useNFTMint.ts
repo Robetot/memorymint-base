@@ -1064,46 +1064,20 @@ export function useNFTMint() {
     }
   }, [verifyBaseNetwork]);
 
-  // ============ GET MINT PRICE ETH (with graceful fallback) ============
+  // ============ GET MINT PRICE ETH (SIMPLE - direct read like ethers.js) ============
   const getMintPriceETH = useCallback(async (): Promise<bigint> => {
-    // IMPORTANT: In V3, dynamic pricing tiers can override mintPriceETH.
-    // If dynamic pricing is enabled, we must use getEffectiveMintPrice(0, ETH)
-    // otherwise mints can revert with InsufficientPayment even when mintPriceETH==0.
+    // Simple approach: just read mintPriceETH() directly from the contract
+    // This mirrors the simple ethers.js pattern the user provided
     try {
       return await safeRpcCall(async () => {
-        let dynamicEnabled = false;
-        try {
-          const cfgData = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'dynamicPricingConfig', args: [] });
-          const cfgResult = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: cfgData }, 'latest']);
-          const decoded = decodeFunctionResult({
-            abi: CONTRACT_ABI,
-            functionName: 'dynamicPricingConfig',
-            data: cfgResult as `0x${string}`,
-          }) as readonly [boolean, number, number, number];
-          dynamicEnabled = !!decoded?.[0];
-        } catch {
-          // If we can't read it, fail-open to static price
-        }
-
-        if (dynamicEnabled) {
-          try {
-            const data = encodeFunctionData({
-              abi: CONTRACT_ABI,
-              functionName: 'getEffectiveMintPrice',
-              args: [0, 0], // level=0 (no level), currency=0 (ETH)
-            });
-            const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-            return decodeUint256Result(result, 'getEffectiveMintPrice', true);
-          } catch {
-            // fallback below
-          }
-        }
-
         const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPriceETH', args: [] });
         const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-        return decodeUint256Result(result, 'mintPriceETH', true);
+        const price = decodeUint256Result(result, 'mintPriceETH', true);
+        console.log('[getMintPriceETH] Contract returned:', price.toString(), 'wei =', formatEther(price), 'ETH');
+        return price;
       }, pendingEthPriceRef, 0n);
-    } catch {
+    } catch (err) {
+      console.error('[getMintPriceETH] Failed to read price:', err);
       return 0n;
     }
   }, [safeRpcCall, decodeUint256Result]);
@@ -1545,15 +1519,10 @@ export function useNFTMint() {
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintNFT', args: [tokenURI || ''] })
           : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMint', args: [Array(quantity).fill(tokenURI || '')] });
 
-        // Determine the exact ETH value required by the contract.
-        // This avoids stale/incorrect price reads: we probe with value=0 first.
-        let priceWei = 0n;
-        const probed = await probeRequiredMintValueWei({ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data });
-        if (probed !== null) {
-          priceWei = probed;
-        } else {
-          priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
-        }
+        // SIMPLE APPROACH: Just read mintPriceETH() directly from the contract
+        // This mirrors the simple ethers.js pattern - no probing, no dynamic pricing complexity
+        const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
+        console.log('[Mint] Using price from contract:', priceWei.toString(), 'wei =', formatEther(priceWei), 'ETH');
 
         setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
 
