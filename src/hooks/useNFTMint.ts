@@ -30,42 +30,34 @@ export type PaymentToken = 'ETH' | 'USDC';
 export type DetectedWalletType = 'metamask' | 'coinbase' | 'baseapp' | 'farcaster' | 'unknown';
 
 // ============ CONTRACT ABI ============
+// Updated to match verified BaseScan ABI for MemoryMintUltraV3
 const CONTRACT_ABI = parseAbi([
   // ETH payment functions (direct, no signature required)
   'function mintNFT(string tokenURI) payable returns (uint256)',
-  'function batchMint(uint256 quantity) payable returns (uint256)',
+  'function mint(string metadataURI) payable',
+  'function batchMint(string[] metadataURIs) payable',
   // USDC payment functions (direct, no signature required)
   'function mintWithUSDC(string tokenURI) returns (uint256)',
-  'function batchMintWithUSDC(uint256 quantity) returns (uint256)',
   // Bonus claim functions
-  'function claimBonus(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
-  'function claimBonusAsUSDC(uint256 levelId, uint256 gameLevel, bytes levelProof) external',
+  'function claimBonus(uint256 level) external',
   // Price getters
   'function mintPriceUSDC() view returns (uint256)',
   'function mintPriceETH() view returns (uint256)',
-  'function getMintPriceETH() view returns (uint256)',
-  'function getBatchMintPriceETH(uint256 quantity) view returns (uint256)',
-  'function getBatchMintPriceUSDC(uint256 quantity) view returns (uint256)',
-  'function getEthUsdPrice() view returns (uint256)',
   // Bonus getters
-  'function getBonusAmountETH(uint256 levelId) view returns (uint256)',
-  'function getBonusAmountUSDC(uint256 levelId) view returns (uint256)',
-  'function canClaimBonus(address user, uint256 levelId) view returns (bool, string)',
-  'function getBonusLevel(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool)',
-  'function bonusLevels(uint256 levelId) view returns (uint256, bool, uint256, uint256, bool, uint8)',
+  'function bonusLevels(uint256) view returns (uint256 bonusAmountETH, uint256 bonusAmountUSDC, uint256 minMintCount, uint256 minHoldDuration, bool isActive)',
   'function owner() view returns (address)',
-  // Admin toggle states
-  'function mintEnabled() view returns (bool)',
-  'function claimEnabled() view returns (bool)',
-  'function activePaymentToken() view returns (uint8)',
-  'function signatureRequired() view returns (bool)',
-  // Currency config
-  'function currencyConfig() view returns (bool ethEnabled, bool usdcEnabled, uint8 activeMintCurrency, uint8 activeBonusCurrency)',
-  // Anti-bot
+  // V3 Admin toggle states - THESE ARE THE CORRECT FUNCTIONS
+  'function mintPaused() view returns (bool)',
+  'function killSwitch() view returns (bool)',
+  'function claimsPaused() view returns (bool)',
+  // Currency config (V3)
+  'function currencyConfig() view returns (bool ethEnabled, bool usdcEnabled, uint8 activeCurrency)',
+  // Anti-bot (V3)
   'function mintCooldown() view returns (uint256)',
-  'function lastMintTime(address) view returns (uint256)',
-  'function walletMintCount(address) view returns (uint256)',
-  'function maxMintsPerWallet() view returns (uint256)',
+  'function walletMintLimit() view returns (uint256)',
+  'function walletData(address) view returns (uint256 mintCount, uint256 lastMintTime, uint256 claimCount, uint256 lastClaimTime, uint256 totalBonusClaimed, bool isAllowlisted)',
+  // Total supply
+  'function totalMinted() view returns (uint256)',
 ]);
 
 // ERC20 ABI for USDC
@@ -125,13 +117,14 @@ const ALL_ERROR_ABI = [
 
 // ============ TYPES ============
 export interface AdminConfig {
-  mintEnabled: boolean;
-  claimEnabled: boolean;
+  mintEnabled: boolean;      // Derived from !mintPaused && !killSwitch
+  claimEnabled: boolean;     // Derived from !claimsPaused && !killSwitch
   activePaymentToken: PaymentToken;
   signatureRequired: boolean;
   disabledReason: string | null;
   lastFetched: number;
   isLoaded: boolean;
+  configFetchFailed?: boolean; // True if RPC failed - show warning but allow minting
 }
 
 export interface AntiBotConfig {
@@ -198,16 +191,17 @@ export interface BalanceCheck {
 }
 
 // ============ ADMIN CONFIG DEFAULTS ============
-// NOTE: Default to permissive values for non-critical fields to prevent false negatives
-// Critical fields (mintEnabled, signatureRequired) are always fetched from chain
+// NOTE: Default to PERMISSIVE values to allow minting even when admin reads fail
+// The smart contract will enforce the real state - we should not block on frontend
 const DEFAULT_ADMIN_CONFIG: AdminConfig = {
-  mintEnabled: false,  // Will be fetched from chain
-  claimEnabled: false, // Will be fetched from chain
+  mintEnabled: true,   // Default to enabled - contract will enforce mintPaused
+  claimEnabled: true,  // Default to enabled - contract will enforce claimsPaused
   activePaymentToken: 'ETH',
-  signatureRequired: true, // Default to true for safety - will be fetched from chain
+  signatureRequired: false, // Default to false - allow direct minting attempts
   disabledReason: null,
   lastFetched: 0,
-  isLoaded: false,
+  isLoaded: false,       // Will be true after fetch attempt (success or fail)
+  configFetchFailed: false, // Track if RPC failed
 };
 
 // ============ ADMIN CONFIG CACHE ============
@@ -666,10 +660,9 @@ export function useNFTMint() {
     }
   }, []);
 
-  // ============ FETCH ADMIN CONFIG WITH CACHING ============
-  // FIXED: Only calls functions that exist in the contract ABI
-  // - mintEnabled, claimEnabled, activePaymentToken, signatureRequired exist
-  // - Removed: sponsoredMintEnabled, getDisabledReason (do not exist in contract)
+   // ============ FETCH ADMIN CONFIG WITH CACHING ============
+  // V3 Contract: Uses mintPaused(), killSwitch(), claimsPaused() for state checks
+  // FAIL-OPEN: If reads fail, allow minting - the contract will enforce the real state
   const fetchAdminConfig = useCallback(async (force = false): Promise<AdminConfig> => {
     const now = Date.now();
     
@@ -688,107 +681,137 @@ export function useNFTMint() {
     lastForcedFetchTime = now;
     
     try {
-      // Only call functions that exist in the contract ABI
-      const calls = [
-        { fn: 'mintEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintEnabled', data: r as `0x${string}` }) as boolean },
-        { fn: 'claimEnabled', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'claimEnabled', data: r as `0x${string}` }) as boolean },
-        { fn: 'activePaymentToken', decode: (r: string) => (decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'activePaymentToken', data: r as `0x${string}` }) as number) === 1 ? 'USDC' : 'ETH' },
-        { fn: 'signatureRequired', decode: (r: string) => decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'signatureRequired', data: r as `0x${string}` }) as boolean },
-      ];
+      // V3 ABI: Read mintPaused, killSwitch, claimsPaused, currencyConfig
+      const [mintPausedResult, killSwitchResult, claimsPausedResult, currencyConfigResult] = await Promise.allSettled([
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPaused', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'killSwitch', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'claimsPaused', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'currencyConfig', args: [] }) }, 'latest']),
+      ]);
 
-      const results = await Promise.allSettled(
-        calls.map(async ({ fn }) => {
-          const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: fn as any, args: [] });
-          const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-          return { fn, result };
-        })
-      );
+      // Decode results with fallbacks
+      let mintPaused = false;
+      let killSwitch = false;
+      let claimsPaused = false;
+      let ethEnabled = true;
+      let usdcEnabled = false;
+      let configFetchFailed = false;
 
-      const mintResult = results[0];
-      const claimResult = results[1];
+      if (mintPausedResult.status === 'fulfilled' && mintPausedResult.value && mintPausedResult.value !== '0x') {
+        try {
+          mintPaused = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintPaused', data: mintPausedResult.value as `0x${string}` }) as boolean;
+        } catch { configFetchFailed = true; }
+      } else {
+        configFetchFailed = true;
+      }
+
+      if (killSwitchResult.status === 'fulfilled' && killSwitchResult.value && killSwitchResult.value !== '0x') {
+        try {
+          killSwitch = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'killSwitch', data: killSwitchResult.value as `0x${string}` }) as boolean;
+        } catch { /* continue */ }
+      }
+
+      if (claimsPausedResult.status === 'fulfilled' && claimsPausedResult.value && claimsPausedResult.value !== '0x') {
+        try {
+          claimsPaused = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'claimsPaused', data: claimsPausedResult.value as `0x${string}` }) as boolean;
+        } catch { /* continue */ }
+      }
+
+      if (currencyConfigResult.status === 'fulfilled' && currencyConfigResult.value && currencyConfigResult.value !== '0x') {
+        try {
+          const currencyData = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'currencyConfig', data: currencyConfigResult.value as `0x${string}` }) as readonly [boolean, boolean, number];
+          ethEnabled = currencyData[0];
+          usdcEnabled = currencyData[1];
+        } catch { /* continue */ }
+      }
+
+      // Derive mintEnabled/claimEnabled from pause states
+      const mintEnabled = !mintPaused && !killSwitch;
+      const claimEnabled = !claimsPaused && !killSwitch;
+
+      // Determine active payment token
+      let activePaymentToken: PaymentToken = 'ETH';
+      if (usdcEnabled && !ethEnabled) {
+        activePaymentToken = 'USDC';
+      }
+
+      // Build reason if disabled
+      let disabledReason: string | null = null;
+      if (killSwitch) {
+        disabledReason = 'Contract is in emergency mode';
+      } else if (mintPaused) {
+        disabledReason = 'Minting is paused';
+      }
+
+      const config: AdminConfig = {
+        mintEnabled,
+        claimEnabled,
+        activePaymentToken,
+        signatureRequired: false, // V3 default - signature-based mint is optional
+        disabledReason,
+        lastFetched: now,
+        isLoaded: true,
+        configFetchFailed,
+      };
       
-      if (mintResult.status === 'rejected' || claimResult.status === 'rejected') {
-        console.error('[AdminConfig] Critical config call failed');
-        return DEFAULT_ADMIN_CONFIG;
-      }
-
-      try {
-        const mintEnabled = calls[0].decode((mintResult as PromiseFulfilledResult<{ fn: string; result: string }>).value.result) as boolean;
-        const claimEnabled = calls[1].decode((claimResult as PromiseFulfilledResult<{ fn: string; result: string }>).value.result) as boolean;
-        
-        let activePaymentToken: PaymentToken = 'ETH';
-        let signatureRequired = true; // Default to true for safety
-
-        if (results[2].status === 'fulfilled') {
-          try {
-            const tokenResult = calls[2].decode((results[2] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
-            activePaymentToken = tokenResult as PaymentToken;
-          } catch { /* use default */ }
-        }
-
-        if (results[3].status === 'fulfilled') {
-          try {
-            const sigResult = calls[3].decode((results[3] as PromiseFulfilledResult<{ fn: string; result: string }>).value.result);
-            signatureRequired = sigResult as boolean;
-          } catch { /* use default */ }
-        }
-
-        const config: AdminConfig = {
-          mintEnabled,
-          claimEnabled,
-          activePaymentToken,
-          signatureRequired,
-          disabledReason: !mintEnabled ? 'Minting is paused' : null,
-          lastFetched: now,
-          isLoaded: true,
-        };
-        
-        // Update cache
-        cachedAdminConfig = config;
-        return config;
-      } catch (error) {
-        console.error('[AdminConfig] Decode failed:', error);
-        return DEFAULT_ADMIN_CONFIG;
-      }
+      // Update cache
+      cachedAdminConfig = config;
+      return config;
     } catch (error) {
       console.error('[AdminConfig] Fetch failed:', error);
-      return DEFAULT_ADMIN_CONFIG;
+      // FAIL-OPEN: Return permissive config so users can still try to mint
+      // The smart contract will enforce the real state on-chain
+      const failOpenConfig: AdminConfig = {
+        mintEnabled: true,
+        claimEnabled: true,
+        activePaymentToken: 'ETH',
+        signatureRequired: false,
+        disabledReason: null,
+        lastFetched: now,
+        isLoaded: true,
+        configFetchFailed: true,
+      };
+      cachedAdminConfig = failOpenConfig;
+      return failOpenConfig;
     }
   }, []);
 
-  // ============ FETCH ANTI-BOT CONFIG (HARDENED) ============
+  // ============ FETCH ANTI-BOT CONFIG (V3 - uses walletData) ============
   const fetchAntiBotConfig = useCallback(async (walletAddress: string): Promise<AntiBotConfig | null> => {
-    // Validate wallet address format
     if (!walletAddress || typeof walletAddress !== 'string' || !walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
       console.error('[AntiBot] Invalid wallet address format');
       return null;
     }
     
     try {
-      const [cooldownData, lastMintData, countData, maxData] = await Promise.all([
+      const [cooldownResult, walletLimitResult, walletDataResult] = await Promise.allSettled([
         rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintCooldown', args: [] }) }, 'latest']),
-        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'lastMintTime', args: [walletAddress as `0x${string}`] }) }, 'latest']),
-        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'walletMintCount', args: [walletAddress as `0x${string}`] }) }, 'latest']),
-        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'maxMintsPerWallet', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'walletMintLimit', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'walletData', args: [walletAddress as `0x${string}`] }) }, 'latest']),
       ]);
 
-      const cooldown = decodeUint256Result(cooldownData, 'mintCooldown');
-      const lastMintTime = decodeUint256Result(lastMintData, 'lastMintTime');
-      const mintCount = decodeUint256Result(countData, 'walletMintCount');
-      const maxMints = decodeUint256Result(maxData, 'maxMintsPerWallet');
+      let cooldown = 0n;
+      let maxMints = 0n;
+      let mintCount = 0n;
+      let lastMintTime = 0n;
 
-      // Use block timestamp for consistency (less gameable than client time)
+      if (cooldownResult.status === 'fulfilled' && cooldownResult.value) {
+        try { cooldown = decodeUint256Result(cooldownResult.value, 'mintCooldown', true); } catch { /* continue */ }
+      }
+      if (walletLimitResult.status === 'fulfilled' && walletLimitResult.value) {
+        try { maxMints = decodeUint256Result(walletLimitResult.value, 'walletMintLimit', true); } catch { /* continue */ }
+      }
+      if (walletDataResult.status === 'fulfilled' && walletDataResult.value && walletDataResult.value !== '0x') {
+        try {
+          const decoded = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'walletData', data: walletDataResult.value as `0x${string}` }) as readonly [bigint, bigint, bigint, bigint, bigint, boolean];
+          mintCount = decoded[0];
+          lastMintTime = decoded[1];
+        } catch { /* continue */ }
+      }
+
       const blockData = await rpcCall('eth_getBlockByNumber', ['latest', false]);
       const blockTimestamp = blockData?.timestamp ? BigInt(blockData.timestamp) : BigInt(Math.floor(Date.now() / 1000));
       
-      // Log any timestamp discrepancy
-      const clientTimestamp = BigInt(Math.floor(Date.now() / 1000));
-      const discrepancy = clientTimestamp > blockTimestamp ? clientTimestamp - blockTimestamp : blockTimestamp - clientTimestamp;
-      if (discrepancy > 60n) {
-        console.warn(`[AntiBot] Timestamp discrepancy: client=${clientTimestamp}, block=${blockTimestamp}, diff=${discrepancy}s`);
-      }
-      
-      // FIRST-TIME MINTER: If lastMintTime is 0, user has never minted - allow immediately
       if (lastMintTime === 0n) {
         const canMintNow = maxMints === 0n || mintCount < maxMints;
         return { cooldown, lastMintTime, mintCount, maxMints, canMintNow, cooldownRemaining: 0n };
@@ -801,17 +824,8 @@ export function useNFTMint() {
       return { cooldown, lastMintTime, mintCount, maxMints, canMintNow, cooldownRemaining };
     } catch (error) {
       console.error('[AntiBot] Failed to fetch config:', error);
-      // FAIL-OPEN for anti-bot: If we can't verify on-chain state, allow minting
-      // The smart contract will enforce the real cooldown if one exists
-      // This prevents false blocking of legitimate users due to RPC issues
-      return {
-        cooldown: 0n,
-        lastMintTime: 0n,
-        mintCount: 0n,
-        maxMints: 0n,
-        canMintNow: true, // Fail-open - let the contract enforce if needed
-        cooldownRemaining: 0n,
-      };
+      // FAIL-OPEN: allow minting, contract will enforce
+      return { cooldown: 0n, lastMintTime: 0n, mintCount: 0n, maxMints: 0n, canMintNow: true, cooldownRemaining: 0n };
     }
   }, [decodeUint256Result]);
 
@@ -871,6 +885,7 @@ export function useNFTMint() {
   }, []);
 
   // ============ PRE-MINT ENFORCEMENT ============
+  // V3: FAIL-OPEN - if config fetch fails, allow mint attempt (contract enforces)
   const enforceMintAllowed = useCallback(async (
     walletAddress: string,
     requiredToken: PaymentToken
@@ -879,28 +894,22 @@ export function useNFTMint() {
       return { allowed: false, error: 'Network switch in progress', config: DEFAULT_ADMIN_CONFIG };
     }
 
-    // Always fetch fresh admin config
+    // Fetch admin config - this will fail-open if RPC fails
     const config = await fetchAdminConfig(true);
     setMintState(prev => ({ ...prev, adminConfig: config, isLoadingConfig: false }));
 
-    if (!config.isLoaded) {
-      return { allowed: false, error: 'Admin configuration unavailable', config };
+    // CRITICAL: Only block on definitive on-chain states
+    // If config fetch failed, allow the mint attempt - contract will enforce
+    if (config.isLoaded && !config.configFetchFailed) {
+      if (!config.mintEnabled) {
+        return { allowed: false, error: config.disabledReason || 'Minting is currently disabled', config };
+      }
     }
 
-    if (!config.mintEnabled) {
-      return { allowed: false, error: config.disabledReason || 'Minting is currently disabled', config };
-    }
+    // V3: signatureRequired is false by default - direct minting is allowed
+    // No longer blocking on signatureRequired
 
-    // CRITICAL: Check if signatures are required - this causes "Invalid signature" errors
-    // when signatureRequired is true and we're using direct mint functions
-    if (config.signatureRequired) {
-      return { allowed: false, error: 'Minting requires admin signature authorization. Please contact the admin or wait for this to be disabled.', config };
-    }
-
-    if (config.activePaymentToken !== requiredToken) {
-      return { allowed: false, error: `Only ${config.activePaymentToken} payments are currently accepted`, config };
-    }
-
+    // Anti-bot check (fail-open)
     const antiBot = await fetchAntiBotConfig(walletAddress);
     if (antiBot) {
       setMintState(prev => ({ ...prev, antiBotConfig: antiBot }));
@@ -1041,30 +1050,25 @@ export function useNFTMint() {
     
     try {
       return await safeRpcCall(async () => {
-        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getMintPriceETH', args: [] });
+        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPriceETH', args: [] });
         const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-        // Use allowEmpty=true for graceful fallback to 0n (free mint)
-        return decodeUint256Result(result, 'getMintPriceETH', true);
-      }, pendingEthPriceRef, 0n); // Default to 0n on any error
+        return decodeUint256Result(result, 'mintPriceETH', true);
+      }, pendingEthPriceRef, 0n);
     } catch {
-      // Graceful fallback - return 0n (free mint) instead of throwing
       return 0n;
     }
   }, [safeRpcCall, decodeUint256Result]);
 
   const getBatchMintPriceETH = useCallback(async (quantity: number): Promise<bigint> => {
     if (quantity <= 0) return 0n;
-    
+    // V3: No batch price function - calculate as single price * quantity
     try {
-      return await safeRpcCall(async () => {
-        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getBatchMintPriceETH', args: [BigInt(quantity)] });
-        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-        return decodeUint256Result(result, 'getBatchMintPriceETH', true);
-      }, pendingEthPriceRef, 0n);
+      const singlePrice = await getMintPriceETH();
+      return singlePrice * BigInt(quantity);
     } catch {
       return 0n;
     }
-  }, [safeRpcCall, decodeUint256Result]);
+  }, []);
 
   // ============ GET MINT PRICE USDC (with graceful fallback) ============
   const getMintPriceUSDC = useCallback(async (): Promise<bigint> => {
@@ -1081,17 +1085,14 @@ export function useNFTMint() {
 
   const getBatchMintPriceUSDC = useCallback(async (quantity: number): Promise<bigint> => {
     if (quantity <= 0) return 0n;
-    
+    // V3: No batch price function - calculate as single price * quantity
     try {
-      return await safeRpcCall(async () => {
-        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'getBatchMintPriceUSDC', args: [BigInt(quantity)] });
-        const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
-        return decodeUint256Result(result, 'getBatchMintPriceUSDC', true);
-      }, pendingUsdcPriceRef, 0n);
+      const singlePrice = await getMintPriceUSDC();
+      return singlePrice * BigInt(quantity);
     } catch {
       return 0n;
     }
-  }, [safeRpcCall, decodeUint256Result]);
+  }, []);
 
 
   // ============ WAIT FOR RECEIPT (HARDENED) ============
@@ -1447,7 +1448,6 @@ export function useNFTMint() {
           if (allowance < priceUSDC) {
             const { success: approved, error: approvalError } = await approveUSDC(walletAddress, priceUSDC);
             if (!approved) {
-              // Check if approval was cancelled
               const errorInfo = decodeMintErrorWithCode({ message: approvalError });
               resetOnError(approvalError || 'USDC approval failed', errorInfo.isCancelled ? 'cancelled' : 'failed');
               return false;
@@ -1457,16 +1457,14 @@ export function useNFTMint() {
 
         setMintState(prev => ({ ...prev, pollingMessage: 'Optimizing gas...', txPhase: 'simulating' }));
 
-        const data = quantity === 1
-          ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintWithUSDC', args: [tokenURI || ''] })
-          : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMintWithUSDC', args: [BigInt(quantity)] });
+        // V3: Only single USDC mint supported
+        const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintWithUSDC', args: [tokenURI || ''] });
 
-        // Pre-simulate USDC transaction
         const simulation = await simulateAndEstimateGas({
           from: walletAddress,
           to: NFT_CONTRACT_ADDRESS,
           data,
-          value: 0n, // USDC transactions have no ETH value
+          value: 0n,
         });
 
         if (!simulation.success) {
@@ -1483,7 +1481,6 @@ export function useNFTMint() {
               from: walletAddress,
               to: NFT_CONTRACT_ADDRESS,
               data,
-              // Pass optimized gas params
               gas: simulation.gasLimit ? `0x${simulation.gasLimit.toString(16)}` : undefined,
               maxFeePerGas: simulation.maxFeePerGas ? `0x${simulation.maxFeePerGas.toString(16)}` : undefined,
               maxPriorityFeePerGas: simulation.maxPriorityFeePerGas ? `0x${simulation.maxPriorityFeePerGas.toString(16)}` : undefined,
@@ -1491,7 +1488,6 @@ export function useNFTMint() {
           });
         } catch (walletErr: unknown) {
           const errorInfo = decodeMintErrorWithCode(walletErr);
-          console.log('[Mint] Wallet response:', { isCancelled: errorInfo.isCancelled, message: errorInfo.message });
           resetOnError(errorInfo.message, errorInfo.isCancelled ? 'cancelled' : 'failed');
           return false;
         }
@@ -1499,12 +1495,10 @@ export function useNFTMint() {
         const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
         setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
 
+        // V3: Use mintNFT for single, batchMint with string array for batch
         const data = quantity === 1
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintNFT', args: [tokenURI || ''] })
-          : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMint', args: [BigInt(quantity)] });
-
-        // Sponsored mints are disabled - contract doesn't support sponsoredMintEnabled
-        const canSponsor = false;
+          : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMint', args: [Array(quantity).fill(tokenURI || '')] });
 
         if (canSponsor) {
           setMintState(prev => ({ ...prev, pollingMessage: 'Requesting sponsored mint...', txPhase: 'awaiting_wallet' }));
