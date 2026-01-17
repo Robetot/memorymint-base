@@ -7,22 +7,23 @@ import { RPC_ENDPOINTS } from '@/contracts/MemoryMintContract';
 
 // ============ CONFIGURATION ============
 export const RPC_CONFIG = {
-  // Timeouts
-  defaultTimeoutMs: 10000,      // 10 seconds for contract reads
-  preflightTimeoutMs: 8000,      // 8 seconds for preflight checks
+  // Timeouts - increased for large/complex contracts
+  defaultTimeoutMs: 15000,         // 15 seconds for contract reads (was 10)
+  preflightTimeoutMs: 12000,       // 12 seconds for preflight checks (was 8)
   
   // Retry configuration
-  maxRetries: 3,
-  baseDelayMs: 1000,            // 1 second initial delay
-  maxDelayMs: 8000,             // 8 seconds max delay
+  maxRetries: 4,                   // Increased retries for reliability
+  baseDelayMs: 1000,               // 1 second initial delay
+  maxDelayMs: 8000,                // 8 seconds max delay
   
   // Cache configuration
-  contractCodeCacheTTL: 300000, // 5 minutes for contract code
+  contractCodeCacheTTL: 300000,    // 5 minutes for contract code
   
   // Additional RPC endpoints for redundancy
   additionalEndpoints: [
     'https://1rpc.io/base',
     'https://base.publicnode.com',
+    'https://rpc.ankr.com/base',
   ] as const,
 } as const;
 

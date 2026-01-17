@@ -42,7 +42,7 @@ interface CachedAdminData {
 }
 
 const ADMIN_ADDRESS = "0x830f4c15480aa516a0cc4826902443936f9596cf";
-const INIT_TIMEOUT_MS = 5000;
+const INIT_TIMEOUT_MS = 15000; // Increased from 5s to 15s for slow RPC
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const SESSION_CACHE_KEY = "memorymint_admin_cache_v1";
 
@@ -168,9 +168,12 @@ export function useAdminState(walletAddress: string) {
   }, []);
 
   // ============ CHECK ADMIN (LOCAL, NO CONTRACT CALL) ============
-  const checkIsAdmin = useCallback((address: string): boolean => {
+  // Also checks against contract owner if config is available
+  const checkIsAdmin = useCallback((address: string, contractOwner?: string): boolean => {
     if (!address) return false;
-    return address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
+    const isHardcodedAdmin = address.toLowerCase() === ADMIN_ADDRESS.toLowerCase();
+    const isContractOwner = contractOwner ? address.toLowerCase() === contractOwner.toLowerCase() : false;
+    return isHardcodedAdmin || isContractOwner;
   }, []);
 
   // ============ GET CURRENT CHAIN ID ============
@@ -286,27 +289,8 @@ export function useAdminState(walletAddress: string) {
         return;
       }
 
-      // 4) Admin role check (fail fast)
-      step = "admin role";
-      const adminStart = performance.now();
-      adminResult = checkIsAdmin(walletAddress);
-      stepTimings.admin = performance.now() - adminStart;
-
-      if (!adminResult) {
-        setHealthStatus({
-          walletConnected: true,
-          networkCorrect: true,
-          isAdmin: false,
-          contractReachable: false,
-          configLoaded: false,
-          abiFunctionsPresent: true,
-          lastCheck: Date.now(),
-        });
-        finishTerminal("error", "Not authorized – owner access required");
-        return;
-      }
-
-      // 5) Config + bonus levels fetch (timeout protected)
+      // 4) Config + bonus levels fetch FIRST (to check contract owner)
+      // Then verify admin role (combining hardcoded admin + contract owner)
       step = "config fetch";
       const cfgStart = performance.now();
 
@@ -361,6 +345,26 @@ export function useAdminState(walletAddress: string) {
         throw new Error("Contract config missing (fetchContractConfig returned null)");
       }
 
+      // 5) Admin role check AFTER config fetch (can check both hardcoded + contract owner)
+      step = "admin role";
+      const adminStart = performance.now();
+      // Check against both hardcoded admin AND the contract owner from config
+      adminResult = checkIsAdmin(walletAddress, cfg?.owner);
+      stepTimings.admin = performance.now() - adminStart;
+
+      if (!adminResult) {
+        setHealthStatus({
+          walletConnected: true,
+          networkCorrect: true,
+          isAdmin: false,
+          contractReachable: true,
+          configLoaded: true,
+          abiFunctionsPresent: true,
+          lastCheck: Date.now(),
+        });
+        finishTerminal("error", `Not authorized – wallet ${walletAddress.slice(0, 8)}... is not the contract owner (${cfg?.owner?.slice(0, 8) ?? 'unknown'}...)`);
+        return;
+      }
       if (!isActiveRun(runId)) return;
 
       const now = Date.now();
