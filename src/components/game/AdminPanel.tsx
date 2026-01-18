@@ -247,9 +247,14 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       `Set Level ${level} Bonus: ${Number(bonusETH) / 1e18} ETH, ${Number(bonusUSDC) / 1e6} USDC`);
   };
 
-  const handleSetDynamicBonusEnabled = async (enabled: boolean) => {
-    return sendAdminTx('setDynamicBonusEnabled', [enabled], undefined, 
-      `${enabled ? 'Enable' : 'Disable'} Dynamic Bonuses`);
+  const handleSetBonusClaimActive = async (active: boolean) => {
+    return sendAdminTx('setBonusClaimActive', [active], undefined, 
+      `${active ? 'Enable' : 'Disable'} Bonus Claiming`);
+  };
+
+  const handleSetBonusLevelsEnabled = async (enabled: boolean) => {
+    return sendAdminTx('setBonusLevelsEnabled', [enabled], undefined, 
+      `${enabled ? 'Enable' : 'Disable'} Bonus Levels`);
   };
 
   const handleTransferOwnership = async (newOwner: string) => {
@@ -414,7 +419,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           config={config}
           onSetClaimsPaused={handleSetClaimsPaused}
           onSetClaimMode={handleSetClaimMode}
-          onSetDynamicBonusEnabled={handleSetDynamicBonusEnabled}
+          onSetBonusClaimActive={handleSetBonusClaimActive}
+          onSetBonusLevelsEnabled={handleSetBonusLevelsEnabled}
           onSetLevelBonus={handleSetLevelBonus}
           isPending={isSubmitting}
           isPreviewMode={isPreviewMode}

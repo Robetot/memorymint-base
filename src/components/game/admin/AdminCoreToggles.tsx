@@ -41,9 +41,11 @@ export function AdminCoreToggles({
   const [priceUSDC, setPriceUSDC] = useState('');
   const [isSettingPrice, setIsSettingPrice] = useState(false);
 
-  const mintEnabled = !(config?.mintPaused ?? false);
-  const killSwitchActive = config?.killSwitch ?? false;
-  const isFreeMint = (config?.mintPriceETH ?? 0n) === 0n && (config?.mintPriceUSDC ?? 0n) === 0n;
+  // Use explicit getters from contract - DO NOT INFER
+  const isMintActive = config?.isMintActive ?? true;
+  const isKillSwitchActive = config?.isKillSwitchActive ?? false;
+  // Free mint status from explicit getters - DO NOT INFER FROM PRICES
+  const isFreeMint = config?.isFreeMint ?? config?.freeMintActive ?? false;
 
   // Toggle: Mint Enabled (inverted from mintPaused)
   const handleToggleMint = async (enabled: boolean) => {
@@ -107,32 +109,32 @@ export function AdminCoreToggles({
 
       <Card className="border-border/50">
         <CardContent className="p-4 space-y-4">
-          {/* 1. Mint Enabled Toggle */}
+          {/* 1. Mint Enabled Toggle - uses isMintActive() */}
           <AdminToggle
             id="mint-enabled"
-            label="Mint Enabled"
-            description={mintEnabled ? 'Players can mint NFTs' : 'Minting is paused'}
+            label="Mint Active"
+            description={isMintActive ? 'Players can mint NFTs' : 'Minting is paused'}
             icon={<Coins className="h-4 w-4" />}
-            isEnabled={mintEnabled}
+            isEnabled={isMintActive}
             onToggle={handleToggleMint}
-            disabled={killSwitchActive}
+            disabled={isKillSwitchActive}
             isPreviewMode={isPreviewMode}
             isPending={isPending}
-            variant={mintEnabled ? 'success' : 'default'}
+            variant={isMintActive ? 'success' : 'default'}
           />
 
-          {/* 2. Free Mint Mode Toggle */}
+          {/* 2. Free Mint Mode Toggle - uses freeMintActive() */}
           <AdminToggle
             id="free-mint"
-            label="Free Mint (Gas Only)"
-            description={isFreeMint ? 'Players mint for free (gas only)' : 'Paid minting enabled'}
+            label="Free Mint Active"
+            description={isFreeMint ? '🎉 FREE MINT - Players mint for gas only' : 'Paid minting enabled'}
             icon={<Zap className="h-4 w-4" />}
             isEnabled={isFreeMint}
             onToggle={handleToggleFreeMint}
-            disabled={killSwitchActive}
+            disabled={isKillSwitchActive}
             isPreviewMode={isPreviewMode}
             isPending={isPending}
-            variant="success"
+            variant={isFreeMint ? 'success' : 'default'}
           >
             {/* When free mint is OFF, show pricing inputs */}
             {!isFreeMint && (
@@ -181,24 +183,24 @@ export function AdminCoreToggles({
             )}
           </AdminToggle>
 
-          {/* 3. Global Kill Switch (Highest Priority) */}
+          {/* 3. Global Kill Switch (Highest Priority) - uses iskillSwitchActive() */}
           <div className="pt-2 border-t border-border/30">
             <AdminToggle
               id="kill-switch"
               label="Kill Switch (Global)"
-              description={killSwitchActive 
+              description={isKillSwitchActive 
                 ? '🚨 ALL minting and bonuses DISABLED' 
                 : 'Disables ALL minting + ALL bonuses'
               }
               icon={<Power className="h-4 w-4" />}
-              isEnabled={killSwitchActive}
+              isEnabled={isKillSwitchActive}
               onToggle={handleToggleKillSwitch}
               isPreviewMode={isPreviewMode}
               isPending={isPending}
               variant="danger"
             />
             
-            {killSwitchActive && (
+            {isKillSwitchActive && (
               <div className="mt-2 p-2 bg-destructive/10 rounded-lg border border-destructive/20">
                 <div className="flex items-center gap-2 text-xs text-destructive">
                   <AlertTriangle className="h-3 w-3" />

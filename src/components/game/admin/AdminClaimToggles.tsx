@@ -29,10 +29,11 @@ interface AdminClaimTogglesProps {
   isPreviewMode: boolean;
   isPending: boolean;
   
-  // Handlers
+  // Handlers - using explicit contract functions
   onSetClaimsPaused: (paused: boolean) => Promise<boolean>;
   onSetClaimMode: (mode: number) => Promise<boolean>;
-  onSetDynamicBonusEnabled: (enabled: boolean) => Promise<boolean>;
+  onSetBonusClaimActive: (active: boolean) => Promise<boolean>;
+  onSetBonusLevelsEnabled: (enabled: boolean) => Promise<boolean>;
   onSetLevelBonus: (level: number, bonusETH: bigint, bonusUSDC: bigint) => Promise<boolean>;
 }
 
@@ -42,7 +43,8 @@ export function AdminClaimToggles({
   isPending,
   onSetClaimsPaused,
   onSetClaimMode,
-  onSetDynamicBonusEnabled,
+  onSetBonusClaimActive,
+  onSetBonusLevelsEnabled,
   onSetLevelBonus,
 }: AdminClaimTogglesProps) {
   const [bonusLevel, setBonusLevel] = useState('1');
@@ -50,28 +52,22 @@ export function AdminClaimToggles({
   const [bonusUSDC, setBonusUSDC] = useState('');
   const [isSettingBonus, setIsSettingBonus] = useState(false);
 
+  // Use explicit getters from contract - DO NOT INFER
   const claimMode = config?.claimMode ?? 0;
-  const claimsEnabled = config?.claimEnabled ?? (claimMode > 0);
+  const isBonusClaimActive = config?.isBonusClaimActive ?? config?.bonusClaimActive ?? false;
+  const bonusLevelsEnabled = config?.bonusLevelsEnabled ?? false;
   
   const bonusPoolETH = config?.bonusPoolETH ?? 0n;
   const bonusPoolUSDC = config?.bonusPoolUSDC ?? 0n;
 
-  // Toggle: Claim Mode
-  const handleToggleClaims = async (enabled: boolean) => {
-    if (enabled) {
-      // Enable claims - set mode to FCFS if disabled
-      if (claimMode === 0) {
-        await onSetClaimMode(1);
-      }
-      return onSetClaimsPaused(false);
-    } else {
-      return onSetClaimsPaused(true);
-    }
+  // Toggle: Bonus Claim Active - uses setBonusClaimActive()
+  const handleToggleBonusClaim = async (active: boolean) => {
+    return onSetBonusClaimActive(active);
   };
 
-  // Toggle: Dynamic Bonus Levels
-  const handleToggleDynamicBonus = async (enabled: boolean) => {
-    return onSetDynamicBonusEnabled(enabled);
+  // Toggle: Bonus Levels Enabled - uses setBonusLevelsEnabled()
+  const handleToggleBonusLevels = async (enabled: boolean) => {
+    return onSetBonusLevelsEnabled(enabled);
   };
 
   // Set level bonus
@@ -100,12 +96,12 @@ export function AdminClaimToggles({
         </h3>
         <Badge 
           variant="outline" 
-          className={claimsEnabled 
+          className={isBonusClaimActive 
             ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' 
             : 'bg-muted text-muted-foreground'
           }
         >
-          {claimsEnabled ? 'Active' : 'Disabled'}
+          {isBonusClaimActive ? 'Active' : 'Disabled'}
         </Badge>
       </div>
 
@@ -129,32 +125,33 @@ export function AdminClaimToggles({
 
       <Card className="border-purple-500/20">
         <CardContent className="p-4 space-y-4">
-          {/* Claims Enabled Toggle */}
+          {/* Bonus Claim Active Toggle - uses bonusClaimActive() */}
           <AdminToggle
-            id="claims-enabled"
+            id="bonus-claim-active"
             label="Bonus Claiming"
-            description={claimsEnabled 
-              ? `Mode: ${CLAIM_MODES.find(m => m.value === claimMode)?.label}` 
+            description={isBonusClaimActive 
+              ? `Mode: ${CLAIM_MODES.find(m => m.value === claimMode)?.label || 'Active'}` 
               : 'Users cannot claim bonuses'
             }
             icon={<Gift className="h-4 w-4" />}
-            isEnabled={claimsEnabled}
-            onToggle={handleToggleClaims}
+            isEnabled={isBonusClaimActive}
+            onToggle={handleToggleBonusClaim}
             isPreviewMode={isPreviewMode}
             isPending={isPending}
-            variant={claimsEnabled ? 'success' : 'default'}
+            variant={isBonusClaimActive ? 'success' : 'default'}
           />
 
-          {/* Dynamic Bonus Levels Toggle */}
+          {/* Bonus Levels Enabled Toggle - uses bonusLevelsEnabled() */}
           <AdminToggle
-            id="dynamic-bonus"
-            label="Enable Bonus Levels"
-            description="Configure per-level bonus amounts"
+            id="bonus-levels-enabled"
+            label="Bonus Levels Enabled"
+            description={bonusLevelsEnabled ? 'Per-level bonuses active' : 'Configure per-level bonus amounts'}
             icon={<Gift className="h-4 w-4" />}
-            isEnabled={claimMode > 0}
-            onToggle={handleToggleDynamicBonus}
+            isEnabled={bonusLevelsEnabled}
+            onToggle={handleToggleBonusLevels}
             isPreviewMode={isPreviewMode}
             isPending={isPending}
+            variant={bonusLevelsEnabled ? 'success' : 'default'}
           >
             {/* Level Bonus Configuration */}
             <div className="space-y-3">
