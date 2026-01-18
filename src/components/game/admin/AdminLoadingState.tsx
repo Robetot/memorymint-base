@@ -58,13 +58,20 @@ export function AdminLoadingState({
   // Unified loading message with phase-specific text
   const getMessage = () => {
     if (isError) {
+      // Show descriptive error for owner detection failures
+      if (error?.includes('Owner not detected')) {
+        return 'Owner not detected. Check network or proxy.';
+      }
+      if (error?.includes('Wrong network')) {
+        return error;
+      }
       return error || 'Failed to load admin panel';
     }
     if (authPhase === 'connecting') {
       return 'Connecting to wallet...';
     }
     if (authPhase === 'verifying') {
-      return 'Fetching contract owner...';
+      return 'Verifying network and fetching contract owner (up to 10 attempts)...';
     }
     return 'Loading Admin Panel...';
   };

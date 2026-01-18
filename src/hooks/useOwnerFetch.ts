@@ -1,16 +1,29 @@
 // ============================================================
 // Robust Owner Fetch Utility for MemoryMint Admin Panel
-// Features: Retry with exponential backoff, caching, event listening
+// Features: Retry with configurable delays, network validation,
+//           proxy detection, block confirmation, event listening
 // ============================================================
 
 import { encodeFunctionData, decodeFunctionResult } from 'viem';
-import { NFT_CONTRACT_ADDRESS, CONTRACT_ABI } from '@/contracts/MemoryMintContract';
+import { NFT_CONTRACT_ADDRESS, CONTRACT_ABI, BASE_CHAIN_ID, BASE_CHAIN_ID_NUM } from '@/contracts/MemoryMintContract';
 import { robustRpcCall, RPC_CONFIG } from '@/utils/rpcHandler';
 
-// ============ CACHE CONFIGURATION ============
+// ============ CONFIGURATION ============
 const OWNER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const MAX_FETCH_ATTEMPTS = 5;
-const INITIAL_RETRY_DELAY = 500; // 0.5 seconds
+const MAX_FETCH_ATTEMPTS = 10; // Increased to 10 retries
+const RETRY_DELAY_MIN_MS = 2000; // 2 seconds minimum
+const RETRY_DELAY_MAX_MS = 3000; // 3 seconds maximum
+const BLOCK_CONFIRMATIONS_REQUIRED = 2; // Wait for 2 block confirmations
+
+// Supported chain IDs
+const SUPPORTED_CHAINS = {
+  BASE_MAINNET: { id: '0x2105', idNum: 8453, name: 'Base Mainnet' },
+  BASE_SEPOLIA: { id: '0x14a34', idNum: 84532, name: 'Base Sepolia' },
+} as const;
+
+// EIP-1967 proxy implementation slot (for detecting proxies)
+const EIP1967_IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+const EIP1967_ADMIN_SLOT = '0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103';
 
 interface OwnerCache {
   owner: string;
@@ -22,6 +35,198 @@ let ownerCache: OwnerCache | null = null;
 let isFetching = false;
 let fetchPromise: Promise<string | null> | null = null;
 
+// ============ NETWORK VALIDATION ============
+
+export interface NetworkValidationResult {
+  valid: boolean;
+  chainId: string | null;
+  chainName: string | null;
+  error: string | null;
+}
+
+/**
+ * Validate that the connected network matches the deployed contract's chain
+ */
+export async function validateNetwork(): Promise<NetworkValidationResult> {
+  const chainId = await getChainId();
+  
+  if (!chainId) {
+    return {
+      valid: false,
+      chainId: null,
+      chainName: null,
+      error: 'Unable to detect network. Check wallet connection.',
+    };
+  }
+
+  const normalizedChainId = chainId.toLowerCase();
+  
+  // Check if chain is Base Mainnet
+  if (normalizedChainId === SUPPORTED_CHAINS.BASE_MAINNET.id.toLowerCase()) {
+    return {
+      valid: true,
+      chainId: normalizedChainId,
+      chainName: SUPPORTED_CHAINS.BASE_MAINNET.name,
+      error: null,
+    };
+  }
+  
+  // Check if chain is Base Sepolia (testnet)
+  if (normalizedChainId === SUPPORTED_CHAINS.BASE_SEPOLIA.id.toLowerCase()) {
+    return {
+      valid: true,
+      chainId: normalizedChainId,
+      chainName: SUPPORTED_CHAINS.BASE_SEPOLIA.name,
+      error: null,
+    };
+  }
+
+  // Unknown/unsupported network
+  const chainIdNum = parseInt(chainId, 16);
+  return {
+    valid: false,
+    chainId: normalizedChainId,
+    chainName: `Unknown (${chainIdNum})`,
+    error: `Wrong network (Chain ID: ${chainIdNum}). Please switch to Base Mainnet (8453) or Base Sepolia (84532).`,
+  };
+}
+
+// ============ BLOCK CONFIRMATION ============
+
+/**
+ * Wait for block confirmations before querying to avoid false empty responses
+ */
+async function waitForBlockConfirmations(minConfirmations = BLOCK_CONFIRMATIONS_REQUIRED): Promise<boolean> {
+  try {
+    // Get current block number
+    const blockResult = await robustRpcCall<string>('eth_blockNumber', [], {
+      timeoutMs: 5000,
+      maxRetries: 2,
+    });
+
+    if (!blockResult.success || !blockResult.data) {
+      console.warn('[OwnerFetch] Could not get block number for confirmation check');
+      return true; // Proceed anyway
+    }
+
+    const currentBlock = BigInt(blockResult.data);
+    console.info(`[OwnerFetch] Current block: ${currentBlock.toString()}`);
+
+    // Wait for at least 1 more block to ensure RPC is synced
+    const targetBlock = currentBlock + BigInt(minConfirmations);
+    let attempts = 0;
+    const maxWaitAttempts = 10;
+    
+    while (attempts < maxWaitAttempts) {
+      await new Promise(r => setTimeout(r, 1500)); // Wait 1.5 seconds
+      
+      const newBlockResult = await robustRpcCall<string>('eth_blockNumber', [], {
+        timeoutMs: 5000,
+        maxRetries: 1,
+      });
+
+      if (newBlockResult.success && newBlockResult.data) {
+        const newBlock = BigInt(newBlockResult.data);
+        if (newBlock >= currentBlock) {
+          console.info(`[OwnerFetch] Block confirmed: ${newBlock.toString()}`);
+          return true;
+        }
+      }
+      attempts++;
+    }
+
+    console.warn('[OwnerFetch] Block confirmation timeout, proceeding anyway');
+    return true;
+  } catch (err) {
+    console.warn('[OwnerFetch] Block confirmation check failed:', err);
+    return true; // Proceed anyway
+  }
+}
+
+// ============ PROXY DETECTION ============
+
+interface ProxyInfo {
+  isProxy: boolean;
+  implementationAddress: string | null;
+  adminAddress: string | null;
+}
+
+/**
+ * Detect if the contract is a proxy and try to read owner from the correct location
+ */
+async function detectProxy(): Promise<ProxyInfo> {
+  const result: ProxyInfo = {
+    isProxy: false,
+    implementationAddress: null,
+    adminAddress: null,
+  };
+
+  try {
+    // Check EIP-1967 implementation slot
+    const implResult = await robustRpcCall<string>(
+      'eth_getStorageAt',
+      [NFT_CONTRACT_ADDRESS, EIP1967_IMPLEMENTATION_SLOT, 'latest'],
+      { timeoutMs: 5000, maxRetries: 2 }
+    );
+
+    if (implResult.success && implResult.data && implResult.data !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+      const implAddress = '0x' + implResult.data.slice(26);
+      if (implAddress !== '0x0000000000000000000000000000000000000000') {
+        result.isProxy = true;
+        result.implementationAddress = implAddress;
+        console.info('[OwnerFetch] EIP-1967 proxy detected, implementation:', implAddress.slice(0, 10) + '...');
+      }
+    }
+
+    // Check EIP-1967 admin slot
+    const adminResult = await robustRpcCall<string>(
+      'eth_getStorageAt',
+      [NFT_CONTRACT_ADDRESS, EIP1967_ADMIN_SLOT, 'latest'],
+      { timeoutMs: 5000, maxRetries: 2 }
+    );
+
+    if (adminResult.success && adminResult.data && adminResult.data !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+      const adminAddress = '0x' + adminResult.data.slice(26);
+      if (adminAddress !== '0x0000000000000000000000000000000000000000') {
+        result.adminAddress = adminAddress;
+        console.info('[OwnerFetch] Proxy admin detected:', adminAddress.slice(0, 10) + '...');
+      }
+    }
+  } catch (err) {
+    console.warn('[OwnerFetch] Proxy detection failed:', err);
+  }
+
+  return result;
+}
+
+/**
+ * Try to read owner from proxy storage slot (slot 0 is common for Ownable)
+ */
+async function readOwnerFromStorage(): Promise<string | null> {
+  try {
+    // Slot 0 is typically where owner is stored in Ownable contracts
+    const storageResult = await robustRpcCall<string>(
+      'eth_getStorageAt',
+      [NFT_CONTRACT_ADDRESS, '0x0', 'latest'],
+      { timeoutMs: 5000, maxRetries: 2 }
+    );
+
+    if (storageResult.success && storageResult.data) {
+      const ownerFromStorage = '0x' + storageResult.data.slice(26);
+      if (
+        ownerFromStorage !== '0x0000000000000000000000000000000000000000' &&
+        ownerFromStorage.length === 42
+      ) {
+        console.info('[OwnerFetch] Owner from storage slot 0:', ownerFromStorage.slice(0, 10) + '...');
+        return ownerFromStorage.toLowerCase();
+      }
+    }
+  } catch (err) {
+    console.warn('[OwnerFetch] Storage read failed:', err);
+  }
+  return null;
+}
+
 // ============ CACHE MANAGEMENT ============
 
 /**
@@ -32,7 +237,6 @@ export function getCachedOwner(): string | null {
   
   const now = Date.now();
   if (now - ownerCache.timestamp > OWNER_CACHE_TTL) {
-    // Cache expired
     console.info('[OwnerFetch] Cache expired');
     return null;
   }
@@ -73,24 +277,71 @@ export function updateOwnerFromEvent(newOwner: string, chainId: string): void {
   console.info('[OwnerFetch] Owner updated from event:', newOwner.slice(0, 10) + '...');
 }
 
-// ============ CORE FETCH FUNCTION ============
+// ============ RETRY DELAY ============
 
 /**
- * Fetch owner with robust retry logic
- * - Uses exponential backoff
- * - Tries multiple RPC endpoints
+ * Get random delay between min and max (2-3 seconds)
+ */
+function getRetryDelay(): number {
+  return RETRY_DELAY_MIN_MS + Math.random() * (RETRY_DELAY_MAX_MS - RETRY_DELAY_MIN_MS);
+}
+
+// ============ CORE FETCH FUNCTION ============
+
+export interface FetchOwnerOptions {
+  forceRefresh?: boolean;
+  skipNetworkValidation?: boolean;
+  skipBlockConfirmation?: boolean;
+  onAttempt?: (attempt: number, maxAttempts: number) => void;
+  onError?: (error: string, attempt: number) => void;
+  onNetworkValidation?: (result: NetworkValidationResult) => void;
+}
+
+export interface FetchOwnerResult {
+  owner: string | null;
+  error: string | null;
+  attempts: number;
+  networkInfo?: NetworkValidationResult;
+  isProxy?: boolean;
+}
+
+/**
+ * Fetch owner with robust retry logic (10 attempts, 2-3s delay)
+ * - Validates network matches Base mainnet/Sepolia
+ * - Detects proxy contracts
+ * - Waits for block confirmation before querying
  * - Validates response format
  */
 export async function fetchOwnerRobust(
-  options: {
-    forceRefresh?: boolean;
-    onAttempt?: (attempt: number, maxAttempts: number) => void;
-    onError?: (error: string, attempt: number) => void;
-  } = {}
-): Promise<{ owner: string | null; error: string | null; attempts: number }> {
-  const { forceRefresh = false, onAttempt, onError } = options;
+  options: FetchOwnerOptions = {}
+): Promise<FetchOwnerResult> {
+  const { 
+    forceRefresh = false, 
+    skipNetworkValidation = false,
+    skipBlockConfirmation = false,
+    onAttempt, 
+    onError,
+    onNetworkValidation,
+  } = options;
 
-  // Check cache first (unless force refresh)
+  // 1. Validate network first
+  if (!skipNetworkValidation) {
+    const networkResult = await validateNetwork();
+    onNetworkValidation?.(networkResult);
+    
+    if (!networkResult.valid) {
+      console.error('[OwnerFetch] Network validation failed:', networkResult.error);
+      return {
+        owner: null,
+        error: networkResult.error || 'Network validation failed',
+        attempts: 0,
+        networkInfo: networkResult,
+      };
+    }
+    console.info('[OwnerFetch] Network validated:', networkResult.chainName);
+  }
+
+  // 2. Check cache first (unless force refresh)
   if (!forceRefresh) {
     const cached = getCachedOwner();
     if (cached) {
@@ -99,7 +350,7 @@ export async function fetchOwnerRobust(
     }
   }
 
-  // Deduplicate concurrent requests
+  // 3. Deduplicate concurrent requests
   if (isFetching && fetchPromise) {
     console.info('[OwnerFetch] Waiting for existing fetch...');
     const result = await fetchPromise;
@@ -109,8 +360,18 @@ export async function fetchOwnerRobust(
   isFetching = true;
   let lastError = '';
   let validOwner: string | null = null;
+  let proxyInfo: ProxyInfo | null = null;
 
   fetchPromise = (async () => {
+    // 4. Wait for block confirmation to avoid stale RPC responses
+    if (!skipBlockConfirmation) {
+      console.info('[OwnerFetch] Waiting for block confirmation...');
+      await waitForBlockConfirmations(1);
+    }
+
+    // 5. Detect if this is a proxy contract
+    proxyInfo = await detectProxy();
+
     for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
       onAttempt?.(attempt, MAX_FETCH_ATTEMPTS);
       console.info(`[OwnerFetch] Attempt ${attempt}/${MAX_FETCH_ATTEMPTS}`);
@@ -123,13 +384,13 @@ export async function fetchOwnerRobust(
           args: [],
         });
 
-        // Make robust RPC call with increased timeout for owner
+        // Make robust RPC call with increased timeout
         const result = await robustRpcCall<string>(
           'eth_call',
           [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest'],
           { 
-            timeoutMs: RPC_CONFIG.defaultTimeoutMs * 1.5, // Give extra time
-            maxRetries: 2, // Let internal retry handle some failures
+            timeoutMs: RPC_CONFIG.defaultTimeoutMs * 2, // Double timeout
+            maxRetries: 3,
           }
         );
 
@@ -138,9 +399,9 @@ export async function fetchOwnerRobust(
           onError?.(lastError, attempt);
           console.warn(`[OwnerFetch] RPC failed on attempt ${attempt}:`, lastError);
           
-          // Exponential backoff before retry
           if (attempt < MAX_FETCH_ATTEMPTS) {
-            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+            const delay = getRetryDelay();
+            console.info(`[OwnerFetch] Retrying in ${Math.round(delay)}ms...`);
             await new Promise(r => setTimeout(r, delay));
           }
           continue;
@@ -152,8 +413,23 @@ export async function fetchOwnerRobust(
           onError?.(lastError, attempt);
           console.warn(`[OwnerFetch] Empty response on attempt ${attempt}`);
           
+          // Try reading from storage as fallback
+          if (proxyInfo?.isProxy) {
+            console.info('[OwnerFetch] Attempting storage slot read for proxy...');
+            const storageOwner = await readOwnerFromStorage();
+            if (storageOwner) {
+              validOwner = storageOwner;
+              const chainId = await getChainId();
+              if (chainId) {
+                setCachedOwner(validOwner, chainId);
+              }
+              return validOwner;
+            }
+          }
+          
           if (attempt < MAX_FETCH_ATTEMPTS) {
-            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+            const delay = getRetryDelay();
+            console.info(`[OwnerFetch] Retrying in ${Math.round(delay)}ms...`);
             await new Promise(r => setTimeout(r, delay));
           }
           continue;
@@ -173,7 +449,7 @@ export async function fetchOwnerRobust(
           console.warn(`[OwnerFetch] Decode failed on attempt ${attempt}:`, decodeErr);
           
           if (attempt < MAX_FETCH_ATTEMPTS) {
-            const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+            const delay = getRetryDelay();
             await new Promise(r => setTimeout(r, delay));
           }
           continue;
@@ -194,8 +470,17 @@ export async function fetchOwnerRobust(
             setCachedOwner(validOwner, chainId);
           }
           
-          console.info(`[OwnerFetch] Success on attempt ${attempt}:`, validOwner.slice(0, 10) + '...');
+          console.info(`[OwnerFetch] ✓ Success on attempt ${attempt}:`, validOwner.slice(0, 10) + '...');
           return validOwner;
+        }
+
+        // Handle zero address (possible renounced ownership)
+        if (decodedOwner === '0x0000000000000000000000000000000000000000') {
+          console.warn('[OwnerFetch] Owner is zero address (ownership may be renounced)');
+          lastError = 'Contract ownership appears to be renounced (zero address)';
+          onError?.(lastError, attempt);
+          // Don't retry for zero address - it's a valid response
+          return null;
         }
 
         lastError = `Invalid owner format: ${String(decodedOwner).slice(0, 20)}`;
@@ -203,7 +488,7 @@ export async function fetchOwnerRobust(
         console.warn(`[OwnerFetch] Invalid format on attempt ${attempt}:`, decodedOwner);
         
         if (attempt < MAX_FETCH_ATTEMPTS) {
-          const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+          const delay = getRetryDelay();
           await new Promise(r => setTimeout(r, delay));
         }
       } catch (err) {
@@ -212,7 +497,7 @@ export async function fetchOwnerRobust(
         console.error(`[OwnerFetch] Exception on attempt ${attempt}:`, err);
         
         if (attempt < MAX_FETCH_ATTEMPTS) {
-          const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
+          const delay = getRetryDelay();
           await new Promise(r => setTimeout(r, delay));
         }
       }
@@ -223,10 +508,15 @@ export async function fetchOwnerRobust(
 
   try {
     const owner = await fetchPromise;
+    const finalError = owner 
+      ? null 
+      : `Owner not detected. Check network or proxy. (Failed after ${MAX_FETCH_ATTEMPTS} attempts: ${lastError})`;
+    
     return { 
       owner, 
-      error: owner ? null : `Failed after ${MAX_FETCH_ATTEMPTS} attempts: ${lastError}`,
+      error: finalError,
       attempts: MAX_FETCH_ATTEMPTS,
+      isProxy: proxyInfo?.isProxy,
     };
   } finally {
     isFetching = false;
@@ -237,9 +527,23 @@ export async function fetchOwnerRobust(
 // ============ HELPER FUNCTIONS ============
 
 async function getChainId(): Promise<string | null> {
-  if (!window.ethereum) return null;
+  // Try from window.ethereum first
+  if (window.ethereum) {
+    try {
+      const chainId = await (window.ethereum as any).request({ method: 'eth_chainId' });
+      return chainId;
+    } catch {
+      // Fall through to RPC
+    }
+  }
+  
+  // Fallback to RPC call
   try {
-    return await (window.ethereum as any).request({ method: 'eth_chainId' });
+    const result = await robustRpcCall<string>('eth_chainId', [], {
+      timeoutMs: 5000,
+      maxRetries: 2,
+    });
+    return result.success ? result.data ?? null : null;
   } catch {
     return null;
   }
@@ -378,6 +682,8 @@ export interface UseOwnerResult {
   isLoading: boolean;
   error: string | null;
   attempts: number;
+  networkInfo: NetworkValidationResult | null;
+  isProxy: boolean;
   refetch: (force?: boolean) => Promise<void>;
 }
 
@@ -386,6 +692,8 @@ export function useOwner(): UseOwnerResult {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
+  const [networkInfo, setNetworkInfo] = useState<NetworkValidationResult | null>(null);
+  const [isProxy, setIsProxy] = useState(false);
   const mountedRef = useRef(true);
 
   const refetch = useCallback(async (force = false) => {
@@ -402,6 +710,11 @@ export function useOwner(): UseOwnerResult {
       onError: (err, attempt) => {
         console.warn(`[useOwner] Attempt ${attempt} error:`, err);
       },
+      onNetworkValidation: (netResult) => {
+        if (mountedRef.current) {
+          setNetworkInfo(netResult);
+        }
+      },
     });
     
     if (!mountedRef.current) return;
@@ -410,6 +723,7 @@ export function useOwner(): UseOwnerResult {
     setOwner(result.owner);
     setError(result.error);
     setAttempts(result.attempts);
+    setIsProxy(result.isProxy ?? false);
   }, []);
 
   // Initial fetch
@@ -439,6 +753,8 @@ export function useOwner(): UseOwnerResult {
     isLoading,
     error,
     attempts,
+    networkInfo,
+    isProxy,
     refetch,
   };
 }
