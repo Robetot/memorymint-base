@@ -465,18 +465,19 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   };
 
   // Use safe defaults for capabilities if not loaded - matches V3 contract
+  // V3 Safe defaults - ALL capabilities ENABLED for MemoryMintUltraV3
   const caps: ContractCapabilities = capabilities ?? {
     hasOwner: true,
     hasTotalSupply: true,
     hasPause: true,
     hasUnpause: true,
     hasMintPaused: true,
-    hasSetThrottle: false,
+    hasSetThrottle: false, // V3 uses antiBotMode instead
     hasWalletMintLimit: true,
     hasSetWalletMintLimit: true,
     hasSetMintPrice: true,
-    hasSetMintPriceETH: false,
-    hasSetMintPriceUSDC: false,
+    hasSetMintPriceETH: false, // V3 uses combined setter
+    hasSetMintPriceUSDC: false, // V3 uses combined setter
     hasBonusPool: true,
     hasDepositETH: true,
     hasDepositUSDC: true,
@@ -487,7 +488,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     hasActivateKillSwitch: true,
     hasDeactivateKillSwitch: true,
     hasGlobalKillSwitch: true,
-    hasEmergencyWithdraw: false,
+    hasEmergencyWithdraw: true, // V3 VERIFIED: emergencyWithdraw() exists
     hasAntiBotMode: true,
     hasSetAntiBotMode: true,
     hasClaimMode: true,
