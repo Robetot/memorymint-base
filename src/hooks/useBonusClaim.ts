@@ -75,7 +75,7 @@ export function useBonusClaim() {
       const data = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: 'claimBonus',
-        args: [BigInt(levelId)],
+        args: [levelId as number],
       });
 
       const txHash = await (window.ethereum as any).request({
@@ -115,7 +115,7 @@ export function useBonusClaim() {
       const data = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: 'claimBonus',
-        args: [BigInt(levelId)],
+        args: [levelId as number],
       });
       const result = await rpcCall('eth_estimateGas', [{ from: walletAddress, to: NFT_CONTRACT_ADDRESS, data }]);
       return BigInt(result as string);

@@ -60,17 +60,12 @@ export function useSafeMint() {
 
     try {
       // Step 1: Build transaction data
-      const encodedData = type === 'single'
-        ? encodeFunctionData({
-            abi: CONTRACT_ABI,
-            functionName: 'mintNFT',
-            args: [tokenURI],
-          })
-        : encodeFunctionData({
-            abi: CONTRACT_ABI,
-            functionName: 'mintNFT', // Use single mint for batch validation
-            args: [tokenURI],
-          });
+      // mintNFT takes no arguments in this contract version
+      const encodedData = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'mintNFT',
+        args: [],
+      });
 
       // Step 2: Check for no-op conditions
       const noOpCheck = await checkIsNoOp({
