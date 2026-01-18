@@ -36,38 +36,60 @@ export interface ContractConfig {
   totalSupply: bigint;
   nextTokenId: bigint;
   
-  // V3 Pause / Kill Switch (EXPLICITLY READ)
+  // Pause / Kill Switch (EXPLICITLY READ from contract getters)
   mintPaused: boolean;
   killSwitch: boolean;
+  isMintActive: boolean;        // from isMintActive()
+  isKillSwitchActive: boolean;  // from iskillSwitchActive()
   
-  // V3 Dynamic Pricing
+  // Free Mint Status (EXPLICITLY READ - DO NOT INFER)
+  isFreeMint: boolean;          // from isFreeMint()
+  freeMintActive: boolean;      // from freeMintActive()
+  
+  // Mint Currency
+  mintCurrency: number;         // from mintCurrency() - 0=ETH, 1=USDC
+  
+  // Dynamic Pricing
   mintPriceETH: bigint;
   mintPriceUSDC: bigint;
   currentSupplyTier: number;
   maxSupply: bigint;
   maxBatchSize: bigint;
   
-  // V3 Bonus Pools
+  // Bonus Pools
   bonusPoolETH: bigint;
   bonusPoolUSDC: bigint;
   currentBonusTier: number;
   
-  // V3 Total Bonus Claimed (Global Stats)
+  // Bonus System Status (EXPLICITLY READ)
+  bonusClaimActive: boolean;    // from bonusClaimActive()
+  isBonusClaimActive: boolean;  // from isBonusClaimActive()
+  bonusLevelsEnabled: boolean;  // from bonusLevelsEnabled()
+  
+  // Total Bonus Claimed (Global Stats)
   totalBonusClaimedETH: bigint;
   totalBonusClaimedUSDC: bigint;
   
-  // V3 Fees
+  // Fees
   totalFeesCollectedETH: bigint;
   totalFeesCollectedUSDC: bigint;
   
-  // V3 Wallet Limits (EXPLICITLY READ)
+  // Wallet Limits (EXPLICITLY READ)
   walletMintLimit: bigint;
   
-  // V3 Anti-Bot Mode (EXPLICITLY READ) - 0=Disabled, 1=Signature, 2=Allowlist, 3=Hybrid
+  // Anti-Bot Mode (EXPLICITLY READ) - 0=Disabled, 1=Enabled, 2=Strict
   antiBotMode: number;
+  isAntiBotActive: boolean;     // from isAntiBotActive()
   
-  // V3 Claim Mode (EXPLICITLY READ) - 0=Disabled, 1=FCFS, 2=Unlimited, 3=OneTime, 4=Custom
+  // Claim Mode (EXPLICITLY READ) - 0=Disabled, 1=FCFS, 2=Unlimited, 3=OneTime, 4=Custom
   claimMode: number;
+  
+  // Treasury Controls (EXPLICITLY READ)
+  allowBonusDeposit: boolean;       // from allowBonusDeposit()
+  withdrawFeesEnabled: boolean;     // from withdrawFeesEnabled()
+  
+  // Ownership Controls (EXPLICITLY READ)
+  ownershipTransferEnabled: boolean; // from ownershipTransferEnabled()
   
   // Compatibility fields
   mintEnabled: boolean;
@@ -466,8 +488,8 @@ export function useContractReads() {
       console.info('[ContractReads] ✓ totalMinted detected:', totalSupply.toString(), 'tokens');
       console.info('[ContractReads] totalMinted value logged in Admin Audit Log');
 
-      // OPTIONAL reads in parallel - EXPLICITLY READ ALL V3 FIELDS
-      // V3 has: mintPaused, killSwitch, walletMintLimit, antiBotMode, claimMode
+      // OPTIONAL reads in parallel - EXPLICITLY READ ALL CONTRACT FIELDS
+      // Read from UI-friendly getter functions as specified
       const [
         mintPausedRes,
         killSwitchRes,
@@ -479,13 +501,24 @@ export function useContractReads() {
         currentBonusTierRes,
         totalFeesETHRes,
         totalFeesUSDCRes,
-        // V3 EXPLICIT READS
         walletMintLimitRes,
         antiBotModeRes,
         claimModeRes,
-        // V3 Total Bonus Claimed
         totalBonusClaimedETHRes,
         totalBonusClaimedUSDCRes,
+        // NEW: Explicit getter functions from contract
+        isMintActiveRes,
+        isKillSwitchActiveRes,
+        isFreeMintRes,
+        freeMintActiveRes,
+        mintCurrencyRes,
+        bonusClaimActiveRes,
+        isBonusClaimActiveRes,
+        bonusLevelsEnabledRes,
+        isAntiBotActiveRes,
+        allowBonusDepositRes,
+        withdrawFeesEnabledRes,
+        ownershipTransferEnabledRes,
       ] = await Promise.allSettled([
         safeReadBoolean('mintPaused', false),
         safeReadBoolean('killSwitch', false),
@@ -497,15 +530,27 @@ export function useContractReads() {
         safeReadNumber('currentBonusTier', 0),
         safeReadBigInt('totalFeesCollectedETH', 0n),
         safeReadBigInt('totalFeesCollectedUSDC', 0n),
-        // V3 EXPLICIT READS
         safeReadBigInt('walletMintLimit', 0n),
         safeReadNumber('antiBotMode', 0),
         safeReadNumber('claimMode', 0),
-        // V3 Total Bonus Claimed
         safeReadBigInt('totalBonusClaimedETH', 0n),
         safeReadBigInt('totalBonusClaimedUSDC', 0n),
+        // NEW: Explicit getter functions from contract
+        safeReadBoolean('isMintActive', true),
+        safeReadBoolean('iskillSwitchActive', false), // note lowercase 'k' per contract
+        safeReadBoolean('isFreeMint', false),
+        safeReadBoolean('freeMintActive', false),
+        safeReadNumber('mintCurrency', 0),
+        safeReadBoolean('bonusClaimActive', false),
+        safeReadBoolean('isBonusClaimActive', false),
+        safeReadBoolean('bonusLevelsEnabled', false),
+        safeReadBoolean('isAntiBotActive', false),
+        safeReadBoolean('allowBonusDeposit', true),
+        safeReadBoolean('withdrawFeesEnabled', true),
+        safeReadBoolean('ownershipTransferEnabled', false),
       ]);
 
+      // Extract values with fallbacks
       const mintPaused = mintPausedRes.status === 'fulfilled' ? mintPausedRes.value : false;
       const killSwitch = killSwitchRes.status === 'fulfilled' ? killSwitchRes.value : false;
       const mintPriceETH = mintPriceETHRes.status === 'fulfilled' ? mintPriceETHRes.value : 0n;
@@ -516,75 +561,114 @@ export function useContractReads() {
       const currentBonusTier = currentBonusTierRes.status === 'fulfilled' ? currentBonusTierRes.value : 0;
       const totalFeesCollectedETH = totalFeesETHRes.status === 'fulfilled' ? totalFeesETHRes.value : 0n;
       const totalFeesCollectedUSDC = totalFeesUSDCRes.status === 'fulfilled' ? totalFeesUSDCRes.value : 0n;
-      // V3 EXPLICIT FIELDS
       const walletMintLimit = walletMintLimitRes.status === 'fulfilled' ? walletMintLimitRes.value : 0n;
       const antiBotMode = antiBotModeRes.status === 'fulfilled' ? antiBotModeRes.value : 0;
       const claimMode = claimModeRes.status === 'fulfilled' ? claimModeRes.value : 0;
-      // V3 Total Bonus Claimed
       const totalBonusClaimedETH = totalBonusClaimedETHRes.status === 'fulfilled' ? totalBonusClaimedETHRes.value : 0n;
       const totalBonusClaimedUSDC = totalBonusClaimedUSDCRes.status === 'fulfilled' ? totalBonusClaimedUSDCRes.value : 0n;
+      
+      // NEW: Explicit getter values - ALWAYS USE THESE, DO NOT INFER
+      const isMintActive = isMintActiveRes.status === 'fulfilled' ? isMintActiveRes.value : !mintPaused;
+      const isKillSwitchActive = isKillSwitchActiveRes.status === 'fulfilled' ? isKillSwitchActiveRes.value : killSwitch;
+      const isFreeMint = isFreeMintRes.status === 'fulfilled' ? isFreeMintRes.value : false;
+      const freeMintActive = freeMintActiveRes.status === 'fulfilled' ? freeMintActiveRes.value : false;
+      const mintCurrency = mintCurrencyRes.status === 'fulfilled' ? mintCurrencyRes.value : 0;
+      const bonusClaimActive = bonusClaimActiveRes.status === 'fulfilled' ? bonusClaimActiveRes.value : false;
+      const isBonusClaimActive = isBonusClaimActiveRes.status === 'fulfilled' ? isBonusClaimActiveRes.value : false;
+      const bonusLevelsEnabled = bonusLevelsEnabledRes.status === 'fulfilled' ? bonusLevelsEnabledRes.value : false;
+      const isAntiBotActive = isAntiBotActiveRes.status === 'fulfilled' ? isAntiBotActiveRes.value : antiBotMode > 0;
+      const allowBonusDeposit = allowBonusDepositRes.status === 'fulfilled' ? allowBonusDepositRes.value : true;
+      const withdrawFeesEnabled = withdrawFeesEnabledRes.status === 'fulfilled' ? withdrawFeesEnabledRes.value : true;
+      const ownershipTransferEnabled = ownershipTransferEnabledRes.status === 'fulfilled' ? ownershipTransferEnabledRes.value : false;
 
-      const paused = mintPaused || killSwitch;
-      const isFreeMint = mintPriceETH === 0n && mintPriceUSDC === 0n;
+      const paused = !isMintActive || isKillSwitchActive;
 
-      console.info('[ContractReads] V3 fields read:', {
-        mintPaused,
-        killSwitch,
-        walletMintLimit: walletMintLimit.toString(),
+      console.info('[ContractReads] Contract fields read:', {
+        isMintActive,
+        isKillSwitchActive,
+        isFreeMint,
+        freeMintActive,
+        bonusClaimActive,
+        bonusLevelsEnabled,
         antiBotMode,
-        claimMode,
+        isAntiBotActive,
+        allowBonusDeposit,
+        withdrawFeesEnabled,
+        ownershipTransferEnabled,
       });
 
-      // Build config - V3 FULL FEATURED
+      // Build config - FULL FEATURED with explicit getters
       const configData: ContractConfig = {
         owner,
         paused,
-        throttleEnabled: antiBotMode > 0,
+        throttleEnabled: isAntiBotActive,
         totalSupply,
         nextTokenId: totalSupply + 1n,
         
-        // V3 Pause / Kill Switch (EXPLICIT)
+        // Pause / Kill Switch (EXPLICIT from getters)
         mintPaused,
         killSwitch,
+        isMintActive,
+        isKillSwitchActive,
         
-        // V3 Dynamic Pricing
+        // Free Mint Status (EXPLICIT - DO NOT INFER FROM PRICES)
+        isFreeMint,
+        freeMintActive,
+        
+        // Mint Currency
+        mintCurrency,
+        
+        // Dynamic Pricing
         mintPriceETH,
         mintPriceUSDC,
         currentSupplyTier,
-        maxSupply: 0n, // Unlimited in V3
-        maxBatchSize: 50n, // MAX_BATCH_SIZE constant in V3
+        maxSupply: 0n, // Unlimited
+        maxBatchSize: 50n,
         
-        // V3 Bonus Pools
+        // Bonus Pools
         bonusPoolETH,
         bonusPoolUSDC,
         currentBonusTier,
         
-        // V3 Total Bonus Claimed (Global Stats)
+        // Bonus System Status (EXPLICIT)
+        bonusClaimActive,
+        isBonusClaimActive,
+        bonusLevelsEnabled,
+        
+        // Total Bonus Claimed (Global Stats)
         totalBonusClaimedETH,
         totalBonusClaimedUSDC,
         
-        // V3 Fees
+        // Fees
         totalFeesCollectedETH,
         totalFeesCollectedUSDC,
         
-        // V3 Wallet Limits (EXPLICIT)
+        // Wallet Limits (EXPLICIT)
         walletMintLimit,
         
-        // V3 Anti-Bot Mode (EXPLICIT)
+        // Anti-Bot Mode (EXPLICIT)
         antiBotMode,
+        isAntiBotActive,
         
-        // V3 Claim Mode (EXPLICIT)
+        // Claim Mode (EXPLICIT)
         claimMode,
         
+        // Treasury Controls (EXPLICIT)
+        allowBonusDeposit,
+        withdrawFeesEnabled,
+        
+        // Ownership Controls (EXPLICIT)
+        ownershipTransferEnabled,
+        
         // Compatibility fields
-        mintEnabled: !paused,
-        claimEnabled: bonusPoolETH > 0n || bonusPoolUSDC > 0n || claimMode > 0,
+        mintEnabled: isMintActive && !isKillSwitchActive,
+        claimEnabled: isBonusClaimActive || bonusClaimActive,
         ethEnabled: true,
-        usdcEnabled: true, // V3 always supports USDC
-        activeMintCurrency: 'ETH',
+        usdcEnabled: true,
+        activeMintCurrency: mintCurrency === 0 ? 'ETH' : 'USDC',
         activeBonusCurrency: 'ETH',
         mintCooldownBlocks: 0n,
-        signatureRequired: antiBotMode === 1 || antiBotMode === 3, // Signature or Hybrid mode
+        signatureRequired: antiBotMode === 1,
         
         lastFetched: now,
         isLoaded: true,
