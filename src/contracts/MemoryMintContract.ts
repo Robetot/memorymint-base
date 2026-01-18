@@ -63,7 +63,7 @@ export const AntiBotModeEnum = {
 // Source: https://basescan.org/address/0xA26e44EA246a1BA59Fd417380204Bce6a6A3Dc7E#code
 // ============================================================
 export const CONTRACT_ABI = [
-  // ===== CUSTOM ERRORS =====
+  // ===== CUSTOM ERRORS (AUDITED - matches BaseScan ABI) =====
   {"inputs":[],"name":"BatchSizeExceeded","type":"error"},
   {"inputs":[],"name":"BonusCapExceeded","type":"error"},
   {"inputs":[],"name":"ClaimCooldownActive","type":"error"},
@@ -76,6 +76,7 @@ export const CONTRACT_ABI = [
   {"inputs":[],"name":"InvalidLevel","type":"error"},
   {"inputs":[],"name":"InvalidNonce","type":"error"},
   {"inputs":[],"name":"InvalidSignature","type":"error"},
+  {"inputs":[],"name":"InvalidTier","type":"error"}, // ADDED - was missing
   {"inputs":[],"name":"KillSwitchActive","type":"error"},
   {"inputs":[],"name":"MintCooldownActive","type":"error"},
   {"inputs":[],"name":"MintPaused","type":"error"},
@@ -255,7 +256,7 @@ export const CONTRACT_EVENTS = [
   {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"by","type":"address"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"KillSwitchDeactivated","type":"event"},
 ] as const;
 
-// ============ CONTRACT ERRORS (For error decoding) ============
+// ============ CONTRACT ERRORS (For error decoding - AUDITED) ============
 export const CONTRACT_ERRORS = [
   {"inputs":[],"name":"BatchSizeExceeded","type":"error"},
   {"inputs":[],"name":"BonusCapExceeded","type":"error"},
@@ -269,6 +270,7 @@ export const CONTRACT_ERRORS = [
   {"inputs":[],"name":"InvalidLevel","type":"error"},
   {"inputs":[],"name":"InvalidNonce","type":"error"},
   {"inputs":[],"name":"InvalidSignature","type":"error"},
+  {"inputs":[],"name":"InvalidTier","type":"error"}, // ADDED - was missing
   {"inputs":[],"name":"KillSwitchActive","type":"error"},
   {"inputs":[],"name":"MintCooldownActive","type":"error"},
   {"inputs":[],"name":"MintPaused","type":"error"},
