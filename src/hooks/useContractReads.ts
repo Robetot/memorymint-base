@@ -391,24 +391,40 @@ export function useContractReads() {
         }
       }
 
-      // Use the robust owner fetch utility with caching and retry logic
-      console.info('[ContractReads] Fetching owner using robust utility...');
+      // Use the robust owner fetch utility with network validation, retry logic (10 attempts, 2-3s delay)
+      console.info('[ContractReads] Fetching owner using robust utility (up to 10 attempts)...');
       const ownerResult = await fetchOwnerRobust({
         forceRefresh: force,
+        skipBlockConfirmation: false, // Wait for block confirmation to avoid stale RPC
         onAttempt: (attempt, max) => {
-          console.info(`[ContractReads] owner() attempt ${attempt}/${max}`);
+          console.info(`[ContractReads] owner() attempt ${attempt}/${max} (2-3s delay between retries)`);
         },
         onError: (error, attempt) => {
           console.warn(`[ContractReads] owner() attempt ${attempt} error:`, error);
         },
+        onNetworkValidation: (networkResult) => {
+          if (networkResult.valid) {
+            console.info(`[ContractReads] Network validated: ${networkResult.chainName} (${networkResult.chainId})`);
+          } else {
+            console.error(`[ContractReads] Network validation failed: ${networkResult.error}`);
+          }
+        },
       });
       
+      // Handle network validation failure
+      if (ownerResult.networkInfo && !ownerResult.networkInfo.valid) {
+        throw new Error(ownerResult.networkInfo.error || 'Wrong network. Please switch to Base Mainnet or Sepolia.');
+      }
+      
       if (!ownerResult.owner) {
-        throw new Error(`owner() returned empty after ${ownerResult.attempts} attempts: ${ownerResult.error}`);
+        // Descriptive error message as requested
+        const proxyNote = ownerResult.isProxy ? ' (proxy contract detected)' : '';
+        throw new Error(`Owner not detected. Check network or proxy.${proxyNote} Failed after ${ownerResult.attempts} attempts: ${ownerResult.error}`);
       }
       
       const owner = ownerResult.owner;
-      console.info('[ContractReads] Owner fetched successfully:', owner.slice(0, 10) + '...');
+      console.info('[ContractReads] ✓ Owner detected successfully:', owner.slice(0, 10) + '...');
+      console.info('[ContractReads] Owner address logged in admin panel:', owner);
 
       const totalSupply = (await readStep('totalMinted()', async () => readNft('totalMinted'))) as bigint;
 
