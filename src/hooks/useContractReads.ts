@@ -15,6 +15,12 @@ import {
   RPC_CONFIG,
   clearContractCodeCache,
 } from '@/utils/rpcHandler';
+import {
+  fetchOwnerRobust,
+  getCachedOwner,
+  invalidateOwnerCache,
+  subscribeToOwnershipEvents,
+} from './useOwnerFetch';
 
 // ============ TYPES ============
 export interface ContractConfig {
@@ -381,36 +387,24 @@ export function useContractReads() {
         }
       }
 
-      // Sequential reads - owner and totalMinted are REQUIRED
-      // Retry owner() read up to 3 times with different endpoints
-      let owner: string | null = null;
-      let ownerAttempts = 0;
-      const maxOwnerAttempts = 3;
+      // Use the robust owner fetch utility with caching and retry logic
+      console.info('[ContractReads] Fetching owner using robust utility...');
+      const ownerResult = await fetchOwnerRobust({
+        forceRefresh: force,
+        onAttempt: (attempt, max) => {
+          console.info(`[ContractReads] owner() attempt ${attempt}/${max}`);
+        },
+        onError: (error, attempt) => {
+          console.warn(`[ContractReads] owner() attempt ${attempt} error:`, error);
+        },
+      });
       
-      while (!owner && ownerAttempts < maxOwnerAttempts) {
-        ownerAttempts++;
-        try {
-          const ownerResult = await readNft('owner', [], false);
-          if (ownerResult && typeof ownerResult === 'string' && ownerResult.startsWith('0x') && ownerResult.length === 42) {
-            owner = ownerResult;
-          } else {
-            console.warn(`[ContractReads] owner() attempt ${ownerAttempts} returned invalid:`, ownerResult);
-            // Short delay before retry
-            if (ownerAttempts < maxOwnerAttempts) {
-              await new Promise(r => setTimeout(r, 1000 * ownerAttempts));
-            }
-          }
-        } catch (e) {
-          console.warn(`[ContractReads] owner() attempt ${ownerAttempts} failed:`, e);
-          if (ownerAttempts < maxOwnerAttempts) {
-            await new Promise(r => setTimeout(r, 1000 * ownerAttempts));
-          }
-        }
+      if (!ownerResult.owner) {
+        throw new Error(`owner() returned empty after ${ownerResult.attempts} attempts: ${ownerResult.error}`);
       }
       
-      if (!owner) {
-        throw new Error(`owner() returned empty after ${maxOwnerAttempts} attempts`);
-      }
+      const owner = ownerResult.owner;
+      console.info('[ContractReads] Owner fetched successfully:', owner.slice(0, 10) + '...');
 
       const totalSupply = (await readStep('totalMinted()', async () => readNft('totalMinted'))) as bigint;
 

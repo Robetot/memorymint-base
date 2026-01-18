@@ -55,10 +55,16 @@ export function AdminLoadingState({
 
   const { icon: Icon, bgClass, iconClass } = getIconAndStyle();
 
-  // Unified loading message
+  // Unified loading message with phase-specific text
   const getMessage = () => {
     if (isError) {
       return error || 'Failed to load admin panel';
+    }
+    if (authPhase === 'connecting') {
+      return 'Connecting to wallet...';
+    }
+    if (authPhase === 'verifying') {
+      return 'Fetching contract owner...';
     }
     return 'Loading Admin Panel...';
   };
@@ -69,6 +75,7 @@ export function AdminLoadingState({
       if (isWrongNetwork) return 'Wrong Network';
       return 'Error';
     }
+    if (authPhase === 'verifying') return 'Verifying Admin Access';
     return 'Admin Panel';
   };
 

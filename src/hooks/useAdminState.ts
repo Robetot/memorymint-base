@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useContractReads, resetContractVerification, type BonusLevelInfo, type ContractConfig } from "./useContractReads";
 import { BASE_CHAIN_ID } from "@/contracts/MemoryMintContract";
+import { invalidateOwnerCache, subscribeToOwnershipEvents, getCachedOwner } from "./useOwnerFetch";
 
 // ============ TYPES ============
 export type AdminInitState =
@@ -97,6 +98,7 @@ function setCachedData(data: CachedAdminData): void {
 
 function clearCache(): void {
   memoryCache = null;
+  invalidateOwnerCache(); // Also clear owner cache
   try {
     sessionStorage.removeItem(SESSION_CACHE_KEY);
   } catch {
@@ -489,6 +491,21 @@ export function useAdminState(walletAddress: string) {
     };
   }, [invalidateConfigCache, invalidateWalletCache, resetState, initialize]);
 
+  // ============ SUBSCRIBE TO OWNERSHIP EVENTS ============
+  useEffect(() => {
+    const unsubscribe = subscribeToOwnershipEvents((previousOwner, newOwner) => {
+      console.info('[AdminState] Owner changed via event:', newOwner.slice(0, 10) + '...');
+      // Clear cache and re-initialize to pick up new owner
+      clearCache();
+      invalidateConfigCache();
+      // Force re-initialize
+      queueMicrotask(() => {
+        initialize();
+      });
+    });
+    
+    return unsubscribe;
+  }, [invalidateConfigCache, initialize]);
   // ============ REFRESH CONFIG ============
   const refreshConfig = useCallback(async () => {
     clearCache();
