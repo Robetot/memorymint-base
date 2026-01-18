@@ -47,6 +47,10 @@ export interface ContractConfig {
   bonusPoolUSDC: bigint;
   currentBonusTier: number;
   
+  // V3 Total Bonus Claimed (Global Stats)
+  totalBonusClaimedETH: bigint;
+  totalBonusClaimedUSDC: bigint;
+  
   // V3 Fees
   totalFeesCollectedETH: bigint;
   totalFeesCollectedUSDC: bigint;
@@ -425,6 +429,9 @@ export function useContractReads() {
         walletMintLimitRes,
         antiBotModeRes,
         claimModeRes,
+        // V3 Total Bonus Claimed
+        totalBonusClaimedETHRes,
+        totalBonusClaimedUSDCRes,
       ] = await Promise.allSettled([
         safeReadBoolean('mintPaused', false),
         safeReadBoolean('killSwitch', false),
@@ -440,6 +447,9 @@ export function useContractReads() {
         safeReadBigInt('walletMintLimit', 0n),
         safeReadNumber('antiBotMode', 0),
         safeReadNumber('claimMode', 0),
+        // V3 Total Bonus Claimed
+        safeReadBigInt('totalBonusClaimedETH', 0n),
+        safeReadBigInt('totalBonusClaimedUSDC', 0n),
       ]);
 
       const mintPaused = mintPausedRes.status === 'fulfilled' ? mintPausedRes.value : false;
@@ -456,6 +466,9 @@ export function useContractReads() {
       const walletMintLimit = walletMintLimitRes.status === 'fulfilled' ? walletMintLimitRes.value : 0n;
       const antiBotMode = antiBotModeRes.status === 'fulfilled' ? antiBotModeRes.value : 0;
       const claimMode = claimModeRes.status === 'fulfilled' ? claimModeRes.value : 0;
+      // V3 Total Bonus Claimed
+      const totalBonusClaimedETH = totalBonusClaimedETHRes.status === 'fulfilled' ? totalBonusClaimedETHRes.value : 0n;
+      const totalBonusClaimedUSDC = totalBonusClaimedUSDCRes.status === 'fulfilled' ? totalBonusClaimedUSDCRes.value : 0n;
 
       const paused = mintPaused || killSwitch;
       const isFreeMint = mintPriceETH === 0n && mintPriceUSDC === 0n;
@@ -491,6 +504,10 @@ export function useContractReads() {
         bonusPoolETH,
         bonusPoolUSDC,
         currentBonusTier,
+        
+        // V3 Total Bonus Claimed (Global Stats)
+        totalBonusClaimedETH,
+        totalBonusClaimedUSDC,
         
         // V3 Fees
         totalFeesCollectedETH,

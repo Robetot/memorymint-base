@@ -25,6 +25,9 @@ import {
   AdminLoadingState,
   AdminPricingSection,
   AdminTreasurySection,
+  AdminWalletDataPanel,
+  AdminOwnershipSection,
+  AdminGlobalStatsPanel,
   logAdminAction,
   detectContractCapabilities,
   ContractCapabilities,
@@ -247,6 +250,11 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     toast.info('Changes are applied via individual toggles above');
   };
 
+  // V3: Transfer Ownership
+  const handleTransferOwnership = async (newOwner: string) => {
+    return sendAdminTx('transferOwnership', [newOwner], undefined, `Transfer Ownership to ${newOwner.slice(0, 10)}...`);
+  };
+
   // Always render a visible state (never blank)
   if (!isReady) {
     return (
@@ -417,7 +425,28 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           </div>
         )}
 
-        {/* SECTION 1: Mint Controls */}
+        {/* SECTION 0: Global Stats Overview */}
+        <AdminGlobalStatsPanel config={config} />
+
+        <Separator className="my-6" />
+
+        {/* SECTION 1: Contract Ownership */}
+        <AdminOwnershipSection
+          currentOwner={config?.owner ?? ''}
+          walletAddress={walletAddress}
+          isPreviewMode={isPreviewMode}
+          onTransferOwnership={handleTransferOwnership}
+          isPending={isSubmitting}
+        />
+
+        <Separator className="my-6" />
+
+        {/* SECTION 2: Wallet Data */}
+        <AdminWalletDataPanel walletAddress={walletAddress} />
+
+        <Separator className="my-6" />
+
+        {/* SECTION 3: Mint Controls */}
         <AdminMintSection
           config={config}
           capabilities={caps}
@@ -430,7 +459,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 2: Pricing & Limits (NEW) */}
+        {/* SECTION 4: Pricing & Limits */}
         <AdminPricingSection
           config={config}
           capabilities={caps}
@@ -442,7 +471,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 3: Treasury Management */}
+        {/* SECTION 5: Treasury Management */}
         <AdminTreasurySection
           config={config}
           capabilities={caps}
@@ -457,7 +486,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 4: Emergency Controls */}
+        {/* SECTION 6: Emergency Controls */}
         <AdminEmergencySection
           config={config}
           capabilities={caps}
@@ -469,7 +498,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 5: Anti-Bot Protection */}
+        {/* SECTION 7: Anti-Bot Protection */}
         <AdminAntiBotSection
           config={config}
           capabilities={caps}
@@ -482,12 +511,12 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 6: Unsupported Features Notice */}
+        {/* SECTION 8: Unsupported Features Notice */}
         <AdminUnsupportedFeatures capabilities={caps} />
 
         <Separator className="my-6" />
 
-        {/* SECTION 7: Action Preview */}
+        {/* SECTION 9: Action Preview */}
         <AdminActionPreview
           config={config}
           capabilities={caps}
@@ -498,12 +527,12 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 8: Preview Mode Toggle */}
+        {/* SECTION 10: Preview Mode Toggle */}
         <AdminPreviewMode isEnabled={isPreviewMode} onToggle={setIsPreviewMode} />
 
         <Separator className="my-6" />
 
-        {/* SECTION 9: Audit Log */}
+        {/* SECTION 11: Audit Log */}
         <AdminAuditLog walletAddress={walletAddress} />
 
         <Separator className="my-6" />

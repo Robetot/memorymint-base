@@ -20,6 +20,11 @@ export { AdminActionPreview } from './AdminActionPreview';
 export { AdminPricingSection } from './AdminPricingSection';
 export { AdminTreasurySection } from './AdminTreasurySection';
 
+// V3 Enhanced sections
+export { AdminWalletDataPanel } from './AdminWalletDataPanel';
+export { AdminOwnershipSection } from './AdminOwnershipSection';
+export { AdminGlobalStatsPanel } from './AdminGlobalStatsPanel';
+
 // Types and utilities
 export * from './types';
 
