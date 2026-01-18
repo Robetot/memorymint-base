@@ -25,6 +25,16 @@ export { AdminWalletDataPanel } from './AdminWalletDataPanel';
 export { AdminOwnershipSection } from './AdminOwnershipSection';
 export { AdminGlobalStatsPanel } from './AdminGlobalStatsPanel';
 
+// NEW: Toggle-based components (V3 refactor)
+export { AdminToggle } from './AdminToggle';
+export { AdminReadOnlyStats } from './AdminReadOnlyStats';
+export { AdminCoreToggles } from './AdminCoreToggles';
+export { AdminAntiBotToggles } from './AdminAntiBotToggles';
+export { AdminClaimToggles } from './AdminClaimToggles';
+export { AdminTreasuryToggles } from './AdminTreasuryToggles';
+export { AdminEmergencyToggles } from './AdminEmergencyToggles';
+export { AdminOwnershipToggles } from './AdminOwnershipToggles';
+
 // Owner fetch utilities (audit log, validation)
 export { 
   logAdminAction as logOwnerAuditAction,
