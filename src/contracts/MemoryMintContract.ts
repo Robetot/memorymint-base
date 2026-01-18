@@ -1,14 +1,14 @@
 // ============================================================
 // MemoryMintUltraV3 Contract Integration
-// Deployed: 0xA26e44EA246a1BA59Fd417380204Bce6a6A3Dc7E
+// Deployed: 0x8A6EAc80dd2cC5efE7a6b10a4430a89871A4672B
 // Network: Base Mainnet (Chain ID: 8453)
-// ABI: VERIFIED FROM BASESCAN (2024)
+// ABI: VERIFIED FROM BASESCAN (2025)
 // Features: Dynamic Pricing, Multi-tier Bonuses, USDC Support,
 //           Wallet Limits, Anti-Bot, Kill Switch, Signature Minting
 // ============================================================
 
 // ============ CONTRACT ADDRESS ============
-export const NFT_CONTRACT_ADDRESS = '0xA26e44EA246a1BA59Fd417380204Bce6a6A3Dc7E' as const;
+export const NFT_CONTRACT_ADDRESS = '0x8A6EAc80dd2cC5efE7a6b10a4430a89871A4672B' as const;
 
 // ============ NETWORK CONSTANTS ============
 export const BASE_CHAIN_ID = '0x2105'; // 8453 in hex

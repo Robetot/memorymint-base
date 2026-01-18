@@ -4,7 +4,7 @@ import { CONTRACT_ERRORS as VERIFIED_CONTRACT_ERRORS } from '@/contracts/MemoryM
 
 // ============ CONFIGURATION ============
 // Deployed MemoryMintUltraV3 contract on Base Mainnet
-const NFT_CONTRACT_ADDRESS = '0xA26e44EA246a1BA59Fd417380204Bce6a6A3Dc7E';
+const NFT_CONTRACT_ADDRESS = '0x8A6EAc80dd2cC5efE7a6b10a4430a89871A4672B';
 
 // Base Mainnet USDC address
 const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
@@ -30,37 +30,49 @@ export type PaymentToken = 'ETH' | 'USDC';
 export type DetectedWalletType = 'metamask' | 'coinbase' | 'baseapp' | 'farcaster' | 'unknown';
 
 // ============ CONTRACT ABI ============
-// Updated to match verified BaseScan ABI for MemoryMintUltraV3
+// Updated to match MemoryMintUltraV3 at 0x8A6EAc80dd2cC5efE7a6b10a4430a89871A4672B
 const CONTRACT_ABI = parseAbi([
-  // ETH payment functions (direct, no signature required)
+  // ===== ERC721 READ FUNCTIONS =====
+  'function balanceOf(address owner_) view returns (uint256)',
+  'function ownerOf(uint256 tokenId) view returns (address)',
+  'function tokenURI(uint256 tokenId) view returns (string)',
+  'function totalMinted() view returns (uint256)',
+  
+  // ===== MINTING FUNCTIONS (ETH) =====
   'function mintNFT(string tokenURI) payable returns (uint256)',
   'function mint(string metadataURI) payable',
+  'function mintNFTWithLevel(string metadataURI, uint8 level) payable',
   'function batchMint(string[] metadataURIs) payable',
-  // USDC payment functions (direct, no signature required)
+  
+  // ===== MINTING FUNCTIONS (USDC) =====
   'function mintWithUSDC(string tokenURI) returns (uint256)',
-  // Bonus claim functions
+  'function mintWithUSDCAndLevel(string metadataURI, uint8 level)',
+  
+  // ===== BONUS SYSTEM =====
   'function claimBonus(uint256 level) external',
-  // Price getters (base/static)
-  'function mintPriceUSDC() view returns (uint256)',
+  'function getEffectiveBonus(uint8 level, uint8 currency) view returns (uint256)',
+  'function bonusLevels(uint256) view returns (uint256 bonusAmountETH, uint256 bonusAmountUSDC, uint256 minMintCount, uint256 minHoldDuration, bool isActive)',
+  'function bonusPoolETH() view returns (uint256)',
+  'function bonusPoolUSDC() view returns (uint256)',
+  
+  // ===== PRICING FUNCTIONS =====
   'function mintPriceETH() view returns (uint256)',
-  // Dynamic pricing (effective)
+  'function mintPriceUSDC() view returns (uint256)',
   'function getEffectiveMintPrice(uint8 level, uint8 currency) view returns (uint256)',
   'function dynamicPricingConfig() view returns (bool enabled, uint8 priority, uint8 activeLevelCount, uint8 activeSupplyTierCount)',
-  // Bonus getters
-  'function bonusLevels(uint256) view returns (uint256 bonusAmountETH, uint256 bonusAmountUSDC, uint256 minMintCount, uint256 minHoldDuration, bool isActive)',
+  
+  // ===== WALLET / ANTI-BOT =====
+  'function walletData(address) view returns (uint256 mintCount, uint256 lastMintTime, uint256 claimCount, uint256 lastClaimTime, uint256 totalBonusClaimed, bool isAllowlisted)',
+  'function mintCooldown() view returns (uint256)',
+  'function walletMintLimit() view returns (uint256)',
+  'function allowlist(address) view returns (bool)',
+  
+  // ===== ADMIN STATE VIEWS =====
   'function owner() view returns (address)',
-  // V3 Admin toggle states - THESE ARE THE CORRECT FUNCTIONS
   'function mintPaused() view returns (bool)',
   'function killSwitch() view returns (bool)',
   'function claimsPaused() view returns (bool)',
-  // Currency config (V3)
   'function currencyConfig() view returns (bool ethEnabled, bool usdcEnabled, uint8 activeCurrency)',
-  // Anti-bot (V3)
-  'function mintCooldown() view returns (uint256)',
-  'function walletMintLimit() view returns (uint256)',
-  'function walletData(address) view returns (uint256 mintCount, uint256 lastMintTime, uint256 claimCount, uint256 lastClaimTime, uint256 totalBonusClaimed, bool isAllowlisted)',
-  // Total supply
-  'function totalMinted() view returns (uint256)',
 ]);
 
 // ERC20 ABI for USDC
@@ -1116,6 +1128,113 @@ export function useNFTMint() {
     }
   }, []);
 
+  // ============ V3: GET EFFECTIVE MINT PRICE (with level + dynamic pricing) ============
+  const getEffectiveMintPrice = useCallback(async (level: number = 0, currency: 'ETH' | 'USDC' = 'ETH'): Promise<bigint> => {
+    try {
+      const currencyCode = currency === 'ETH' ? 0 : 1;
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getEffectiveMintPrice',
+        args: [level, currencyCode],
+      });
+      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+      const price = decodeUint256Result(result, 'getEffectiveMintPrice', true);
+      console.log(`[getEffectiveMintPrice] Level ${level}, ${currency}: ${price.toString()}`);
+      return price;
+    } catch (err) {
+      console.error('[getEffectiveMintPrice] Failed:', err);
+      // Fallback to base price
+      return currency === 'ETH' ? await getMintPriceETH() : await getMintPriceUSDC();
+    }
+  }, [getMintPriceETH, getMintPriceUSDC, decodeUint256Result]);
+
+  // ============ V3: GET EFFECTIVE BONUS (with level + dynamic bonus) ============
+  const getEffectiveBonus = useCallback(async (level: number, currency: 'ETH' | 'USDC' = 'ETH'): Promise<bigint> => {
+    try {
+      const currencyCode = currency === 'ETH' ? 0 : 1;
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'getEffectiveBonus',
+        args: [level, currencyCode],
+      });
+      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+      const bonus = decodeUint256Result(result, 'getEffectiveBonus', true);
+      console.log(`[getEffectiveBonus] Level ${level}, ${currency}: ${bonus.toString()}`);
+      return bonus;
+    } catch (err) {
+      console.error('[getEffectiveBonus] Failed:', err);
+      return 0n;
+    }
+  }, [decodeUint256Result]);
+
+  // ============ V3: GET TOTAL MINTED / CURRENT TOKEN ID ============
+  const getTotalMinted = useCallback(async (): Promise<bigint> => {
+    try {
+      const data = encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'totalMinted', args: [] });
+      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+      return decodeUint256Result(result, 'totalMinted', true);
+    } catch {
+      return 0n;
+    }
+  }, [decodeUint256Result]);
+
+  // ============ V3: GET NFT BALANCE ============
+  const getNFTBalance = useCallback(async (walletAddress: string): Promise<bigint> => {
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'balanceOf',
+        args: [walletAddress as `0x${string}`],
+      });
+      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+      return decodeUint256Result(result, 'balanceOf', true);
+    } catch {
+      return 0n;
+    }
+  }, [decodeUint256Result]);
+
+  // ============ V3: GET TOKEN OWNER ============
+  const getTokenOwner = useCallback(async (tokenId: bigint): Promise<string | null> => {
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'ownerOf',
+        args: [tokenId],
+      });
+      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+      if (!result || result === '0x') return null;
+      const decoded = decodeFunctionResult({
+        abi: CONTRACT_ABI,
+        functionName: 'ownerOf',
+        data: result as `0x${string}`,
+      }) as string;
+      return decoded;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // ============ V3: GET TOKEN URI ============
+  const getTokenURI = useCallback(async (tokenId: bigint): Promise<string | null> => {
+    try {
+      const data = encodeFunctionData({
+        abi: CONTRACT_ABI,
+        functionName: 'tokenURI',
+        args: [tokenId],
+      });
+      const result = await rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data }, 'latest']);
+      if (!result || result === '0x') return null;
+      const decoded = decodeFunctionResult({
+        abi: CONTRACT_ABI,
+        functionName: 'tokenURI',
+        data: result as `0x${string}`,
+      }) as string;
+      return decoded;
+    } catch {
+      return null;
+    }
+  }, []);
+
 
   // ============ WAIT FOR RECEIPT (HARDENED) ============
   const waitForReceipt = useCallback(async (
@@ -2125,12 +2244,20 @@ export function useNFTMint() {
     // State management
     resetMintState,
     refreshAdminConfig,
-    // Price getters
+    // Price getters (V3 enhanced)
     getMintPriceETH,
     getBatchMintPriceETH,
     getMintPriceUSDC,
     getBatchMintPriceUSDC,
     getMintPriceEstimate,
+    getEffectiveMintPrice,
+    // V3: Bonus system
+    getEffectiveBonus,
+    // V3: NFT read functions
+    getTotalMinted,
+    getNFTBalance,
+    getTokenOwner,
+    getTokenURI,
     // Balance checks
     checkBalance,
     checkUSDCAllowance,
