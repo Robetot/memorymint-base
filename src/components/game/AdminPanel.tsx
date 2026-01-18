@@ -35,6 +35,7 @@ import {
   SAFE_DEFAULTS,
 } from './admin';
 import { getCachedOwner } from '@/hooks/useOwnerFetch';
+import { getCachedTotalMinted } from '@/hooks/useTotalMintedFetch';
 
 // Hardcoded admin address for display verification
 const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
@@ -107,6 +108,16 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
         description: 'Wait for owner detection to complete or check network connection.',
       });
       console.error('[AdminPanel] Admin action blocked: Owner not detected');
+      return false;
+    }
+
+    // CRITICAL: Check if totalMinted is detected before allowing minting/bonus operations
+    const detectedTotalMinted = getCachedTotalMinted() ?? config?.totalSupply;
+    if (detectedTotalMinted === null || detectedTotalMinted === undefined) {
+      toast.error('totalMinted not detected. Cannot execute operation.', {
+        description: 'Wait for totalMinted detection to complete or check network/proxy.',
+      });
+      console.error('[AdminPanel] Admin action blocked: totalMinted not detected');
       return false;
     }
 

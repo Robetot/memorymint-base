@@ -62,6 +62,10 @@ export function AdminLoadingState({
       if (error?.includes('Owner not detected')) {
         return 'Owner not detected. Check network or proxy.';
       }
+      // Show descriptive error for totalMinted detection failures
+      if (error?.includes('totalMinted') || error?.includes('Failed to read totalMinted')) {
+        return 'Failed to read totalMinted. Check network or proxy.';
+      }
       if (error?.includes('Wrong network')) {
         return error;
       }
@@ -71,7 +75,7 @@ export function AdminLoadingState({
       return 'Connecting to wallet...';
     }
     if (authPhase === 'verifying') {
-      return 'Verifying network and fetching contract owner (up to 10 attempts)...';
+      return 'Verifying network, fetching owner and totalMinted (up to 10 attempts each)...';
     }
     return 'Loading Admin Panel...';
   };
