@@ -62,111 +62,134 @@ export const AntiBotModeEnum = {
 export const MAX_BATCH_SIZE = 20;
 export const MAX_SUPPLY = 10000;
 
-// ============ FULL V3 ABI ============
+// ============ FULL V3 ABI (from BaseScan) ============
 export const CONTRACT_ABI_V3 = parseAbi([
   // ===== ERC-721 Standard =====
   'function name() view returns (string)',
   'function symbol() view returns (string)',
   'function tokenURI(uint256 tokenId) view returns (string)',
-  'function balanceOf(address owner) view returns (uint256)',
+  'function balanceOf(address owner_) view returns (uint256)',
   'function ownerOf(uint256 tokenId) view returns (address)',
-  'function totalSupply() view returns (uint256)',
   'function approve(address to, uint256 tokenId)',
   'function getApproved(uint256 tokenId) view returns (address)',
   'function setApprovalForAll(address operator, bool approved)',
-  'function isApprovedForAll(address owner, address operator) view returns (bool)',
+  'function isApprovedForAll(address owner_, address operator) view returns (bool)',
   'function transferFrom(address from, address to, uint256 tokenId)',
   'function safeTransferFrom(address from, address to, uint256 tokenId)',
   'function safeTransferFrom(address from, address to, uint256 tokenId, bytes data)',
-  'function supportsInterface(bytes4 interfaceId) view returns (bool)',
+  'function supportsInterface(bytes4 interfaceId) pure returns (bool)',
 
   // ===== Core View Functions =====
   'function owner() view returns (address)',
-  'function mintPaused() view returns (bool)',
-  'function killSwitch() view returns (bool)',
   'function totalMinted() view returns (uint256)',
-
-  // ===== Dynamic Pricing Functions =====
-  'function getMintPriceETH() view returns (uint256)',
-  'function getMintPriceUSDC() view returns (uint256)',
-  'function getBatchMintPriceETH(uint256 quantity) view returns (uint256)',
-  'function getBatchMintPriceUSDC(uint256 quantity) view returns (uint256)',
-  'function currentSupplyTier() view returns (uint8)',
+  'function getCurrentTokenId() view returns (uint256)',
+  'function mintPaused() view returns (bool)',
+  'function claimsPaused() view returns (bool)',
+  'function killSwitch() view returns (bool)',
   
-  // ===== Price Tier Configuration =====
-  'function getSupplyTier(uint8 tier) view returns (uint256 threshold, uint256 priceETH, uint256 priceUSDC)',
-  'function supplyTierCount() view returns (uint8)',
+  // ===== Price Configuration =====
+  'function mintPriceETH() view returns (uint256)',
+  'function mintPriceUSDC() view returns (uint256)',
+  'function maxPriceETH() view returns (uint256)',
+  'function maxPriceUSDC() view returns (uint256)',
+  'function mintCooldown() view returns (uint256)',
+  'function walletMintLimit() view returns (uint256)',
+  
+  // ===== Dynamic Pricing Functions =====
+  'function getEffectiveMintPrice(uint8 level, uint8 currency) view returns (uint256)',
+  'function getEffectiveBonus(uint8 level, uint8 currency) view returns (uint256)',
+  
+  // ===== Dynamic Config =====
+  'function dynamicPricingConfig() view returns (bool enabled, uint8 priority, uint8 activeLevelCount, uint8 activeSupplyTierCount)',
+  'function dynamicBonusConfig() view returns (bool enabled, uint8 priority, uint8 activeLevelCount, uint8 activeSupplyTierCount)',
+  
+  // ===== Level & Supply Tier Config =====
+  'function levelPrices(uint8) view returns (uint256 priceETH, uint256 priceUSDC, bool isActive)',
+  'function levelBonuses(uint8) view returns (uint256 bonusETH, uint256 bonusUSDC, bool isActive)',
+  'function supplyPriceTiers(uint8) view returns (uint256 minSupply, uint256 maxSupply, uint256 priceETH, uint256 priceUSDC, bool isActive)',
+  'function supplyBonusTiers(uint8) view returns (uint256 minSupply, uint256 maxSupply, uint256 bonusETH, uint256 bonusUSDC, bool isActive)',
+  
+  // ===== Bonus Levels Config (legacy) =====
+  'function bonusLevels(uint256) view returns (uint256 bonusAmountETH, uint256 bonusAmountUSDC, uint256 minMintCount, uint256 minHoldDuration, bool isActive)',
 
-  // ===== Minting Functions (ETH) =====
-  'function mint(string tokenURI) payable returns (uint256)',
-  'function mintNFT(string tokenURI) payable returns (uint256)',
-  'function batchMint(uint256 quantity) payable returns (uint256)',
-  'function mintGameNFT(string tokenURI_, uint8 level, uint8 rarity, uint16 score, uint32 completionTime, uint8 comboStreak, bool perfectGame, string playerName, uint64 farcasterFid) payable returns (uint256)',
-
-  // ===== Minting Functions (USDC) =====
-  'function mintWithUSDC(string tokenURI) returns (uint256)',
-  'function batchMintWithUSDC(uint256 quantity) returns (uint256)',
-
-  // ===== Admin Minting =====
-  'function mintTo(address to, string tokenURI) returns (uint256)',
-
-  // ===== Bonus System - View Functions =====
-  'function getBonusAmountETH(uint256 levelId) view returns (uint256)',
-  'function getBonusAmountUSDC(uint256 levelId) view returns (uint256)',
-  'function canClaimBonus(address user, uint256 levelId) view returns (bool eligible, string reason)',
-  'function getBonusLevel(uint256 levelId) view returns (uint256 minMints, bool active, uint256 baseAmountETH, uint256 baseAmountUSDC, bool allowlistOnly)',
-  'function getBonusLevelFull(uint256 levelId) view returns (uint256 minMints, bool active, uint256 baseAmountETH, uint256 baseAmountUSDC, bool allowlistOnly, uint256 cooldown, uint256 maxClaims)',
-  'function userBonusClaimed(address user, uint256 levelId) view returns (bool)',
-  'function userLastClaimTime(address user, uint256 levelId) view returns (uint256)',
-  'function userTotalClaims(address user) view returns (uint256)',
+  // ===== Currency Config =====
+  'function currencyConfig() view returns (bool ethEnabled, bool usdcEnabled, uint8 activeCurrency)',
+  
+  // ===== Anti-Bot & Eligibility =====
+  'function antiBotMode() view returns (uint8)',
+  'function claimMode() view returns (uint8)',
+  'function eligibilityRules() view returns (uint256 minMintCount, uint256 minHoldDuration, uint256 claimCooldown, bool requireAllowlist, bool requireSignature)',
+  
+  // ===== Bonus Pool =====
   'function bonusPoolETH() view returns (uint256)',
   'function bonusPoolUSDC() view returns (uint256)',
-  'function currentBonusTier() view returns (uint8)',
+  'function bonusCapPerWallet() view returns (uint256)',
+  'function totalBonusClaimedETH() view returns (uint256)',
+  'function totalBonusClaimedUSDC() view returns (uint256)',
+
+  // ===== Wallet Data =====
+  'function getWalletData(address wallet) view returns ((uint256 mintCount, uint256 lastMintTime, uint256 claimCount, uint256 lastClaimTime, uint256 totalBonusClaimed, bool isAllowlisted))',
+  'function walletData(address) view returns (uint256 mintCount, uint256 lastMintTime, uint256 claimCount, uint256 lastClaimTime, uint256 totalBonusClaimed, bool isAllowlisted)',
+  'function allowlist(address) view returns (bool)',
+  'function getNonce(address wallet) view returns (uint256)',
+  'function signatureVerifier() view returns (address)',
+  'function isSignatureUsed(bytes32 sigHash) view returns (bool)',
+
+  // ===== Minting Functions (ETH) =====
+  'function mint(string metadataURI) payable',
+  'function mintNFT(string metadataURI) payable',
+  'function mintNFTWithLevel(string metadataURI, uint8 level) payable',
+  'function batchMint(string[] metadataURIs) payable',
+  'function mintTo(address to, string metadataURI)',
+  'function mintWithSignature(string metadataURI, uint256 nonce, uint256 expiration, bytes signature) payable',
   
-  // ===== Bonus Tier Configuration =====
-  'function getBonusTier(uint8 tier) view returns (uint256 threshold, uint256 multiplierBps)',
-  'function bonusTierCount() view returns (uint8)',
+  // ===== Minting Functions (USDC) =====
+  'function mintWithUSDC(string metadataURI)',
 
   // ===== Bonus Claiming =====
-  'function claimBonus(uint256 levelId) returns (uint256)',
-  'function claimBonusAsUSDC(uint256 levelId) returns (uint256)',
+  'function claimBonus(uint256 level)',
 
-  // ===== Player Data =====
-  'function getPlayer(address player) view returns (string playerName, uint64 farcasterFid, uint32 totalMints, uint32 firstMintTime, bool nameSet)',
-  'function walletMintCount(address wallet) view returns (uint256)',
-  'function isAllowlisted(address user) view returns (bool)',
-
-  // ===== NFT Metadata =====
-  'function getNFTMetadata(uint256 tokenId) view returns (uint8 level, uint8 rarity, uint16 score, uint32 completionTime, uint8 comboStreak, bool perfectGame)',
-  'function isMetadataFrozen(uint256 tokenId) view returns (bool)',
-
-  // ===== Admin Functions =====
-  'function pause()',
-  'function unpause()',
-  'function setBaseURI(string baseURI_)',
-  'function updateTokenURI(uint256 tokenId, string newTokenURI)',
-  'function freezeTokenMetadata(uint256 tokenId)',
-  'function batchFreezeMetadata(uint256 fromTokenId, uint256 toTokenId)',
+  // ===== Admin: State Control =====
+  'function setMintPaused(bool paused)',
+  'function setClaimsPaused(bool paused)',
+  'function activateKillSwitch()',
   'function transferOwnership(address newOwner)',
 
   // ===== Admin: Pricing =====
-  'function setSupplyTier(uint8 tier, uint256 threshold, uint256 priceETH, uint256 priceUSDC)',
+  'function setMintPrice(uint256 ethPrice, uint256 usdcPrice)',
+  'function setMaxPriceCap(uint256 maxETH, uint256 maxUSDC)',
+  'function setMintCooldown(uint256 cooldown)',
+  'function setWalletMintLimit(uint256 limit)',
+  'function setDynamicPricingEnabled(bool enabled)',
+  'function setLevelPrice(uint8 level, uint256 priceETH, uint256 priceUSDC)',
+  'function setSupplyPriceTier(uint8 tier, uint256 minSupply, uint256 maxSupply, uint256 priceETH, uint256 priceUSDC)',
   
   // ===== Admin: Bonus System =====
-  'function setBonusLevel(uint256 levelId, uint256 minMints, bool active, uint256 baseAmountETH, uint256 baseAmountUSDC, bool allowlistOnly, uint256 cooldown, uint256 maxClaims)',
-  'function setBonusTier(uint8 tier, uint256 threshold, uint256 multiplierBps)',
-  'function depositBonusPoolETH() payable',
+  'function setDynamicBonusEnabled(bool enabled)',
+  'function setLevelBonus(uint8 level, uint256 bonusETH, uint256 bonusUSDC)',
+  'function setSupplyBonusTier(uint8 tier, uint256 minSupply, uint256 maxSupply, uint256 bonusETH, uint256 bonusUSDC)',
+  'function setBonusCapPerWallet(uint256 cap)',
+  'function depositBonusPool() payable',
   'function depositBonusPoolUSDC(uint256 amount)',
-  'function withdrawBonusPoolETH(uint256 amount)',
-  'function withdrawBonusPoolUSDC(uint256 amount)',
-  'function addToAllowlist(address[] users)',
-  'function removeFromAllowlist(address[] users)',
+  'function withdrawBonusPool(uint256 ethAmount, uint256 usdcAmount)',
 
+  // ===== Admin: Currency & Anti-Bot =====
+  'function setCurrencyConfig(bool ethEnabled, bool usdcEnabled, uint8 activeCurrency)',
+  'function setAntiBotMode(uint8 mode)',
+  'function setClaimMode(uint8 mode)',
+  'function setEligibilityRules(uint256 minMints, uint256 cooldown, bool requireAllowlist)',
+  'function setSignatureVerifier(address verifier)',
+  
+  // ===== Admin: Allowlist =====
+  'function setAllowlist(address[] wallets, bool allow)',
+  
+  // ===== Admin: Metadata =====
+  'function setBaseURI(string uri)',
+  'function setTokenURI(uint256 tokenId, string uri)',
+  
   // ===== Admin: Fee Withdrawal =====
   'function withdrawFees()',
-  'function withdrawFeesUSDC()',
-  'function totalFeesCollectedETH() view returns (uint256)',
-  'function totalFeesCollectedUSDC() view returns (uint256)',
+  'function emergencyWithdraw()',
 ]);
 
 // ============ ERC20 ABI (for USDC) ============
@@ -181,76 +204,61 @@ export const ERC20_ABI = parseAbi([
 
 // ============ V3 EVENTS ============
 export const CONTRACT_EVENTS_V3 = parseAbi([
-  // Core events
+  // Core ERC-721 events
   'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)',
   'event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)',
   'event ApprovalForAll(address indexed owner, address indexed operator, bool approved)',
-  'event MetadataUpdate(uint256 indexed tokenId)',
-  'event BatchMetadataUpdate(uint256 indexed fromTokenId, uint256 indexed toTokenId)',
   'event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)',
   
   // Minting events
-  'event NFTMinted(address indexed to, uint256 indexed tokenId, string tokenURI, uint8 level, uint8 rarity, uint256 pricePaid, uint8 currency)',
-  'event BatchMinted(address indexed to, uint256 startTokenId, uint256 quantity, uint256 totalPaid, uint8 currency)',
-  'event PlayerRegistered(address indexed player, string name, uint64 farcasterFid)',
-  'event TokenMetadataFrozen(uint256 indexed tokenId)',
+  'event NFTMinted(address indexed minter, uint256 indexed tokenId, string metadataURI, uint256 price, uint8 currency)',
+  'event BatchMinted(address indexed minter, uint256 startTokenId, uint256 count, uint256 totalPrice, uint8 currency)',
   
   // Bonus events
-  'event BonusClaimed(address indexed user, uint256 indexed levelId, uint256 amount, uint8 currency)',
-  'event BonusLevelConfigured(uint256 indexed levelId, uint256 minMints, bool active, uint256 baseAmountETH, uint256 baseAmountUSDC)',
-  'event BonusTierConfigured(uint8 indexed tier, uint256 threshold, uint256 multiplierBps)',
-  'event BonusPoolDeposited(uint8 currency, uint256 amount)',
-  'event BonusPoolWithdrawn(uint8 currency, uint256 amount)',
+  'event BonusClaimed(address indexed claimer, uint256 amount, uint8 currency, uint256 level)',
   
-  // Pricing events
-  'event SupplyTierConfigured(uint8 indexed tier, uint256 threshold, uint256 priceETH, uint256 priceUSDC)',
-  'event PriceTierChanged(uint8 oldTier, uint8 newTier)',
-  
-  // Admin events
-  'event ContractPaused(bool paused)',
-  'event FeesWithdrawn(address indexed to, uint256 amountETH, uint256 amountUSDC)',
-  'event AllowlistUpdated(address indexed user, bool added)',
+  // Config events
+  'event CurrencyUpdated(bool ethEnabled, bool usdcEnabled, uint8 activeCurrency)',
+  'event MintPriceUpdated(uint256 newPriceETH, uint256 newPriceUSDC)',
+  'event MaxPriceCapUpdated(uint256 maxETH, uint256 maxUSDC)',
 ]);
 
 // ============ V3 CUSTOM ERRORS ============
 export const CONTRACT_ERRORS_V3 = parseAbi([
   // Core errors
-  'error NotOwner()',
-  'error ZeroAddress()',
-  'error TokenNotExist()',
-  'error NotApproved()',
-  'error NotAuthorized()',
-  'error InvalidQuantity()',
-  'error MaxBatchExceeded()',
-  'error MaxSupplyExceeded()',
-  'error TransferToNonReceiver()',
-  'error Paused()',
+  'error Unauthorized()',
+  'error InvalidAddress()',
+  'error TokenNotFound()',
   'error ReentrancyGuard()',
-  'error NameAlreadySet()',
-  'error EmptyName()',
-  'error MetadataFrozen()',
-  'error AlreadyMinted()',
+  'error KillSwitchActive()',
   
-  // Payment errors
-  'error InsufficientPayment(uint256 required, uint256 provided)',
-  'error RefundFailed()',
-  'error InvalidCurrency()',
-  'error USDCTransferFailed()',
-  'error InsufficientUSDCBalance()',
-  'error InsufficientUSDCAllowance()',
+  // Minting errors
+  'error MintPaused()',
+  'error MintCooldownActive()',
+  'error WalletLimitExceeded()',
+  'error BatchSizeExceeded()',
+  'error InsufficientPayment()',
+  'error CurrencyNotEnabled()',
+  'error USDCNotEnabled()',
+  'error TransferFailed()',
+  
+  // Signature errors
+  'error InvalidSignature()',
+  'error InvalidNonce()',
+  'error ExpiredSignature()',
+  'error SignatureExpirationTooShort()',
   
   // Bonus errors
-  'error BonusLevelNotActive()',
-  'error BonusAlreadyClaimed()',
-  'error BonusNotEligible(string reason)',
-  'error BonusCooldownActive(uint256 remainingTime)',
-  'error BonusMaxClaimsReached()',
-  'error InsufficientBonusPool()',
-  'error NotOnAllowlist()',
+  'error ClaimsPaused()',
+  'error ClaimCooldownActive()',
+  'error NoBonusAvailable()',
+  'error NotEligible()',
+  'error BonusCapExceeded()',
+  'error InsufficientContractBalance()',
   
   // Tier errors
+  'error InvalidLevel()',
   'error InvalidTier()',
-  'error TierNotConfigured()',
 ]);
 
 // ============ HELPER CONSTANTS ============
@@ -261,19 +269,24 @@ export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as cons
 export const GAS_BASELINES_V3: Record<string, bigint> = {
   mint: 95000n,
   mintNFT: 95000n,
+  mintNFTWithLevel: 100000n,
   mintWithUSDC: 110000n,
-  mintGameNFT: 130000n,
   batchMint: 200000n,
-  batchMintWithUSDC: 220000n,
+  mintWithSignature: 120000n,
   claimBonus: 65000n,
-  claimBonusAsUSDC: 85000n,
-  depositBonusPoolETH: 30000n,
+  depositBonusPool: 30000n,
   depositBonusPoolUSDC: 70000n,
-  withdrawBonusPoolETH: 40000n,
-  withdrawBonusPoolUSDC: 60000n,
+  withdrawBonusPool: 50000n,
   withdrawFees: 45000n,
-  setSupplyTier: 50000n,
-  setBonusLevel: 60000n,
+  setMintPrice: 45000n,
+  setLevelPrice: 50000n,
+  setSupplyPriceTier: 55000n,
+  setLevelBonus: 50000n,
+  setSupplyBonusTier: 55000n,
+  setWalletMintLimit: 30000n,
+  setAntiBotMode: 30000n,
+  setClaimMode: 30000n,
+  setAllowlist: 80000n,
 } as const;
 
 // Cache TTL
@@ -285,20 +298,43 @@ export const PRICE_CACHE_TTL = 15000; // 15 seconds
 // ============ TYPE HELPERS ============
 export interface SupplyTierConfig {
   tier: number;
-  threshold: bigint;
+  minSupply: bigint;
+  maxSupply: bigint;
   priceETH: bigint;
   priceUSDC: bigint;
+  isActive: boolean;
+}
+
+export interface SupplyBonusTierConfig {
+  tier: number;
+  minSupply: bigint;
+  maxSupply: bigint;
+  bonusETH: bigint;
+  bonusUSDC: bigint;
+  isActive: boolean;
+}
+
+export interface LevelPriceConfig {
+  level: number;
+  priceETH: bigint;
+  priceUSDC: bigint;
+  isActive: boolean;
+}
+
+export interface LevelBonusConfig {
+  level: number;
+  bonusETH: bigint;
+  bonusUSDC: bigint;
+  isActive: boolean;
 }
 
 export interface BonusLevelConfig {
   levelId: number;
-  minMints: bigint;
-  active: boolean;
-  baseAmountETH: bigint;
-  baseAmountUSDC: bigint;
-  allowlistOnly: boolean;
-  cooldown: bigint;
-  maxClaims: bigint;
+  bonusAmountETH: bigint;
+  bonusAmountUSDC: bigint;
+  minMintCount: bigint;
+  minHoldDuration: bigint;
+  isActive: boolean;
 }
 
 export interface BonusTierConfig {
@@ -307,31 +343,71 @@ export interface BonusTierConfig {
   multiplierBps: bigint; // 10000 = 100%
 }
 
+export interface WalletData {
+  mintCount: bigint;
+  lastMintTime: bigint;
+  claimCount: bigint;
+  lastClaimTime: bigint;
+  totalBonusClaimed: bigint;
+  isAllowlisted: boolean;
+}
+
+export interface EligibilityRules {
+  minMintCount: bigint;
+  minHoldDuration: bigint;
+  claimCooldown: bigint;
+  requireAllowlist: boolean;
+  requireSignature: boolean;
+}
+
+export interface CurrencyConfig {
+  ethEnabled: boolean;
+  usdcEnabled: boolean;
+  activeCurrency: number;
+}
+
+export interface DynamicConfig {
+  enabled: boolean;
+  priority: number;
+  activeLevelCount: number;
+  activeSupplyTierCount: number;
+}
+
 export interface ContractConfigV3 {
   // Core
   owner: string;
   paused: boolean;
-  totalSupply: bigint;
-  nextTokenId: bigint;
-  maxSupply: bigint;
-  maxBatchSize: bigint;
+  claimsPaused: boolean;
+  killSwitch: boolean;
+  totalMinted: bigint;
+  currentTokenId: bigint;
   
   // Pricing
-  currentSupplyTier: number;
   mintPriceETH: bigint;
   mintPriceUSDC: bigint;
-  supplyTiers: SupplyTierConfig[];
+  maxPriceETH: bigint;
+  maxPriceUSDC: bigint;
+  mintCooldown: bigint;
+  walletMintLimit: bigint;
   
-  // Bonus
+  // Currency
+  currencyConfig: CurrencyConfig;
+  
+  // Dynamic Pricing
+  dynamicPricingConfig: DynamicConfig;
+  dynamicBonusConfig: DynamicConfig;
+  
+  // Bonus Pool
   bonusPoolETH: bigint;
   bonusPoolUSDC: bigint;
-  currentBonusTier: number;
-  bonusTiers: BonusTierConfig[];
-  bonusLevels: BonusLevelConfig[];
+  bonusCapPerWallet: bigint;
+  totalBonusClaimedETH: bigint;
+  totalBonusClaimedUSDC: bigint;
   
-  // Fees
-  totalFeesCollectedETH: bigint;
-  totalFeesCollectedUSDC: bigint;
+  // Anti-Bot
+  antiBotMode: number;
+  claimMode: number;
+  eligibilityRules: EligibilityRules;
   
   // Meta
   lastFetched: number;
@@ -344,9 +420,9 @@ export interface WalletStateV3 {
   ethBalance: bigint;
   usdcBalance: bigint;
   usdcAllowance: bigint;
-  mintCount: bigint;
+  walletData: WalletData;
+  nonce: bigint;
   isAllowlisted: boolean;
-  totalClaims: bigint;
   lastFetched: number;
 }
 
@@ -381,3 +457,28 @@ export function parseETH(eth: string): bigint {
 export function parseUSDC(usdc: string): bigint {
   return BigInt(Math.floor(parseFloat(usdc) * 1e6));
 }
+
+// ============ FUNCTION INTEGRATION GUIDE ============
+/*
+  Integration Functions Reference:
+  
+  READ FUNCTIONS:
+  - owner(): Fetch current contract owner
+  - totalMinted(): Get total NFTs minted
+  - getWalletData(address): Fetch wallet mint/claim info
+  - getEffectiveMintPrice(level, currency): Get dynamic mint price (level=1, currency: 0=ETH, 1=USDC)
+  - getEffectiveBonus(level, currency): Get dynamic bonus by level & currency
+  
+  WRITE FUNCTIONS:
+  - mintNFT(metadataURI): Mint single NFT with metadata URI (payable)
+  - mintNFTWithLevel(metadataURI, level): Mint NFT with specific level (payable)
+  - batchMint(metadataURIs[]): Batch mint multiple NFTs (payable)
+  - claimBonus(level): Claim bonus for a level
+  
+  ADMIN FUNCTIONS:
+  - setWalletMintLimit(limit): Set wallet mint limit
+  - setAntiBotMode(mode): Toggle anti-bot mode (0=disabled, 1-4=enabled modes)
+  - withdrawBonusPool(ethAmount, usdcAmount): Withdraw from bonus pools
+  - depositBonusPool(): Deposit ETH to bonus pool (payable)
+  - depositBonusPoolUSDC(amount): Deposit USDC to bonus pool
+*/
