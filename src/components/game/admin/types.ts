@@ -176,12 +176,12 @@ export function detectContractCapabilities(): ContractCapabilities {
     hasWithdrawUSDC: hasFunc('withdrawBonusPool'),
     hasSetBonusLevel: hasFunc('setLevelBonus'),
     
-    // Emergency Controls - V3 SUPPORTED
-    hasKillSwitch: hasFunc('killSwitch'),
+    // Emergency Controls - V3 VERIFIED SUPPORTED
+    hasKillSwitch: hasFunc('killSwitch') || hasFunc('killed'),
     hasActivateKillSwitch: hasFunc('activateKillSwitch'),
     hasDeactivateKillSwitch: hasFunc('deactivateKillSwitch'),
-    hasGlobalKillSwitch: hasFunc('activateKillSwitch') && hasFunc('deactivateKillSwitch'),
-    hasEmergencyWithdraw: hasFunc('emergencyWithdraw'),
+    hasGlobalKillSwitch: hasFunc('activateKillSwitch') || hasFunc('deactivateKillSwitch'),
+    hasEmergencyWithdraw: hasFunc('emergencyWithdraw'), // V3 VERIFIED
     
     // Anti-Bot - V3 SUPPORTED
     hasAntiBotMode: hasFunc('antiBotMode'),
