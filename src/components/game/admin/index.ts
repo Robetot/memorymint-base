@@ -33,6 +33,13 @@ export {
   getCachedOwner as getCachedContractOwner,
 } from '@/hooks/useOwnerFetch';
 
+// TotalMinted fetch utilities
+export {
+  getCachedTotalMinted,
+  invalidateTotalMintedCache,
+  fetchTotalMintedRobust,
+} from '@/hooks/useTotalMintedFetch';
+
 // Types and utilities
 export * from './types';
 

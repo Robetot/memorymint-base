@@ -21,6 +21,11 @@ import {
   invalidateOwnerCache,
   subscribeToOwnershipEvents,
 } from './useOwnerFetch';
+import {
+  fetchTotalMintedRobust,
+  getCachedTotalMinted,
+  invalidateTotalMintedCache,
+} from './useTotalMintedFetch';
 
 // ============ TYPES ============
 export interface ContractConfig {
@@ -426,7 +431,40 @@ export function useContractReads() {
       console.info('[ContractReads] ✓ Owner detected successfully:', owner.slice(0, 10) + '...');
       console.info('[ContractReads] Owner address logged in admin panel:', owner);
 
-      const totalSupply = (await readStep('totalMinted()', async () => readNft('totalMinted'))) as bigint;
+      // Use robust totalMinted fetch with proxy detection, retry logic (10 attempts, 3s delay)
+      console.info('[ContractReads] Fetching totalMinted using robust utility (up to 10 attempts)...');
+      const totalMintedResult = await fetchTotalMintedRobust({
+        forceRefresh: force,
+        skipBlockConfirmation: false,
+        onAttempt: (attempt, max) => {
+          console.info(`[ContractReads] totalMinted() attempt ${attempt}/${max} (3s delay between retries)`);
+        },
+        onError: (error, attempt) => {
+          console.warn(`[ContractReads] totalMinted() attempt ${attempt} error:`, error);
+        },
+        onNetworkValidation: (networkResult) => {
+          if (networkResult.valid) {
+            console.info(`[ContractReads] Network validated for totalMinted: ${networkResult.chainName}`);
+          } else {
+            console.error(`[ContractReads] Network validation failed for totalMinted: ${networkResult.error}`);
+          }
+        },
+      });
+
+      // Handle network validation failure
+      if (totalMintedResult.networkInfo && !totalMintedResult.networkInfo.valid) {
+        throw new Error(totalMintedResult.networkInfo.error || 'Wrong network. Please switch to Base Mainnet or Sepolia.');
+      }
+
+      if (totalMintedResult.totalMinted === null) {
+        // Descriptive error message as requested
+        const proxyNote = totalMintedResult.isProxy ? ` (${totalMintedResult.proxyType} proxy detected)` : '';
+        throw new Error(`Failed to read totalMinted. Check network or proxy.${proxyNote} Failed after ${totalMintedResult.attempts} attempts: ${totalMintedResult.error}`);
+      }
+
+      const totalSupply = totalMintedResult.totalMinted;
+      console.info('[ContractReads] ✓ totalMinted detected:', totalSupply.toString(), 'tokens');
+      console.info('[ContractReads] totalMinted value logged in Admin Audit Log');
 
       // OPTIONAL reads in parallel - EXPLICITLY READ ALL V3 FIELDS
       // V3 has: mintPaused, killSwitch, walletMintLimit, antiBotMode, claimMode
