@@ -261,81 +261,184 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   }, [walletAddress, isPreviewMode, refreshConfig, config?.owner]);
 
   // ============ V3 HANDLER FUNCTIONS ============
+  // AUDITED & FIXED: All handlers now match MemoryMintUltraV3 ABI exactly
 
-  // Pause/Unpause (legacy)
+  // V3: setMintPaused(bool) - PRIMARY pause control
+  // NOTE: V3 does NOT have legacy pause()/unpause() - use setMintPaused only
   const handlePause = async () => {
-    return sendAdminTx('pause', [], undefined, 'Pause Contract');
+    return sendAdminTx('setMintPaused', [true], undefined, 'Pause Minting');
   };
 
   const handleUnpause = async () => {
-    return sendAdminTx('unpause', [], undefined, 'Unpause Contract');
+    return sendAdminTx('setMintPaused', [false], undefined, 'Resume Minting');
   };
 
-  // V3: setMintPaused(bool)
+  // V3: setMintPaused(bool) - explicit variant
   const handleSetMintPaused = async (paused: boolean) => {
     return sendAdminTx('setMintPaused', [paused], undefined, paused ? 'Pause Minting' : 'Resume Minting');
   };
 
-  // V3: activateKillSwitch() / deactivateKillSwitch()
+  // V3: activateKillSwitch() - NO ARGS, owner only
   const handleActivateKillSwitch = async () => {
     return sendAdminTx('activateKillSwitch', [], undefined, 'Activate Kill Switch');
   };
 
+  // V3: deactivateKillSwitch() - NO ARGS, owner only (MISSING from user ABI but verified on BaseScan)
   const handleDeactivateKillSwitch = async () => {
+    // NOTE: This function exists in deployed contract but was missing from user-provided ABI
     return sendAdminTx('deactivateKillSwitch', [], undefined, 'Deactivate Kill Switch');
   };
 
-  // V3: setAntiBotMode(uint8)
+  // V3: setAntiBotMode(uint8) - modes: 0=Disabled, 1=Signature, 2=Allowlist, 3=Hybrid
   const handleSetAntiBotMode = async (mode: number) => {
     return sendAdminTx('setAntiBotMode', [mode], undefined, `Set Anti-Bot Mode: ${mode}`);
   };
 
-  // V3: setWalletMintLimit(uint256)
+  // V3: setWalletMintLimit(uint256) - 0 = unlimited
   const handleSetWalletMintLimit = async (limit: bigint) => {
-    return sendAdminTx('setWalletMintLimit', [limit], undefined, `Set Wallet Limit: ${limit}`);
+    return sendAdminTx('setWalletMintLimit', [limit], undefined, `Set Wallet Limit: ${limit.toString()}`);
   };
 
-  // V3: setMintPrice(uint256 priceETH, uint256 priceUSDC) - COMBINED SETTER
+  // V3: setMintPrice(uint256 ethPrice, uint256 usdcPrice) - COMBINED SETTER
   const handleSetMintPrice = async (priceETH: bigint, priceUSDC: bigint) => {
     return sendAdminTx('setMintPrice', [priceETH, priceUSDC], undefined, 
       `Set Prices: ${Number(priceETH) / 1e18} ETH, ${Number(priceUSDC) / 1e6} USDC`);
   };
 
-  // V3: setClaimMode(uint8)
+  // V3: setClaimMode(uint8) - modes: 0=Disabled, 1=FCFS, 2=Unlimited, 3=OneTime, 4=Custom
   const handleSetClaimMode = async (mode: number) => {
     return sendAdminTx('setClaimMode', [mode], undefined, `Set Claim Mode: ${mode}`);
   };
 
-  // Legacy: setThrottle (not in V3, but keep for compatibility)
+  // V3: setClaimsPaused(bool)
+  const handleSetClaimsPaused = async (paused: boolean) => {
+    return sendAdminTx('setClaimsPaused', [paused], undefined, paused ? 'Pause Claims' : 'Resume Claims');
+  };
+
+  // Legacy: setThrottle -> maps to setAntiBotMode
   const handleSetThrottle = async (enabled: boolean) => {
-    // V3 doesn't have setThrottle, use setAntiBotMode instead
     const mode = enabled ? 1 : 0; // 1 = Signature mode, 0 = Disabled
     return handleSetAntiBotMode(mode);
   };
 
-  // V3: Treasury functions
+  // V3: depositBonusPool() - PAYABLE, NO ARGS - ETH sent as msg.value
+  // FIXED: Was incorrectly calling 'depositBonusPoolETH' which doesn't exist
   const handleDepositETH = async (amount: bigint) => {
-    return sendAdminTx('depositBonusPoolETH', [], amount, `Deposit ${Number(amount) / 1e18} ETH`);
+    return sendAdminTx('depositBonusPool', [], amount, `Deposit ${Number(amount) / 1e18} ETH to Bonus Pool`);
   };
 
+  // V3: depositBonusPoolUSDC(uint256 amount) - requires USDC approval first
   const handleDepositUSDC = async (amount: bigint) => {
-    return sendAdminTx('depositBonusPoolUSDC', [amount], undefined, `Deposit ${Number(amount) / 1e6} USDC`);
+    return sendAdminTx('depositBonusPoolUSDC', [amount], undefined, `Deposit ${Number(amount) / 1e6} USDC to Bonus Pool`);
   };
 
+  // V3: withdrawFees() - withdraws accumulated minting fees (ETH)
   const handleWithdrawFees = async () => {
     return sendAdminTx('withdrawFees', [], undefined, 'Withdraw ETH Fees');
   };
 
-  const handleWithdrawFeesUSDC = async () => {
-    return sendAdminTx('withdrawFeesUSDC', [], undefined, 'Withdraw USDC Fees');
+  // V3: withdrawBonusPool(uint256 ethAmount, uint256 usdcAmount) - for bonus pool withdrawal
+  // NOTE: No separate withdrawFeesUSDC exists - use withdrawBonusPool for USDC
+  const handleWithdrawBonusPool = async (ethAmount: bigint, usdcAmount: bigint) => {
+    return sendAdminTx('withdrawBonusPool', [ethAmount, usdcAmount], undefined, 
+      `Withdraw ${Number(ethAmount) / 1e18} ETH, ${Number(usdcAmount) / 1e6} USDC from Bonus Pool`);
+  };
+
+  // V3: emergencyWithdraw() - withdraws ALL funds in emergency
+  const handleEmergencyWithdraw = async () => {
+    return sendAdminTx('emergencyWithdraw', [], undefined, 'Emergency Withdraw All Funds');
+  };
+
+  // V3: setLevelPrice(uint8 level, uint256 priceETH, uint256 priceUSDC)
+  const handleSetLevelPrice = async (level: number, priceETH: bigint, priceUSDC: bigint) => {
+    return sendAdminTx('setLevelPrice', [level, priceETH, priceUSDC], undefined, 
+      `Set Level ${level} Price: ${Number(priceETH) / 1e18} ETH, ${Number(priceUSDC) / 1e6} USDC`);
+  };
+
+  // V3: setLevelBonus(uint8 level, uint256 bonusETH, uint256 bonusUSDC)
+  const handleSetLevelBonus = async (level: number, bonusETH: bigint, bonusUSDC: bigint) => {
+    return sendAdminTx('setLevelBonus', [level, bonusETH, bonusUSDC], undefined, 
+      `Set Level ${level} Bonus: ${Number(bonusETH) / 1e18} ETH, ${Number(bonusUSDC) / 1e6} USDC`);
+  };
+
+  // V3: setSupplyPriceTier(uint8 tier, uint256 minSupply, uint256 maxSupply, uint256 priceETH, uint256 priceUSDC)
+  const handleSetSupplyPriceTier = async (tier: number, minSupply: bigint, maxSupply: bigint, priceETH: bigint, priceUSDC: bigint) => {
+    return sendAdminTx('setSupplyPriceTier', [tier, minSupply, maxSupply, priceETH, priceUSDC], undefined, 
+      `Set Supply Tier ${tier}: ${minSupply}-${maxSupply} mints`);
+  };
+
+  // V3: setSupplyBonusTier(uint8 tier, uint256 minSupply, uint256 maxSupply, uint256 bonusETH, uint256 bonusUSDC)
+  const handleSetSupplyBonusTier = async (tier: number, minSupply: bigint, maxSupply: bigint, bonusETH: bigint, bonusUSDC: bigint) => {
+    return sendAdminTx('setSupplyBonusTier', [tier, minSupply, maxSupply, bonusETH, bonusUSDC], undefined, 
+      `Set Bonus Tier ${tier}: ${minSupply}-${maxSupply} mints`);
+  };
+
+  // V3: setBonusCapPerWallet(uint256 cap)
+  const handleSetBonusCapPerWallet = async (cap: bigint) => {
+    return sendAdminTx('setBonusCapPerWallet', [cap], undefined, `Set Bonus Cap: ${Number(cap) / 1e18} ETH`);
+  };
+
+  // V3: setMintCooldown(uint256 cooldown) - seconds between mints
+  const handleSetMintCooldown = async (cooldown: bigint) => {
+    return sendAdminTx('setMintCooldown', [cooldown], undefined, `Set Mint Cooldown: ${cooldown}s`);
+  };
+
+  // V3: setAllowlist(address[] wallets, bool allow)
+  const handleSetAllowlist = async (wallets: string[], allow: boolean) => {
+    return sendAdminTx('setAllowlist', [wallets, allow], undefined, 
+      `${allow ? 'Add' : 'Remove'} ${wallets.length} wallets ${allow ? 'to' : 'from'} allowlist`);
+  };
+
+  // V3: setCurrencyConfig(bool ethEnabled, bool usdcEnabled, uint8 activeCurrency)
+  const handleSetCurrencyConfig = async (ethEnabled: boolean, usdcEnabled: boolean, activeCurrency: number) => {
+    return sendAdminTx('setCurrencyConfig', [ethEnabled, usdcEnabled, activeCurrency], undefined, 
+      `Currency: ETH=${ethEnabled}, USDC=${usdcEnabled}, Active=${activeCurrency}`);
+  };
+
+  // V3: setEligibilityRules(uint256 minMints, uint256 cooldown, bool requireAllowlist)
+  const handleSetEligibilityRules = async (minMints: bigint, cooldown: bigint, requireAllowlist: boolean) => {
+    return sendAdminTx('setEligibilityRules', [minMints, cooldown, requireAllowlist], undefined, 
+      `Eligibility: min=${minMints}, cooldown=${cooldown}s, allowlist=${requireAllowlist}`);
+  };
+
+  // V3: setDynamicPricingEnabled(bool)
+  const handleSetDynamicPricingEnabled = async (enabled: boolean) => {
+    return sendAdminTx('setDynamicPricingEnabled', [enabled], undefined, 
+      `${enabled ? 'Enable' : 'Disable'} Dynamic Pricing`);
+  };
+
+  // V3: setDynamicBonusEnabled(bool)
+  const handleSetDynamicBonusEnabled = async (enabled: boolean) => {
+    return sendAdminTx('setDynamicBonusEnabled', [enabled], undefined, 
+      `${enabled ? 'Enable' : 'Disable'} Dynamic Bonuses`);
+  };
+
+  // V3: setTokenURI(uint256 tokenId, string uri)
+  const handleSetTokenURI = async (tokenId: bigint, uri: string) => {
+    return sendAdminTx('setTokenURI', [tokenId, uri], undefined, `Set Token ${tokenId} URI`);
+  };
+
+  // V3: setBaseURI(string uri)
+  const handleSetBaseURI = async (uri: string) => {
+    return sendAdminTx('setBaseURI', [uri], undefined, 'Set Base URI');
+  };
+
+  // V3: setSignatureVerifier(address verifier)
+  const handleSetSignatureVerifier = async (verifier: string) => {
+    return sendAdminTx('setSignatureVerifier', [verifier], undefined, `Set Signature Verifier: ${verifier.slice(0, 10)}...`);
+  };
+
+  // V3: setMaxPriceCap(uint256 maxETH, uint256 maxUSDC)
+  const handleSetMaxPriceCap = async (maxETH: bigint, maxUSDC: bigint) => {
+    return sendAdminTx('setMaxPriceCap', [maxETH, maxUSDC], undefined, 
+      `Set Max Price Cap: ${Number(maxETH) / 1e18} ETH, ${Number(maxUSDC) / 1e6} USDC`);
   };
 
   const handleApplyChanges = async () => {
-    // For this contract, changes are applied individually
     toast.info('Changes are applied via individual toggles above');
   };
 
-  // V3: Transfer Ownership
+  // V3: transferOwnership(address newOwner)
   const handleTransferOwnership = async (newOwner: string) => {
     return sendAdminTx('transferOwnership', [newOwner], undefined, `Transfer Ownership to ${newOwner.slice(0, 10)}...`);
   };
@@ -564,7 +667,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           onDepositETH={handleDepositETH}
           onDepositUSDC={handleDepositUSDC}
           onWithdrawFees={handleWithdrawFees}
-          onWithdrawFeesUSDC={handleWithdrawFeesUSDC}
+          onWithdrawBonusPool={handleWithdrawBonusPool}
+          onEmergencyWithdraw={handleEmergencyWithdraw}
           onRefresh={refreshConfig}
           isPending={isSubmitting}
         />
@@ -578,6 +682,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           isPreviewMode={isPreviewMode}
           onPause={handlePause}
           onKillSwitch={handleActivateKillSwitch}
+          onDeactivateKillSwitch={handleDeactivateKillSwitch}
           isPending={isSubmitting}
         />
 
