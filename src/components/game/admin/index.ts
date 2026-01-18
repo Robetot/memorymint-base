@@ -25,6 +25,14 @@ export { AdminWalletDataPanel } from './AdminWalletDataPanel';
 export { AdminOwnershipSection } from './AdminOwnershipSection';
 export { AdminGlobalStatsPanel } from './AdminGlobalStatsPanel';
 
+// Owner fetch utilities (audit log, validation)
+export { 
+  logAdminAction as logOwnerAuditAction,
+  getAdminAuditLog,
+  validateNetwork,
+  getCachedOwner as getCachedContractOwner,
+} from '@/hooks/useOwnerFetch';
+
 // Types and utilities
 export * from './types';
 

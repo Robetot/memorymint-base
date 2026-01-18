@@ -29,10 +29,12 @@ import {
   AdminOwnershipSection,
   AdminGlobalStatsPanel,
   logAdminAction,
+  logOwnerAuditAction,
   detectContractCapabilities,
   ContractCapabilities,
   SAFE_DEFAULTS,
 } from './admin';
+import { getCachedOwner } from '@/hooks/useOwnerFetch';
 
 // Hardcoded admin address for display verification
 const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
@@ -81,6 +83,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   }, [initState, healthStatus.lastCheck]);
 
   // Send transaction helper with gas-aware UX
+  // IMPORTANT: Only executes if owner is detected
   const sendAdminTx = useCallback(async (
     functionName: string,
     args: unknown[],
@@ -97,7 +100,28 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       return false;
     }
 
+    // CRITICAL: Check if owner is detected before allowing admin actions
+    const detectedOwner = getCachedOwner() || config?.owner;
+    if (!detectedOwner) {
+      toast.error('Owner not detected. Cannot execute admin action.', {
+        description: 'Wait for owner detection to complete or check network connection.',
+      });
+      console.error('[AdminPanel] Admin action blocked: Owner not detected');
+      return false;
+    }
+
+    // Check if connected wallet is the owner
+    const isOwner = walletAddress.toLowerCase() === detectedOwner.toLowerCase();
+    if (!isOwner) {
+      toast.error('Not authorized', {
+        description: 'Only the contract owner can execute this action.',
+      });
+      console.error('[AdminPanel] Admin action blocked: Wallet is not owner');
+      return false;
+    }
+
     setIsSubmitting(true);
+    const startTime = Date.now();
 
     try {
       const ethereum = window.ethereum as any;
@@ -127,6 +151,12 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
         txParams.value = `0x${value.toString(16)}`;
       }
 
+      console.info('[AdminPanel] Sending admin transaction:', {
+        function: functionName,
+        wallet: walletAddress.slice(0, 10) + '...',
+        timestamp: new Date().toISOString(),
+      });
+
       const txHash = await ethereum.request({
         method: 'eth_sendTransaction',
         params: [txParams],
@@ -134,13 +164,21 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
       toast.success('Transaction submitted', { description: `Hash: ${txHash.slice(0, 10)}...` });
 
-      // Log the action
+      // Log the action with both audit systems
       logAdminAction(
         actionName || functionName,
         walletAddress,
         `Called ${functionName}`,
         txHash
       );
+      
+      // Also log to owner audit (for enhanced tracking)
+      logOwnerAuditAction({
+        walletAddress,
+        action: actionName || functionName,
+        success: true, // Will update after confirmation
+        txHash,
+      });
 
       // Wait for confirmation
       let receipt = null;
@@ -153,27 +191,63 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
         if (receipt) break;
       }
 
-      if (receipt?.status === '0x1') {
-        toast.success('Transaction confirmed');
+      const success = receipt?.status === '0x1';
+      const durationMs = Date.now() - startTime;
+      
+      if (success) {
+        toast.success('Transaction confirmed', {
+          description: `Completed in ${(durationMs / 1000).toFixed(1)}s`,
+        });
         setLastActionTimestamp(Date.now());
+        
+        // Log successful confirmation
+        console.info('[AdminPanel] ✓ Admin action confirmed:', {
+          function: functionName,
+          wallet: walletAddress,
+          txHash,
+          durationMs,
+          timestamp: new Date().toISOString(),
+        });
+        
         // Refresh config after successful tx
         await refreshConfig();
         return true;
       } else {
         toast.error('Transaction failed', { description: 'Check BaseScan for details' });
+        
+        // Log failure
+        logOwnerAuditAction({
+          walletAddress,
+          action: actionName || functionName,
+          success: false,
+          txHash,
+          error: 'Transaction reverted',
+        });
+        
         return false;
       }
     } catch (error: any) {
+      const errorMsg = error?.message?.slice(0, 100) || 'Transaction failed';
+      
       if (error?.code === 4001) {
         toast.error('Transaction rejected by user');
       } else {
-        toast.error(error?.message?.slice(0, 100) || 'Transaction failed');
+        toast.error(errorMsg);
       }
+      
+      // Log error
+      logOwnerAuditAction({
+        walletAddress,
+        action: actionName || functionName,
+        success: false,
+        error: errorMsg,
+      });
+      
       return false;
     } finally {
       setIsSubmitting(false);
     }
-  }, [walletAddress, isPreviewMode, refreshConfig]);
+  }, [walletAddress, isPreviewMode, refreshConfig, config?.owner]);
 
   // ============ V3 HANDLER FUNCTIONS ============
 
