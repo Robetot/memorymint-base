@@ -34,7 +34,8 @@ export { AdminClaimToggles } from './AdminClaimToggles';
 export { AdminTreasuryToggles } from './AdminTreasuryToggles';
 export { AdminEmergencyToggles } from './AdminEmergencyToggles';
 export { AdminOwnershipToggles } from './AdminOwnershipToggles';
-export { AdminBatchPreflightPanel } from './AdminBatchPreflightPanel';
+export { AdminLevelPricingSection } from './AdminLevelPricingSection';
+export { AdminSupplyTierSection } from './AdminSupplyTierSection';
 
 // Owner fetch utilities (audit log, validation)
 export { 

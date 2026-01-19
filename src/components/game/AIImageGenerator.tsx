@@ -7,14 +7,12 @@ import { useWallet } from '@/hooks/useWallet';
 import { useNFTMint } from '@/hooks/useNFTMint';
 import { useAIGenerate } from '@/hooks/useAIGenerate';
 import { useIPFSUpload } from '@/hooks/useIPFSUpload';
-import { useMintPreflight } from '@/hooks/useMintPreflight';
 import { calculateRarity } from '@/utils/rarityCalculator';
 import { getLevel } from '@/data/levels';
 import { toast } from 'sonner';
 import { ANIMALS } from '@/data/animals';
 import { BatchImageGenerator } from './BatchImageGenerator';
 import { ConfigWarningBanner } from './ConfigWarningBanner';
-import { MintPreflightPanel } from './MintPreflightPanel';
 
 interface AIImageGeneratorProps {
   score: number;
@@ -71,19 +69,7 @@ export function AIImageGenerator({
   const { isGenerating, generateImage, error: generateError } = useAIGenerate();
   const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
 
-  // Pre-flight diagnostic checks - shows all contract state before minting
-  const { 
-    diagnostics: preflightDiagnostics, 
-    isRefreshing: isPreflightRefreshing, 
-    refresh: refreshPreflight 
-  } = useMintPreflight({
-    address,
-    isConnected,
-    chainId,
-    tokenURI: generatedImage ? `ipfs://pending-${Date.now()}` : undefined, // Use placeholder for simulation
-    autoRefresh: isConnected && !isMinting && !success,
-    refreshInterval: 15000, // 15s
-  });
+  // Removed preflight checks - direct mint flow
 
   // Check balance when wallet connects or address changes
   useEffect(() => {
@@ -527,16 +513,6 @@ export function AIImageGenerator({
             {/* Config Warning Banner - shows when RPC reads failed but minting still allowed */}
             <ConfigWarningBanner show={adminConfig?.configFetchFailed === true} />
 
-            {/* Pre-flight Diagnostic Panel - shows all contract state checks */}
-            {isConnected && generatedImage && !success && (
-              <MintPreflightPanel
-                diagnostics={preflightDiagnostics}
-                onRefresh={refreshPreflight}
-                isRefreshing={isPreflightRefreshing}
-                className="mb-4"
-                compact
-              />
-            )}
 
             {/* Cooldown Countdown - Real-time display */}
             {shouldShowCooldown && (

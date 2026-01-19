@@ -25,7 +25,8 @@ import {
   AdminTreasuryToggles,
   AdminEmergencyToggles,
   AdminOwnershipToggles,
-  AdminBatchPreflightPanel,
+  AdminLevelPricingSection,
+  AdminSupplyTierSection,
   logAdminAction,
   logOwnerAuditAction,
   detectContractCapabilities,
@@ -404,11 +405,44 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         <Separator className="my-6" />
 
-        {/* SECTION 1.5: Batch Mint Pre-flight Simulation */}
-        <AdminBatchPreflightPanel
-          walletAddress={walletAddress}
-          isConnected={true}
-          chainId={'0x2105'}
+        {/* SECTION 1.5: Level-Based Pricing & Bonuses */}
+        <AdminLevelPricingSection
+          config={config}
+          isPending={isSubmitting}
+          isPreviewMode={isPreviewMode}
+          onSetLevelPrice={async (level, priceETH, priceUSDC, active) => {
+            return sendAdminTx('setLevelPrice', [level, priceETH, priceUSDC, active], undefined, `Set Level ${level} Price`);
+          }}
+          onSetLevelBonus={async (level, bonusETH, bonusUSDC, active) => {
+            return sendAdminTx('setLevelBonus', [level, bonusETH, bonusUSDC, active], undefined, `Set Level ${level} Bonus`);
+          }}
+          onSetDynamicPricingEnabled={async (enabled) => {
+            return sendAdminTx('setDynamicPricingEnabled', [enabled], undefined, `${enabled ? 'Enable' : 'Disable'} Dynamic Pricing`);
+          }}
+          onSetDynamicBonusEnabled={async (enabled) => {
+            return sendAdminTx('setDynamicBonusEnabled', [enabled], undefined, `${enabled ? 'Enable' : 'Disable'} Dynamic Bonus`);
+          }}
+        />
+
+        <Separator className="my-6" />
+
+        {/* SECTION 1.6: Supply-Based Pricing & Bonuses */}
+        <AdminSupplyTierSection
+          config={config}
+          isPending={isSubmitting}
+          isPreviewMode={isPreviewMode}
+          onSetSupplyPriceTier={async (tierIndex, minSupply, maxSupply, priceETH, priceUSDC, enabled) => {
+            return sendAdminTx('setSupplyPriceTier', [tierIndex, minSupply, maxSupply, priceETH, priceUSDC, enabled], undefined, `Set Supply Tier ${tierIndex} Price`);
+          }}
+          onSetSupplyBonusTier={async (tierIndex, minSupply, maxSupply, bonusETH, bonusUSDC, enabled) => {
+            return sendAdminTx('setSupplyBonusTier', [tierIndex, minSupply, maxSupply, bonusETH, bonusUSDC, enabled], undefined, `Set Supply Tier ${tierIndex} Bonus`);
+          }}
+          onSetDynamicPricingResolution={async (priority) => {
+            return sendAdminTx('setDynamicPricingResolution', [priority], undefined, 'Set Pricing Resolution');
+          }}
+          onSetDynamicBonusResolution={async (priority) => {
+            return sendAdminTx('setDynamicBonusResolution', [priority], undefined, 'Set Bonus Resolution');
+          }}
         />
 
         <Separator className="my-6" />
