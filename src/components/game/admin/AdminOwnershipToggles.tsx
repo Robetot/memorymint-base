@@ -30,6 +30,8 @@ interface AdminOwnershipTogglesProps {
   walletAddress: string;
   isPreviewMode: boolean;
   isPending: boolean;
+  ownershipTransferEnabled: boolean;
+  onSetOwnershipTransferEnabled: (enabled: boolean) => Promise<boolean>;
   onTransferOwnership: (newOwner: string) => Promise<boolean>;
 }
 
@@ -38,9 +40,10 @@ export function AdminOwnershipToggles({
   walletAddress,
   isPreviewMode,
   isPending,
+  ownershipTransferEnabled,
+  onSetOwnershipTransferEnabled,
   onTransferOwnership,
 }: AdminOwnershipTogglesProps) {
-  const [transferEnabled, setTransferEnabled] = useState(false);
   const [newOwnerAddress, setNewOwnerAddress] = useState('');
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isTransferring, setIsTransferring] = useState(false);
@@ -56,7 +59,9 @@ export function AdminOwnershipToggles({
     return `${addr.slice(0, 8)}...${addr.slice(-6)}`;
   };
 
+  // Transfer is allowed only when on-chain ownershipTransferEnabled is true
   const canTransfer = isOwner && 
+    ownershipTransferEnabled &&
     isValidAddress(newOwnerAddress) && 
     newOwnerAddress.toLowerCase() !== currentOwner.toLowerCase();
 
@@ -68,7 +73,6 @@ export function AdminOwnershipToggles({
       const success = await onTransferOwnership(newOwnerAddress);
       if (success) {
         setNewOwnerAddress('');
-        setTransferEnabled(false);
         toast.success('Ownership transferred successfully');
       }
     } finally {
@@ -85,12 +89,12 @@ export function AdminOwnershipToggles({
         </h3>
         <Badge 
           variant="outline" 
-          className={transferEnabled 
+          className={ownershipTransferEnabled 
             ? 'bg-destructive/10 text-destructive border-destructive/20' 
             : 'bg-muted text-muted-foreground'
           }
         >
-          {transferEnabled ? 'UNLOCKED' : 'LOCKED'}
+          {ownershipTransferEnabled ? 'UNLOCKED' : 'LOCKED'}
         </Badge>
       </div>
 
@@ -119,19 +123,19 @@ export function AdminOwnershipToggles({
               <AdminToggle
                 id="transfer-enabled"
                 label="Enable Ownership Transfer"
-                description="Unlock the ownership transfer form"
+                description="Unlock the ownership transfer form (on-chain toggle)"
                 icon={<Lock className="h-4 w-4" />}
-                isEnabled={transferEnabled}
+                isEnabled={ownershipTransferEnabled}
                 onToggle={async (enabled) => { 
                   if (enabled) {
                     const confirmed = window.confirm(
-                      '⚠️ This will unlock ownership transfer. Continue?'
+                      '⚠️ This will unlock ownership transfer ON-CHAIN. Continue?'
                     );
                     if (!confirmed) return false;
                   }
-                  setTransferEnabled(enabled);
-                  if (!enabled) setNewOwnerAddress('');
-                  return true;
+                  const success = await onSetOwnershipTransferEnabled(enabled);
+                  if (!enabled && success) setNewOwnerAddress('');
+                  return success;
                 }}
                 isPreviewMode={isPreviewMode}
                 isPending={isPending}
