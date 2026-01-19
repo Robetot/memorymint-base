@@ -382,7 +382,7 @@ export function useMintPreflight({
         walletMintCount,
       ] = await Promise.all([
         safeContractRead('isMintActive', true),
-        safeContractRead('iskillSwitchActive', false),
+        safeContractRead('isKillSwitchActive', false),
         safeContractRead('isFreeMint', false),
         safeContractRead('mintPriceETH', 0n),
         safeContractRead('mintPriceUSDC', 0n),

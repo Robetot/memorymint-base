@@ -528,7 +528,7 @@ export function useContractReads() {
         safeReadBigInt('totalBonusClaimedUSDC', 0n),
         // NEW: Explicit getter functions from contract
         safeReadBoolean('isMintActive', true),
-        safeReadBoolean('iskillSwitchActive', false), // note lowercase 'k' per contract
+        safeReadBoolean('isKillSwitchActive', false), // Updated to correct function name
         safeReadBoolean('isFreeMint', false),
         safeReadBoolean('freeMintActive', false),
         safeReadNumber('mintCurrency', 0),

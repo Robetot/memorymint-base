@@ -1,12 +1,13 @@
 // ============================================================
-// MemoryMint Contract Integration - MemoryMintUltraV3
-// Deployed: 0x1Aa76Eb4f981A78c0396395594c6d6bf96C08eD4
+// MemoryMint Contract Integration - MemoryMintUltraV4
+// Deployed: 0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0
 // Network: Base Mainnet (Chain ID: 8453)
 // ABI: Production contract - VERIFIED FROM BASESCAN
+// Features: Dynamic Pricing, Level/Supply Bonuses, USDC Support
 // ============================================================
 
 // ============ CONTRACT ADDRESS ============
-export const NFT_CONTRACT_ADDRESS = '0x1Aa76Eb4f981A78c0396395594c6d6bf96C08eD4' as const;
+export const NFT_CONTRACT_ADDRESS = '0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0' as const;
 
 // ============ NETWORK CONSTANTS ============
 export const BASE_CHAIN_ID = '0x2105'; // 8453 in hex
@@ -54,6 +55,15 @@ export const AntiBotModeEnum = {
   STRICT: 2,
 } as const;
 
+// ============ RESOLUTION PRIORITY ============
+export type ResolutionPriority = 'LEVEL_FIRST' | 'SUPPLY_FIRST' | 'LEVEL_ONLY' | 'SUPPLY_ONLY';
+export const ResolutionPriorityEnum = {
+  LEVEL_FIRST: 0,
+  SUPPLY_FIRST: 1,
+  LEVEL_ONLY: 2,
+  SUPPLY_ONLY: 3,
+} as const;
+
 // ============ CACHE SETTINGS ============
 export const CONFIG_CACHE_TTL = 30_000; // 30 seconds
 export const BALANCE_CACHE_TTL = 15_000; // 15 seconds
@@ -84,13 +94,14 @@ export const CONTRACT_ERRORS = [
   {"inputs":[],"name":"USDCTransferFailed","type":"error"},
   {"inputs":[{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"WalletMintLimitExceeded","type":"error"},
   {"inputs":[],"name":"WithdrawFailed","type":"error"},
+  {"inputs":[],"name":"WithdrawFeesDisabled","type":"error"},
   {"inputs":[],"name":"ZeroAddress","type":"error"},
   {"inputs":[],"name":"ZeroAmount","type":"error"},
 ] as const;
 
 // ============================================================
 // PRODUCTION CONTRACT ABI - VERIFIED FROM BASESCAN
-// Address: 0x1Aa76Eb4f981A78c0396395594c6d6bf96C08eD4
+// Address: 0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0
 // DO NOT MODIFY - This is the canonical ABI
 // ============================================================
 export const CONTRACT_ABI = [
@@ -119,6 +130,7 @@ export const CONTRACT_ABI = [
   {"inputs":[],"name":"USDCTransferFailed","type":"error"},
   {"inputs":[{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"WalletMintLimitExceeded","type":"error"},
   {"inputs":[],"name":"WithdrawFailed","type":"error"},
+  {"inputs":[],"name":"WithdrawFeesDisabled","type":"error"},
   {"inputs":[],"name":"ZeroAddress","type":"error"},
   {"inputs":[],"name":"ZeroAmount","type":"error"},
 
@@ -198,147 +210,224 @@ export const CONTRACT_ABI = [
   {"inputs":[],"name":"mintPriceETH","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
   {"inputs":[],"name":"mintPriceUSDC","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
   {"inputs":[],"name":"mintCurrency","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+
+  // ===== DYNAMIC PRICING VIEW FUNCTIONS =====
   {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"uint8","name":"currency","type":"uint8"}],"name":"getEffectiveMintPrice","outputs":[{"internalType":"uint256","name":"price","type":"uint256"},{"internalType":"bool","name":"isDynamic","type":"bool"}],"stateMutability":"view","type":"function"},
-
-  // ===== WALLET LIMITS =====
-  {"inputs":[],"name":"walletMintLimit","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"walletMintCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-
-  // ===== ANTI-BOT VIEW FUNCTIONS =====
-  {"inputs":[],"name":"antiBotMode","outputs":[{"internalType":"enum AntiBotMode","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"isAntiBotActive","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"getAntiBotMode","outputs":[{"internalType":"uint8","name":"mode","type":"uint8"},{"internalType":"bool","name":"isActive","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"throttleEnabled","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-
-  // ===== BONUS VIEW FUNCTIONS =====
-  {"inputs":[],"name":"bonusPoolETH","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"bonusPoolUSDC","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"bonusClaimActive","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"isBonusClaimActive","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"bonusLevelsEnabled","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"uint8","name":"currency","type":"uint8"}],"name":"getEffectiveBonus","outputs":[{"internalType":"uint256","name":"bonus","type":"uint256"},{"internalType":"bool","name":"isDynamic","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"address","name":"wallet","type":"address"},{"internalType":"uint8","name":"level","type":"uint8"}],"name":"hasClaimed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"uint8","name":"","type":"uint8"}],"name":"bonusClaimed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"uint8","name":"","type":"uint8"}],"name":"bonusLevels","outputs":[{"internalType":"bool","name":"enabled","type":"bool"},{"internalType":"uint8","name":"currency","type":"uint8"},{"internalType":"uint256","name":"amount","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"}],"name":"getBonusLevel","outputs":[{"internalType":"bool","name":"enabled","type":"bool"},{"internalType":"uint8","name":"currency","type":"uint8"},{"internalType":"uint256","name":"amount","type":"uint256"}],"stateMutability":"view","type":"function"},
-
-  // ===== TREASURY VIEW FUNCTIONS =====
-  {"inputs":[],"name":"allowBonusDeposit","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"withdrawFeesEnabled","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-
-  // ===== OWNERSHIP VIEW FUNCTIONS =====
-  {"inputs":[],"name":"ownershipTransferEnabled","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-
-  // ===== DYNAMIC PRICING/BONUS STRUCTS =====
-  {"inputs":[],"name":"dynamicBonus","outputs":[{"internalType":"bool","name":"enabled","type":"bool"},{"internalType":"enum ResolutionPriority","name":"resolutionPriority","type":"uint8"},{"internalType":"uint8","name":"levelCount","type":"uint8"},{"internalType":"uint8","name":"supplyTierCount","type":"uint8"}],"stateMutability":"view","type":"function"},
   {"inputs":[],"name":"dynamicPricing","outputs":[{"internalType":"bool","name":"enabled","type":"bool"},{"internalType":"enum ResolutionPriority","name":"resolutionPriority","type":"uint8"},{"internalType":"uint8","name":"levelCount","type":"uint8"},{"internalType":"uint8","name":"supplyTierCount","type":"uint8"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"dynamicBonus","outputs":[{"internalType":"bool","name":"enabled","type":"bool"},{"internalType":"enum ResolutionPriority","name":"resolutionPriority","type":"uint8"},{"internalType":"uint8","name":"levelCount","type":"uint8"},{"internalType":"uint8","name":"supplyTierCount","type":"uint8"}],"stateMutability":"view","type":"function"},
+
+  // ===== LEVEL & SUPPLY TIER PRICING =====
   {"inputs":[{"internalType":"uint8","name":"","type":"uint8"}],"name":"levelPrices","outputs":[{"internalType":"uint256","name":"priceETH","type":"uint256"},{"internalType":"uint256","name":"priceUSDC","type":"uint256"},{"internalType":"bool","name":"active","type":"bool"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"uint8","name":"","type":"uint8"}],"name":"levelBonuses","outputs":[{"internalType":"uint256","name":"bonusETH","type":"uint256"},{"internalType":"uint256","name":"bonusUSDC","type":"uint256"},{"internalType":"bool","name":"active","type":"bool"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"uint8","name":"","type":"uint8"}],"name":"supplyPriceTiers","outputs":[{"internalType":"uint256","name":"minSupply","type":"uint256"},{"internalType":"uint256","name":"maxSupply","type":"uint256"},{"internalType":"uint256","name":"priceETH","type":"uint256"},{"internalType":"uint256","name":"priceUSDC","type":"uint256"},{"internalType":"bool","name":"enabled","type":"bool"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"uint8","name":"","type":"uint8"}],"name":"supplyBonusTiers","outputs":[{"internalType":"uint256","name":"minSupply","type":"uint256"},{"internalType":"uint256","name":"maxSupply","type":"uint256"},{"internalType":"uint256","name":"bonusETH","type":"uint256"},{"internalType":"uint256","name":"bonusUSDC","type":"uint256"},{"internalType":"bool","name":"enabled","type":"bool"}],"stateMutability":"view","type":"function"},
 
-  // ===== NFT METADATA =====
-  {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},
+  // ===== BONUS POOL VIEW FUNCTIONS =====
+  {"inputs":[],"name":"bonusPoolETH","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"bonusPoolUSDC","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"allowBonusDeposit","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+
+  // ===== BONUS CLAIM VIEW FUNCTIONS =====
+  {"inputs":[],"name":"bonusClaimActive","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"isBonusClaimActive","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"bonusLevelsEnabled","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint8","name":"","type":"uint8"}],"name":"bonusLevels","outputs":[{"internalType":"bool","name":"enabled","type":"bool"},{"internalType":"uint8","name":"currency","type":"uint8"},{"internalType":"uint256","name":"amount","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"uint8","name":"","type":"uint8"}],"name":"bonusClaimed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"}],"name":"getBonusLevel","outputs":[{"internalType":"bool","name":"enabled","type":"bool"},{"internalType":"uint8","name":"currency","type":"uint8"},{"internalType":"uint256","name":"amount","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"wallet","type":"address"},{"internalType":"uint8","name":"level","type":"uint8"}],"name":"hasClaimed","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+
+  // ===== WALLET & ANTI-BOT VIEW FUNCTIONS =====
+  {"inputs":[],"name":"walletMintLimit","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"walletMintCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"antiBotMode","outputs":[{"internalType":"enum AntiBotMode","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"isAntiBotActive","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"getAntiBotMode","outputs":[{"internalType":"uint8","name":"mode","type":"uint8"},{"internalType":"bool","name":"isActive","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"throttleEnabled","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+
+  // ===== TREASURY VIEW FUNCTIONS =====
+  {"inputs":[],"name":"withdrawFeesEnabled","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+
+  // ===== OWNERSHIP VIEW FUNCTIONS =====
+  {"inputs":[],"name":"ownershipTransferEnabled","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+
+  // ===== PLAYER & NFT METADATA VIEW FUNCTIONS =====
+  {"inputs":[{"internalType":"address","name":"player","type":"address"}],"name":"getPlayer","outputs":[{"internalType":"string","name":"playerName","type":"string"},{"internalType":"uint64","name":"farcasterFid","type":"uint64"},{"internalType":"uint32","name":"totalMints","type":"uint32"},{"internalType":"uint32","name":"firstMintTime","type":"uint32"},{"internalType":"bool","name":"nameSet","type":"bool"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"getNFTMetadata","outputs":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"uint8","name":"rarity","type":"uint8"},{"internalType":"uint16","name":"score","type":"uint16"},{"internalType":"uint32","name":"completionTime","type":"uint32"},{"internalType":"uint8","name":"comboStreak","type":"uint8"},{"internalType":"bool","name":"perfectGame","type":"bool"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"isMetadataFrozen","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
 
-  // ===== PLAYER DATA =====
-  {"inputs":[{"internalType":"address","name":"player","type":"address"}],"name":"getPlayer","outputs":[{"internalType":"string","name":"playerName","type":"string"},{"internalType":"uint64","name":"farcasterFid","type":"uint64"},{"internalType":"uint32","name":"totalMints","type":"uint32"},{"internalType":"uint32","name":"firstMintTime","type":"uint32"},{"internalType":"bool","name":"nameSet","type":"bool"}],"stateMutability":"view","type":"function"},
-
-  // ===== ERC721 STANDARD =====
+  // ===== ERC721 VIEW FUNCTIONS =====
   {"inputs":[{"internalType":"address","name":"owner_","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"getApproved","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"address","name":"owner_","type":"address"},{"internalType":"address","name":"operator","type":"address"}],"name":"isApprovedForAll","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"bytes4","name":"interfaceId","type":"bytes4"}],"name":"supportsInterface","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"pure","type":"function"},
 
   // ===== MINTING FUNCTIONS =====
   {"inputs":[{"internalType":"string","name":"tokenURI_","type":"string"}],"name":"mintNFT","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"payable","type":"function"},
-  {"inputs":[{"internalType":"string","name":"tokenURI_","type":"string"},{"internalType":"uint8","name":"level","type":"uint8"}],"name":"mintNFTWithLevel","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"payable","type":"function"},
   {"inputs":[{"internalType":"string","name":"tokenURI_","type":"string"},{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"uint8","name":"rarity","type":"uint8"},{"internalType":"uint16","name":"score","type":"uint16"},{"internalType":"uint32","name":"completionTime","type":"uint32"},{"internalType":"uint8","name":"comboStreak","type":"uint8"},{"internalType":"bool","name":"perfectGame","type":"bool"},{"internalType":"string","name":"playerName","type":"string"},{"internalType":"uint64","name":"farcasterFid","type":"uint64"}],"name":"mintGameNFT","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"payable","type":"function"},
   {"inputs":[{"internalType":"uint256","name":"quantity","type":"uint256"}],"name":"batchMint","outputs":[{"internalType":"uint256","name":"startTokenId","type":"uint256"}],"stateMutability":"payable","type":"function"},
 
-  // ===== BONUS CLAIMING =====
-  {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"}],"name":"claimBonus","outputs":[],"stateMutability":"nonpayable","type":"function"},
-
-  // ===== ERC721 TRANSFERS =====
+  // ===== ERC721 TRANSFER FUNCTIONS =====
   {"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"approve","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bool","name":"approved","type":"bool"}],"name":"setApprovalForAll","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"transferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"safeTransferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"},{"internalType":"bytes","name":"data","type":"bytes"}],"name":"safeTransferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
-  // ===== ADMIN: KILL SWITCH =====
-  {"inputs":[],"name":"activateKillSwitch","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[],"name":"deactivateKillSwitch","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  // ===== BONUS CLAIM FUNCTION =====
+  {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"}],"name":"claimBonus","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
   // ===== ADMIN: MINT CONTROLS =====
   {"inputs":[{"internalType":"bool","name":"_paused","type":"bool"}],"name":"setMintPaused","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[],"name":"forcePauseMint","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[],"name":"pause","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[],"name":"unpause","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"bool","name":"_paused","type":"bool"}],"name":"setPaused","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"bool","name":"_active","type":"bool"}],"name":"setFreeMintActive","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"bool","name":"active","type":"bool"}],"name":"setKillSwitch","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[],"name":"deactivateKillSwitch","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
-  // ===== ADMIN: FREE MINT =====
-  {"inputs":[{"internalType":"bool","name":"isFree","type":"bool"}],"name":"setFreeMint","outputs":[],"stateMutability":"nonpayable","type":"function"},
-
-  // ===== ADMIN: PRICING =====
-  {"inputs":[{"internalType":"uint256","name":"priceWei","type":"uint256"}],"name":"setMintPriceETH","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"priceUSDC","type":"uint256"}],"name":"setMintPriceUSDC","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  // ===== ADMIN: PRICING CONTROLS =====
+  {"inputs":[{"internalType":"uint256","name":"price","type":"uint256"}],"name":"setMintPriceETH","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"price","type":"uint256"}],"name":"setMintPriceUSDC","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"uint8","name":"currency","type":"uint8"}],"name":"setMintCurrency","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
-  // ===== ADMIN: ANTI-BOT =====
-  {"inputs":[{"internalType":"uint8","name":"mode","type":"uint8"}],"name":"setAntiBotMode","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setThrottle","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"maxMints","type":"uint256"}],"name":"setWalletMintLimit","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  // ===== ADMIN: DYNAMIC PRICING CONTROLS =====
+  {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setDynamicPricingEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"enum ResolutionPriority","name":"priority","type":"uint8"}],"name":"setDynamicPricingResolution","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"uint256","name":"priceETH","type":"uint256"},{"internalType":"uint256","name":"priceUSDC","type":"uint256"},{"internalType":"bool","name":"active","type":"bool"}],"name":"setLevelPrice","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint8","name":"tierIndex","type":"uint8"},{"internalType":"uint256","name":"minSupply","type":"uint256"},{"internalType":"uint256","name":"maxSupply","type":"uint256"},{"internalType":"uint256","name":"priceETH","type":"uint256"},{"internalType":"uint256","name":"priceUSDC","type":"uint256"},{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setSupplyPriceTier","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
-  // ===== ADMIN: BONUS SYSTEM =====
+  // ===== ADMIN: DYNAMIC BONUS CONTROLS =====
+  {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setDynamicBonusEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"enum ResolutionPriority","name":"priority","type":"uint8"}],"name":"setDynamicBonusResolution","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"uint256","name":"bonusETH","type":"uint256"},{"internalType":"uint256","name":"bonusUSDC","type":"uint256"},{"internalType":"bool","name":"active","type":"bool"}],"name":"setLevelBonus","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint8","name":"tierIndex","type":"uint8"},{"internalType":"uint256","name":"minSupply","type":"uint256"},{"internalType":"uint256","name":"maxSupply","type":"uint256"},{"internalType":"uint256","name":"bonusETH","type":"uint256"},{"internalType":"uint256","name":"bonusUSDC","type":"uint256"},{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setSupplyBonusTier","outputs":[],"stateMutability":"nonpayable","type":"function"},
+
+  // ===== ADMIN: BONUS CLAIM CONTROLS =====
   {"inputs":[{"internalType":"bool","name":"active","type":"bool"}],"name":"setBonusClaimActive","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setBonusLevelsEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"bool","name":"enabled","type":"bool"},{"internalType":"uint8","name":"currency","type":"uint8"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"setBonusLevel","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"uint256","name":"bonusETH","type":"uint256"},{"internalType":"uint256","name":"bonusUSDC","type":"uint256"},{"internalType":"bool","name":"active","type":"bool"}],"name":"setLevelBonus","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"uint8[]","name":"levels","type":"uint8[]"},{"internalType":"uint256[]","name":"bonusesETH","type":"uint256[]"},{"internalType":"uint256[]","name":"bonusesUSDC","type":"uint256[]"},{"internalType":"bool[]","name":"activeFlags","type":"bool[]"}],"name":"batchSetLevelBonuses","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
-  // ===== ADMIN: LEVEL PRICING =====
-  {"inputs":[{"internalType":"uint8","name":"level","type":"uint8"},{"internalType":"uint256","name":"priceETH","type":"uint256"},{"internalType":"uint256","name":"priceUSDC","type":"uint256"},{"internalType":"bool","name":"active","type":"bool"}],"name":"setLevelPrice","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"uint8[]","name":"levels","type":"uint8[]"},{"internalType":"uint256[]","name":"pricesETH","type":"uint256[]"},{"internalType":"uint256[]","name":"pricesUSDC","type":"uint256[]"},{"internalType":"bool[]","name":"activeFlags","type":"bool[]"}],"name":"batchSetLevelPrices","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  // ===== ADMIN: WALLET & ANTI-BOT CONTROLS =====
+  {"inputs":[{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"setWalletMintLimit","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"enum AntiBotMode","name":"mode","type":"uint8"}],"name":"setAntiBotMode","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setThrottleEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
-  // ===== ADMIN: SUPPLY TIERS =====
-  {"inputs":[{"internalType":"uint8","name":"tierIndex","type":"uint8"},{"internalType":"uint256","name":"minSupply","type":"uint256"},{"internalType":"uint256","name":"maxSupply","type":"uint256"},{"internalType":"uint256","name":"priceETH","type":"uint256"},{"internalType":"uint256","name":"priceUSDC","type":"uint256"},{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setSupplyPriceTier","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"uint8","name":"tierIndex","type":"uint8"},{"internalType":"uint256","name":"minSupply","type":"uint256"},{"internalType":"uint256","name":"maxSupply","type":"uint256"},{"internalType":"uint256","name":"bonusETH","type":"uint256"},{"internalType":"uint256","name":"bonusUSDC","type":"uint256"},{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setSupplyBonusTier","outputs":[],"stateMutability":"nonpayable","type":"function"},
-
-  // ===== ADMIN: DYNAMIC PRICING =====
-  {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setDynamicPricingEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"enum ResolutionPriority","name":"priority","type":"uint8"}],"name":"setDynamicPricingResolution","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setDynamicBonusEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"enum ResolutionPriority","name":"priority","type":"uint8"}],"name":"setDynamicBonusResolution","outputs":[],"stateMutability":"nonpayable","type":"function"},
-
-  // ===== ADMIN: TREASURY =====
+  // ===== ADMIN: BONUS POOL CONTROLS =====
   {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setAllowBonusDeposit","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setWithdrawFeesEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[],"name":"depositETH","outputs":[],"stateMutability":"payable","type":"function"},
   {"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"depositUSDC","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"withdrawETH","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"withdrawUSDC","outputs":[],"stateMutability":"nonpayable","type":"function"},
+
+  // ===== ADMIN: TREASURY CONTROLS =====
+  {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setWithdrawFeesEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[],"name":"withdrawMintFees","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[],"name":"emergencyWithdraw","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
-  // ===== ADMIN: OWNERSHIP =====
+  // ===== ADMIN: OWNERSHIP CONTROLS =====
   {"inputs":[{"internalType":"bool","name":"enabled","type":"bool"}],"name":"setOwnershipTransferEnabled","outputs":[],"stateMutability":"nonpayable","type":"function"},
   {"inputs":[{"internalType":"address","name":"newOwner","type":"address"}],"name":"transferOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
-  // ===== ADMIN: METADATA =====
+  // ===== ADMIN: METADATA CONTROLS =====
   {"inputs":[{"internalType":"string","name":"baseURI_","type":"string"}],"name":"setBaseURI","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"},{"internalType":"string","name":"newTokenURI","type":"string"}],"name":"updateTokenURI","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"freezeTokenMetadata","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"},{"internalType":"string","name":"tokenURI_","type":"string"}],"name":"setTokenURI","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"freezeMetadata","outputs":[],"stateMutability":"nonpayable","type":"function"},
 
   // ===== RECEIVE =====
   {"stateMutability":"payable","type":"receive"},
 ] as const;
 
-// ============ ERC20 ABI (USDC) ============
+// ============ ERC20 ABI (for USDC) ============
 export const ERC20_ABI = [
-  {"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},
 ] as const;
+
+// ============ HELPER FUNCTIONS ============
+export function formatETH(wei: bigint): string {
+  const eth = Number(wei) / 1e18;
+  if (eth === 0) return '0';
+  if (eth < 0.0001) return '<0.0001';
+  return eth.toFixed(4);
+}
+
+export function formatUSDC(amount: bigint): string {
+  const usdc = Number(amount) / 1e6;
+  if (usdc === 0) return '$0.00';
+  return `$${usdc.toFixed(2)}`;
+}
+
+export function parseETH(eth: string): bigint {
+  return BigInt(Math.floor(parseFloat(eth) * 1e18));
+}
+
+export function parseUSDC(usdc: string): bigint {
+  return BigInt(Math.floor(parseFloat(usdc) * 1e6));
+}
+
+// ============ TYPE DEFINITIONS ============
+export interface LevelPriceConfig {
+  level: number;
+  priceETH: bigint;
+  priceUSDC: bigint;
+  active: boolean;
+}
+
+export interface LevelBonusConfig {
+  level: number;
+  bonusETH: bigint;
+  bonusUSDC: bigint;
+  active: boolean;
+}
+
+export interface SupplyPriceTier {
+  tierIndex: number;
+  minSupply: bigint;
+  maxSupply: bigint;
+  priceETH: bigint;
+  priceUSDC: bigint;
+  enabled: boolean;
+}
+
+export interface SupplyBonusTier {
+  tierIndex: number;
+  minSupply: bigint;
+  maxSupply: bigint;
+  bonusETH: bigint;
+  bonusUSDC: bigint;
+  enabled: boolean;
+}
+
+export interface BonusLevelConfig {
+  level: number;
+  enabled: boolean;
+  currency: number;
+  amount: bigint;
+}
+
+export interface PlayerData {
+  playerName: string;
+  farcasterFid: bigint;
+  totalMints: number;
+  firstMintTime: number;
+  nameSet: boolean;
+}
+
+export interface NFTMetadata {
+  level: number;
+  rarity: number;
+  score: number;
+  completionTime: number;
+  comboStreak: number;
+  perfectGame: boolean;
+}
+
+export interface DynamicConfig {
+  enabled: boolean;
+  resolutionPriority: number;
+  levelCount: number;
+  supplyTierCount: number;
+}
