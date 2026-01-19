@@ -203,7 +203,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   };
 
   const handleSetFreeMint = async (isFree: boolean) => {
-    return sendAdminTx('setFreeMint', [isFree], undefined, isFree ? 'Enable Free Mint' : 'Disable Free Mint');
+    return sendAdminTx('setFreeMintActive', [isFree], undefined, isFree ? 'Enable Free Mint' : 'Disable Free Mint');
   };
 
   const handleSetMintPriceETH = async (priceWei: bigint) => {
