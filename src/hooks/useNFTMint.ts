@@ -1,17 +1,22 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { encodeFunctionData, parseAbi, decodeErrorResult, decodeFunctionResult, decodeEventLog, formatEther, formatUnits, maxUint256 } from 'viem';
-import { CONTRACT_ERRORS as VERIFIED_CONTRACT_ERRORS } from '@/contracts/MemoryMintContract';
+import { 
+  CONTRACT_ERRORS as VERIFIED_CONTRACT_ERRORS,
+  NFT_CONTRACT_ADDRESS as IMPORTED_CONTRACT_ADDRESS,
+  BASE_USDC_ADDRESS,
+  BASE_CHAIN_ID as IMPORTED_BASE_CHAIN_ID,
+} from '@/contracts/MemoryMintContract';
 
 // ============ CONFIGURATION ============
-// Deployed MemoryMintUltraV3 contract on Base Mainnet
-const NFT_CONTRACT_ADDRESS = '0x8A6EAc80dd2cC5efE7a6b10a4430a89871A4672B';
+// Use the production contract from MemoryMintContract.ts
+const NFT_CONTRACT_ADDRESS = IMPORTED_CONTRACT_ADDRESS;
 
 // Base Mainnet USDC address
-const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const USDC_ADDRESS = BASE_USDC_ADDRESS;
 const USDC_DECIMALS = 6;
 
 // Base Mainnet Chain ID
-const BASE_CHAIN_ID = '0x2105'; // 8453
+const BASE_CHAIN_ID = IMPORTED_BASE_CHAIN_ID;
 
 // RPC endpoints for reading contract state
 const RPC_ENDPOINTS = [
@@ -30,7 +35,7 @@ export type PaymentToken = 'ETH' | 'USDC';
 export type DetectedWalletType = 'metamask' | 'coinbase' | 'baseapp' | 'farcaster' | 'unknown';
 
 // ============ CONTRACT ABI ============
-// Updated to match MemoryMintUltraV3 at 0x8A6EAc80dd2cC5efE7a6b10a4430a89871A4672B
+// Updated to match deployed contract at 0x1Aa76Eb4f981A78c0396395594c6d6bf96C08eD4
 const CONTRACT_ABI = parseAbi([
   // ===== ERC721 READ FUNCTIONS =====
   'function balanceOf(address owner_) view returns (uint256)',
@@ -63,16 +68,27 @@ const CONTRACT_ABI = parseAbi([
   
   // ===== WALLET / ANTI-BOT =====
   'function walletData(address) view returns (uint256 mintCount, uint256 lastMintTime, uint256 claimCount, uint256 lastClaimTime, uint256 totalBonusClaimed, bool isAllowlisted)',
+  'function walletMintCount(address) view returns (uint256)',
   'function mintCooldown() view returns (uint256)',
   'function walletMintLimit() view returns (uint256)',
   'function allowlist(address) view returns (bool)',
+  'function antiBotMode() view returns (uint8)',
+  'function isAntiBotActive() view returns (bool)',
   
-  // ===== ADMIN STATE VIEWS =====
+  // ===== ADMIN STATE VIEWS - EXPLICIT GETTERS =====
   'function owner() view returns (address)',
   'function mintPaused() view returns (bool)',
   'function killSwitch() view returns (bool)',
   'function claimsPaused() view returns (bool)',
   'function currencyConfig() view returns (bool ethEnabled, bool usdcEnabled, uint8 activeCurrency)',
+  
+  // ===== CRITICAL: UI-FRIENDLY BOOLEAN GETTERS =====
+  // These MUST be checked before any mint transaction
+  'function isMintActive() view returns (bool)',
+  'function iskillSwitchActive() view returns (bool)',
+  'function isFreeMint() view returns (bool)',
+  'function freeMintActive() view returns (bool)',
+  'function mintCurrency() view returns (uint8)',
 ]);
 
 // ERC20 ABI for USDC
@@ -140,6 +156,12 @@ export interface AdminConfig {
   lastFetched: number;
   isLoaded: boolean;
   configFetchFailed?: boolean; // True if RPC failed - show warning but allow minting
+  // CRITICAL: UI-friendly getters from contract - DO NOT INFER
+  isMintActive?: boolean;        // from isMintActive() - definitive check
+  isKillSwitchActive?: boolean;  // from iskillSwitchActive() - emergency state
+  isFreeMint?: boolean;          // from isFreeMint() - determines msg.value
+  freeMintActive?: boolean;      // from freeMintActive() - admin toggle
+  mintCurrency?: number;         // from mintCurrency() - 0=ETH, 1=USDC
 }
 
 export interface AntiBotConfig {
@@ -217,6 +239,12 @@ const DEFAULT_ADMIN_CONFIG: AdminConfig = {
   lastFetched: 0,
   isLoaded: false,       // Will be true after fetch attempt (success or fail)
   configFetchFailed: false, // Track if RPC failed
+  // UI-friendly getter defaults - assume paid mint when unknown
+  isMintActive: true,
+  isKillSwitchActive: false,
+  isFreeMint: false,      // Default to paid - contract will enforce
+  freeMintActive: false,
+  mintCurrency: 0,        // 0=ETH
 };
 
 // ============ ADMIN CONFIG CACHE ============
@@ -724,12 +752,30 @@ export function useNFTMint() {
     lastForcedFetchTime = now;
     
     try {
-      // V3 ABI: Read mintPaused, killSwitch, claimsPaused, currencyConfig
-      const [mintPausedResult, killSwitchResult, claimsPausedResult, currencyConfigResult] = await Promise.allSettled([
+      // V3 ABI: Read ALL state including UI-friendly getters
+      // CRITICAL: Read isMintActive, iskillSwitchActive, isFreeMint to determine tx params
+      const [
+        mintPausedResult, 
+        killSwitchResult, 
+        claimsPausedResult, 
+        currencyConfigResult,
+        // UI-friendly getters - CRITICAL for preflight checks
+        isMintActiveResult,
+        isKillSwitchActiveResult,
+        isFreeMintResult,
+        freeMintActiveResult,
+        mintCurrencyResult,
+      ] = await Promise.allSettled([
         rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintPaused', args: [] }) }, 'latest']),
         rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'killSwitch', args: [] }) }, 'latest']),
         rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'claimsPaused', args: [] }) }, 'latest']),
         rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'currencyConfig', args: [] }) }, 'latest']),
+        // UI-friendly getters
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'isMintActive', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'iskillSwitchActive', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'isFreeMint', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'freeMintActive', args: [] }) }, 'latest']),
+        rpcCall('eth_call', [{ to: NFT_CONTRACT_ADDRESS, data: encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintCurrency', args: [] }) }, 'latest']),
       ]);
 
       // Decode results with fallbacks
@@ -739,6 +785,13 @@ export function useNFTMint() {
       let ethEnabled = true;
       let usdcEnabled = false;
       let configFetchFailed = false;
+      
+      // UI-friendly getter values - CRITICAL for mint preflight
+      let isMintActive = true;  // Default to true for fail-open
+      let isKillSwitchActive = false;
+      let isFreeMint = false;
+      let freeMintActive = false;
+      let mintCurrency = 0; // 0=ETH, 1=USDC
 
       if (mintPausedResult.status === 'fulfilled' && mintPausedResult.value && mintPausedResult.value !== '0x') {
         try {
@@ -767,20 +820,63 @@ export function useNFTMint() {
           usdcEnabled = currencyData[1];
         } catch { /* continue */ }
       }
+      
+      // CRITICAL: Decode UI-friendly getters
+      if (isMintActiveResult.status === 'fulfilled' && isMintActiveResult.value && isMintActiveResult.value !== '0x') {
+        try {
+          isMintActive = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'isMintActive', data: isMintActiveResult.value as `0x${string}` }) as boolean;
+          console.log('[AdminConfig] isMintActive() =', isMintActive);
+        } catch { /* continue */ }
+      }
+      
+      if (isKillSwitchActiveResult.status === 'fulfilled' && isKillSwitchActiveResult.value && isKillSwitchActiveResult.value !== '0x') {
+        try {
+          isKillSwitchActive = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'iskillSwitchActive', data: isKillSwitchActiveResult.value as `0x${string}` }) as boolean;
+          console.log('[AdminConfig] iskillSwitchActive() =', isKillSwitchActive);
+        } catch { /* continue */ }
+      }
+      
+      if (isFreeMintResult.status === 'fulfilled' && isFreeMintResult.value && isFreeMintResult.value !== '0x') {
+        try {
+          isFreeMint = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'isFreeMint', data: isFreeMintResult.value as `0x${string}` }) as boolean;
+          console.log('[AdminConfig] isFreeMint() =', isFreeMint);
+        } catch { /* continue */ }
+      }
+      
+      if (freeMintActiveResult.status === 'fulfilled' && freeMintActiveResult.value && freeMintActiveResult.value !== '0x') {
+        try {
+          freeMintActive = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'freeMintActive', data: freeMintActiveResult.value as `0x${string}` }) as boolean;
+          console.log('[AdminConfig] freeMintActive() =', freeMintActive);
+        } catch { /* continue */ }
+      }
+      
+      if (mintCurrencyResult.status === 'fulfilled' && mintCurrencyResult.value && mintCurrencyResult.value !== '0x') {
+        try {
+          const result = decodeFunctionResult({ abi: CONTRACT_ABI, functionName: 'mintCurrency', data: mintCurrencyResult.value as `0x${string}` });
+          mintCurrency = typeof result === 'bigint' ? Number(result) : (result as number);
+          console.log('[AdminConfig] mintCurrency() =', mintCurrency);
+        } catch { /* continue */ }
+      }
 
-      // Derive mintEnabled/claimEnabled from pause states
-      const mintEnabled = !mintPaused && !killSwitch;
+      // Derive mintEnabled/claimEnabled - prefer UI-friendly getter if available
+      const mintEnabled = isMintActive && !isKillSwitchActive;
       const claimEnabled = !claimsPaused && !killSwitch;
 
-      // Determine active payment token
+      // Determine active payment token from mintCurrency
       let activePaymentToken: PaymentToken = 'ETH';
-      if (usdcEnabled && !ethEnabled) {
+      if (mintCurrency === 1) {
+        activePaymentToken = 'USDC';
+      } else if (usdcEnabled && !ethEnabled) {
         activePaymentToken = 'USDC';
       }
 
       // Build reason if disabled
       let disabledReason: string | null = null;
-      if (killSwitch) {
+      if (isKillSwitchActive) {
+        disabledReason = 'Kill switch is active - minting disabled';
+      } else if (!isMintActive) {
+        disabledReason = 'Minting is not active';
+      } else if (killSwitch) {
         disabledReason = 'Contract is in emergency mode';
       } else if (mintPaused) {
         disabledReason = 'Minting is paused';
@@ -795,6 +891,12 @@ export function useNFTMint() {
         lastFetched: now,
         isLoaded: true,
         configFetchFailed,
+        // CRITICAL: Include UI-friendly getter values
+        isMintActive,
+        isKillSwitchActive,
+        isFreeMint,
+        freeMintActive,
+        mintCurrency,
       };
       
       // Update cache
@@ -813,6 +915,10 @@ export function useNFTMint() {
         lastFetched: now,
         isLoaded: true,
         configFetchFailed: true,
+        // Default to paid mint when config fails - contract will enforce
+        isFreeMint: false,
+        isMintActive: true,
+        isKillSwitchActive: false,
       };
       cachedAdminConfig = failOpenConfig;
       return failOpenConfig;
@@ -928,7 +1034,8 @@ export function useNFTMint() {
   }, []);
 
   // ============ PRE-MINT ENFORCEMENT ============
-  // V3: FAIL-OPEN - if config fetch fails, allow mint attempt (contract enforces)
+  // CRITICAL: Block wallet from opening if mint would revert
+  // This prevents the "transaction likely to fail" warning
   const enforceMintAllowed = useCallback(async (
     walletAddress: string,
     requiredToken: PaymentToken
@@ -937,20 +1044,31 @@ export function useNFTMint() {
       return { allowed: false, error: 'Network switch in progress', config: DEFAULT_ADMIN_CONFIG };
     }
 
-    // Fetch admin config - this will fail-open if RPC fails
+    // Fetch admin config with UI-friendly getters
     const config = await fetchAdminConfig(true);
     setMintState(prev => ({ ...prev, adminConfig: config, isLoadingConfig: false }));
 
-    // CRITICAL: Only block on definitive on-chain states
+    // CRITICAL: Check UI-friendly getters FIRST - these are the definitive states
     // If config fetch failed, allow the mint attempt - contract will enforce
     if (config.isLoaded && !config.configFetchFailed) {
+      // Check iskillSwitchActive() - highest priority blocker
+      if (config.isKillSwitchActive === true) {
+        console.error('[enforceMintAllowed] BLOCKED: Kill switch is active');
+        return { allowed: false, error: 'Kill switch is active - minting disabled', config };
+      }
+      
+      // Check isMintActive() - definitive mint status
+      if (config.isMintActive === false) {
+        console.error('[enforceMintAllowed] BLOCKED: isMintActive() == false');
+        return { allowed: false, error: 'Minting is not active', config };
+      }
+      
+      // Fallback to derived mintEnabled
       if (!config.mintEnabled) {
+        console.error('[enforceMintAllowed] BLOCKED: mintEnabled == false');
         return { allowed: false, error: config.disabledReason || 'Minting is currently disabled', config };
       }
     }
-
-    // V3: signatureRequired is false by default - direct minting is allowed
-    // No longer blocking on signatureRequired
 
     // Anti-bot check (fail-open)
     const antiBot = await fetchAntiBotConfig(walletAddress);
@@ -958,14 +1076,17 @@ export function useNFTMint() {
       setMintState(prev => ({ ...prev, antiBotConfig: antiBot }));
       if (!antiBot.canMintNow) {
         if (antiBot.cooldownRemaining > 0n) {
+          console.error('[enforceMintAllowed] BLOCKED: Cooldown active');
           return { allowed: false, error: `Please wait ${antiBot.cooldownRemaining} seconds before minting again`, config };
         }
         if (antiBot.maxMints > 0n && antiBot.mintCount >= antiBot.maxMints) {
+          console.error('[enforceMintAllowed] BLOCKED: Wallet mint limit reached');
           return { allowed: false, error: 'Wallet mint limit reached', config };
         }
       }
     }
 
+    console.log('[enforceMintAllowed] Mint allowed - all preflight checks passed');
     return { allowed: true, error: null, config };
   }, [fetchAdminConfig, fetchAntiBotConfig]);
 
@@ -1638,12 +1759,24 @@ export function useNFTMint() {
           ? encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'mintNFT', args: [tokenURI || ''] })
           : encodeFunctionData({ abi: CONTRACT_ABI, functionName: 'batchMint', args: [Array(quantity).fill(tokenURI || '')] });
 
-        // SIMPLE APPROACH: Just read mintPriceETH() directly from the contract
-        // This mirrors the simple ethers.js pattern - no probing, no dynamic pricing complexity
-        const priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
-        console.log('[Mint] Using price from contract:', priceWei.toString(), 'wei =', formatEther(priceWei), 'ETH');
+        // CRITICAL: Check isFreeMint() from config BEFORE determining msg.value
+        // This prevents the "transaction likely to fail" warning
+        const configIsFreeMint = freshConfig.isFreeMint === true;
+        console.log('[Mint] isFreeMint from config:', configIsFreeMint);
+        
+        let priceWei = 0n;
+        if (!configIsFreeMint) {
+          // Only read price if NOT free mint
+          priceWei = quantity === 1 ? await getMintPriceETH() : await getBatchMintPriceETH(quantity);
+          console.log('[Mint] Using price from contract:', priceWei.toString(), 'wei =', formatEther(priceWei), 'ETH');
+        } else {
+          console.log('[Mint] FREE MINT active - setting msg.value to 0');
+        }
 
-        setMintState(prev => ({ ...prev, mintPriceEth: formatWeiToEth(priceWei) }));
+        setMintState(prev => ({ 
+          ...prev, 
+          mintPriceEth: configIsFreeMint ? '0 (FREE)' : formatWeiToEth(priceWei) 
+        }));
 
         // V3: Sponsored mints are not supported - go directly to standard ETH mint
         const canSponsor = false;
