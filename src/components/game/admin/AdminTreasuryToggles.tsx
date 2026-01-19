@@ -27,6 +27,8 @@ interface AdminTreasuryTogglesProps {
   onDepositUSDC: (amount: bigint) => Promise<boolean>;
   onWithdrawFees: () => Promise<boolean>;
   onWithdrawBonusPool: (ethAmount: bigint, usdcAmount: bigint) => Promise<boolean>;
+  onSetAllowBonusDeposit: (enabled: boolean) => Promise<boolean>;
+  onSetWithdrawFeesEnabled: (enabled: boolean) => Promise<boolean>;
   onRefresh: () => void;
 }
 
@@ -38,10 +40,13 @@ export function AdminTreasuryToggles({
   onDepositUSDC,
   onWithdrawFees,
   onWithdrawBonusPool,
+  onSetAllowBonusDeposit,
+  onSetWithdrawFeesEnabled,
   onRefresh,
 }: AdminTreasuryTogglesProps) {
-  const [depositMode, setDepositMode] = useState(false);
-  const [withdrawMode, setWithdrawMode] = useState(false);
+  // Read on-chain state for toggles
+  const allowBonusDeposit = config?.allowBonusDeposit ?? false;
+  const withdrawFeesEnabled = config?.withdrawFeesEnabled ?? false;
   
   const [depositETH, setDepositETH] = useState('');
   const [depositUSDC, setDepositUSDC] = useState('');
@@ -145,14 +150,14 @@ export function AdminTreasuryToggles({
 
       <Card className="border-emerald-500/20">
         <CardContent className="p-4 space-y-4">
-          {/* Deposit Toggle */}
+          {/* Deposit Toggle - reads from on-chain allowBonusDeposit() */}
           <AdminToggle
             id="deposit-enabled"
             label="Allow Bonus Deposits"
-            description="Enable depositing ETH or USDC to bonus pool"
+            description="Enable depositing ETH or USDC to bonus pool (on-chain)"
             icon={<ArrowDownCircle className="h-4 w-4" />}
-            isEnabled={depositMode}
-            onToggle={async (enabled) => { setDepositMode(enabled); return true; }}
+            isEnabled={allowBonusDeposit}
+            onToggle={onSetAllowBonusDeposit}
             isPreviewMode={isPreviewMode}
             isPending={isPending}
             variant="success"
@@ -214,14 +219,14 @@ export function AdminTreasuryToggles({
             </div>
           </AdminToggle>
 
-          {/* Withdraw Toggle */}
+          {/* Withdraw Toggle - reads from on-chain withdrawFeesEnabled() */}
           <AdminToggle
             id="withdraw-enabled"
             label="Withdraw Fees Enabled"
-            description="Enable withdrawing collected fees and bonus pool"
+            description="Enable withdrawing collected fees and bonus pool (on-chain)"
             icon={<ArrowUpCircle className="h-4 w-4" />}
-            isEnabled={withdrawMode}
-            onToggle={async (enabled) => { setWithdrawMode(enabled); return true; }}
+            isEnabled={withdrawFeesEnabled}
+            onToggle={onSetWithdrawFeesEnabled}
             isPreviewMode={isPreviewMode}
             isPending={isPending}
             variant="default"

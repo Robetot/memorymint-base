@@ -257,6 +257,21 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       `${enabled ? 'Enable' : 'Disable'} Bonus Levels`);
   };
 
+  const handleSetAllowBonusDeposit = async (enabled: boolean) => {
+    return sendAdminTx('setAllowBonusDeposit', [enabled], undefined, 
+      `${enabled ? 'Enable' : 'Disable'} Bonus Deposits`);
+  };
+
+  const handleSetWithdrawFeesEnabled = async (enabled: boolean) => {
+    return sendAdminTx('setWithdrawFeesEnabled', [enabled], undefined, 
+      `${enabled ? 'Enable' : 'Disable'} Fee Withdrawals`);
+  };
+
+  const handleSetOwnershipTransferEnabled = async (enabled: boolean) => {
+    return sendAdminTx('setOwnershipTransferEnabled', [enabled], undefined, 
+      `${enabled ? 'Unlock' : 'Lock'} Ownership Transfer`);
+  };
+
   const handleTransferOwnership = async (newOwner: string) => {
     return sendAdminTx('transferOwnership', [newOwner], undefined, `Transfer Ownership to ${newOwner.slice(0, 10)}...`);
   };
@@ -435,6 +450,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           onDepositUSDC={handleDepositUSDC}
           onWithdrawFees={handleWithdrawFees}
           onWithdrawBonusPool={handleWithdrawBonusPool}
+          onSetAllowBonusDeposit={handleSetAllowBonusDeposit}
+          onSetWithdrawFeesEnabled={handleSetWithdrawFeesEnabled}
           onRefresh={refreshConfig}
           isPending={isSubmitting}
           isPreviewMode={isPreviewMode}
@@ -459,6 +476,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
         <AdminOwnershipToggles
           currentOwner={config?.owner ?? ''}
           walletAddress={walletAddress}
+          ownershipTransferEnabled={config?.ownershipTransferEnabled ?? false}
+          onSetOwnershipTransferEnabled={handleSetOwnershipTransferEnabled}
           onTransferOwnership={handleTransferOwnership}
           isPending={isSubmitting}
           isPreviewMode={isPreviewMode}
