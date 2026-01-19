@@ -341,6 +341,7 @@ export function createPreflightDiagnostics(config: {
     error?: string;
     gasLimit?: bigint;
     estimatedCostEth?: string;
+    isBlocking?: boolean; // Whether simulation failure blocks minting
   };
 }): PreflightDiagnostics {
   const checks: PreflightCheck[] = [];
@@ -486,17 +487,27 @@ export function createPreflightDiagnostics(config: {
   // === Simulation Checks ===
   
   if (config.simulationResult) {
+    // Determine if simulation failure is blocking or just a warning
+    const isSimBlocking = config.simulationResult.success === false && 
+                          config.simulationResult.isBlocking === true;
+    
     checks.push({
       id: 'simulation',
       label: 'TX Simulation',
-      status: config.simulationResult.success ? 'pass' : 'fail',
+      status: config.simulationResult.success ? 'pass' : (isSimBlocking ? 'fail' : 'warn'),
       message: config.simulationResult.error,
-      value: config.simulationResult.success ? 'Success' : 'Failed',
+      value: config.simulationResult.success ? 'Success' : (isSimBlocking ? 'Failed' : 'Warning'),
       category: 'simulation',
-      blocking: config.simulationResult.success === false,
+      blocking: isSimBlocking,
     });
+    
     if (!config.simulationResult.success && config.simulationResult.error) {
-      blockers.push(`Simulation failed: ${config.simulationResult.error}`);
+      if (isSimBlocking) {
+        blockers.push(`Simulation failed: ${config.simulationResult.error}`);
+      } else {
+        // Non-blocking simulation failures go to warnings
+        warnings.push(`Simulation warning: ${config.simulationResult.error} (you can still try minting)`);
+      }
     }
 
     if (config.simulationResult.gasLimit) {

@@ -28,6 +28,8 @@ const DEFAULT_TIMEOUT_MS = 5000; // 5 seconds timeout for RPC calls
 const DEFAULT_REFRESH_INTERVAL = 30000; // 30 seconds auto-refresh
 const SIMULATION_GAS_BUFFER = 1.2; // 20% buffer for gas estimation
 const BASE_GAS_PRICE_GWEI = 0.001; // ~0.001 gwei on Base (very low)
+const MAX_RETRY_ATTEMPTS = 2; // Max retries for failed requests
+const RETRY_DELAY_MS = 1000; // Delay between retries
 
 // === HELPERS ===
 
@@ -45,13 +47,30 @@ export const normalizeChainId = (chainId: string | number | null | undefined): n
 };
 
 /**
- * RPC call with timeout and fallback endpoints
+ * Delay utility for retry logic
+ */
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Log preflight events for debugging
+ */
+const logPreflightEvent = (
+  event: 'simulation_start' | 'simulation_success' | 'simulation_retry' | 'simulation_fail',
+  data: Record<string, unknown>
+) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[Preflight][${timestamp}] ${event}:`, data);
+};
+
+/**
+ * RPC call with timeout, fallback endpoints, and retry logic
  */
 async function rpcCallWithTimeout(
   method: string, 
   params: unknown[], 
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
-  rpcIndex: number = 0
+  rpcIndex: number = 0,
+  retryAttempt: number = 0
 ): Promise<unknown> {
   const endpoint = RPC_ENDPOINTS[rpcIndex] || RPC_ENDPOINTS[0];
   
@@ -78,8 +97,16 @@ async function rpcCallWithTimeout(
     
     // Try next RPC endpoint if available
     if (rpcIndex < RPC_ENDPOINTS.length - 1) {
-      return rpcCallWithTimeout(method, params, timeoutMs, rpcIndex + 1);
+      return rpcCallWithTimeout(method, params, timeoutMs, rpcIndex + 1, retryAttempt);
     }
+    
+    // Retry with delay if we haven't exhausted retries
+    if (retryAttempt < MAX_RETRY_ATTEMPTS) {
+      await delay(RETRY_DELAY_MS);
+      logPreflightEvent('simulation_retry', { method, attempt: retryAttempt + 1 });
+      return rpcCallWithTimeout(method, params, timeoutMs, 0, retryAttempt + 1);
+    }
+    
     throw err;
   }
 }
@@ -126,6 +153,8 @@ export interface SimulationResult {
   gasLimit?: bigint;
   estimatedCostEth?: string;
   estimatedCostGwei?: string;
+  isBlocking: boolean; // Whether this failure should block minting
+  retryCount?: number; // Number of retries attempted
 }
 
 // === MAIN HOOK ===
@@ -218,13 +247,15 @@ export function useMintPreflight({
     }
   }, [safeContractRead]);
 
-  // Simulate transaction
+  // Simulate transaction with retry logic
   const simulateTransaction = useCallback(async (
     walletAddress: string,
     uri: string,
     mintPrice: bigint,
     isFreeMint: boolean
   ): Promise<SimulationResult> => {
+    logPreflightEvent('simulation_start', { walletAddress, uri, mintPrice: mintPrice.toString(), isFreeMint });
+    
     try {
       const value = isFreeMint ? 0n : mintPrice;
       
@@ -235,7 +266,7 @@ export function useMintPreflight({
         args: [uri],
       });
 
-      // Estimate gas
+      // Estimate gas with retry logic built into rpcCallWithTimeout
       const gasEstimate = await rpcCallWithTimeout(
         'eth_estimateGas',
         [{
@@ -259,26 +290,53 @@ export function useMintPreflight({
 
       const estimatedCost = bufferedGas * gasPrice;
       
+      logPreflightEvent('simulation_success', { gasLimit: bufferedGas.toString(), cost: formatEther(estimatedCost) });
+      
       return {
         success: true,
         gasLimit: bufferedGas,
         estimatedCostEth: formatEther(estimatedCost),
         estimatedCostGwei: (Number(gasPrice) / 1e9).toFixed(4),
+        isBlocking: false,
       };
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Simulation failed';
       
-      // Parse common contract errors
+      logPreflightEvent('simulation_fail', { error: errorMsg, walletAddress });
+      
+      // Parse common contract errors - these are BLOCKING
       let friendlyError = errorMsg;
-      if (errorMsg.includes('Paused')) friendlyError = 'Minting is paused';
-      else if (errorMsg.includes('KillSwitch')) friendlyError = 'Emergency stop is active';
-      else if (errorMsg.includes('InsufficientPayment')) friendlyError = 'Insufficient ETH sent';
-      else if (errorMsg.includes('WalletMintLimit')) friendlyError = 'Wallet mint limit exceeded';
-      else if (errorMsg.includes('execution reverted')) friendlyError = 'Transaction would fail';
+      let isBlocking = false;
+      
+      if (errorMsg.includes('Paused')) {
+        friendlyError = 'Minting is paused';
+        isBlocking = true;
+      } else if (errorMsg.includes('KillSwitch')) {
+        friendlyError = 'Emergency stop is active';
+        isBlocking = true;
+      } else if (errorMsg.includes('InsufficientPayment')) {
+        friendlyError = 'Insufficient ETH sent';
+        isBlocking = true;
+      } else if (errorMsg.includes('WalletMintLimit')) {
+        friendlyError = 'Wallet mint limit exceeded';
+        isBlocking = true;
+      } else if (errorMsg.includes('execution reverted')) {
+        friendlyError = 'Transaction would fail on-chain';
+        isBlocking = true;
+      } else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('fetch') || errorMsg.includes('network')) {
+        // Network/fetch errors are NON-BLOCKING - allow mint to proceed
+        friendlyError = 'Could not verify transaction (network issue)';
+        isBlocking = false;
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('aborted')) {
+        // Timeout errors are NON-BLOCKING
+        friendlyError = 'Verification timed out';
+        isBlocking = false;
+      }
       
       return {
         success: false,
         error: friendlyError,
+        isBlocking,
       };
     }
   }, [timeoutMs]);
@@ -376,6 +434,7 @@ export function useMintPreflight({
           error: simResult.error,
           gasLimit: simResult.gasLimit,
           estimatedCostEth: simResult.estimatedCostEth,
+          isBlocking: simResult.isBlocking,
         } : undefined,
       });
 
