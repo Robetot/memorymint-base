@@ -418,75 +418,66 @@ export function useContractReads() {
         }
       }
 
-      // Use the robust owner fetch utility with network validation, retry logic (10 attempts, 2-3s delay)
-      console.info('[ContractReads] Fetching owner using robust utility (up to 10 attempts)...');
-      const ownerResult = await fetchOwnerRobust({
-        forceRefresh: force,
-        skipBlockConfirmation: false, // Wait for block confirmation to avoid stale RPC
-        onAttempt: (attempt, max) => {
-          console.info(`[ContractReads] owner() attempt ${attempt}/${max} (2-3s delay between retries)`);
-        },
-        onError: (error, attempt) => {
-          console.warn(`[ContractReads] owner() attempt ${attempt} error:`, error);
-        },
-        onNetworkValidation: (networkResult) => {
-          if (networkResult.valid) {
-            console.info(`[ContractReads] Network validated: ${networkResult.chainName} (${networkResult.chainId})`);
-          } else {
-            console.error(`[ContractReads] Network validation failed: ${networkResult.error}`);
-          }
-        },
-      });
+      // RULE 5 & 6: Owner and totalMinted are best-effort reads - failures MUST NOT block
+      // Use graceful degradation with safe defaults
       
-      // Handle network validation failure
-      if (ownerResult.networkInfo && !ownerResult.networkInfo.valid) {
-        throw new Error(ownerResult.networkInfo.error || 'Wrong network. Please switch to Base Mainnet or Sepolia.');
-      }
-      
-      if (!ownerResult.owner) {
-        // Descriptive error message as requested
-        const proxyNote = ownerResult.isProxy ? ' (proxy contract detected)' : '';
-        throw new Error(`Owner not detected. Check network or proxy.${proxyNote} Failed after ${ownerResult.attempts} attempts: ${ownerResult.error}`);
-      }
-      
-      const owner = ownerResult.owner;
-      console.info('[ContractReads] ✓ Owner detected successfully:', owner.slice(0, 10) + '...');
-      console.info('[ContractReads] Owner address logged in admin panel:', owner);
-
-      // Use robust totalMinted fetch with proxy detection, retry logic (10 attempts, 3s delay)
-      console.info('[ContractReads] Fetching totalMinted using robust utility (up to 10 attempts)...');
-      const totalMintedResult = await fetchTotalMintedRobust({
-        forceRefresh: force,
-        skipBlockConfirmation: false,
-        onAttempt: (attempt, max) => {
-          console.info(`[ContractReads] totalMinted() attempt ${attempt}/${max} (3s delay between retries)`);
-        },
-        onError: (error, attempt) => {
-          console.warn(`[ContractReads] totalMinted() attempt ${attempt} error:`, error);
-        },
-        onNetworkValidation: (networkResult) => {
-          if (networkResult.valid) {
-            console.info(`[ContractReads] Network validated for totalMinted: ${networkResult.chainName}`);
-          } else {
-            console.error(`[ContractReads] Network validation failed for totalMinted: ${networkResult.error}`);
-          }
-        },
-      });
-
-      // Handle network validation failure
-      if (totalMintedResult.networkInfo && !totalMintedResult.networkInfo.valid) {
-        throw new Error(totalMintedResult.networkInfo.error || 'Wrong network. Please switch to Base Mainnet or Sepolia.');
+      // Owner fetch - try robust utility but don't throw on failure
+      console.info('[ContractReads] Fetching owner (graceful degradation)...');
+      let owner = '';
+      try {
+        const ownerResult = await fetchOwnerRobust({
+          forceRefresh: force,
+          skipBlockConfirmation: true, // Don't wait - speed over accuracy
+          onAttempt: (attempt, max) => {
+            if (attempt > 2) console.info(`[ContractReads] owner() attempt ${attempt}/${max}`);
+          },
+          onError: (error, attempt) => {
+            console.warn(`[ContractReads] owner() attempt ${attempt} error:`, error);
+          },
+        });
+        
+        // Handle network validation failure - this IS blocking (wrong network)
+        if (ownerResult.networkInfo && !ownerResult.networkInfo.valid) {
+          throw new Error(ownerResult.networkInfo.error || 'Wrong network. Please switch to Base Mainnet.');
+        }
+        
+        owner = ownerResult.owner || '';
+        if (owner) {
+          console.info('[ContractReads] ✓ Owner detected:', owner.slice(0, 10) + '...');
+        } else {
+          console.warn('[ContractReads] Owner not detected - proceeding with empty owner (writes will fail if unauthorized)');
+        }
+      } catch (ownerErr) {
+        // Network errors should still throw
+        if (ownerErr instanceof Error && ownerErr.message.includes('Wrong network')) {
+          throw ownerErr;
+        }
+        console.warn('[ContractReads] Owner fetch failed (non-blocking):', ownerErr);
+        // Continue without owner - contract will enforce ownership on writes
       }
 
-      if (totalMintedResult.totalMinted === null) {
-        // Descriptive error message as requested
-        const proxyNote = totalMintedResult.isProxy ? ` (${totalMintedResult.proxyType} proxy detected)` : '';
-        throw new Error(`Failed to read totalMinted. Check network or proxy.${proxyNote} Failed after ${totalMintedResult.attempts} attempts: ${totalMintedResult.error}`);
-      }
+      // RULE 5: totalMinted IS DISPLAY ONLY - never block on it
+      console.info('[ContractReads] Fetching totalMinted (display only - non-blocking)...');
+      let totalSupply = 0n;
+      try {
+        const totalMintedResult = await fetchTotalMintedRobust({
+          forceRefresh: force,
+          skipBlockConfirmation: true,
+          onAttempt: (attempt, max) => {
+            if (attempt > 2) console.info(`[ContractReads] totalMinted() attempt ${attempt}/${max}`);
+          },
+        });
 
-      const totalSupply = totalMintedResult.totalMinted;
-      console.info('[ContractReads] ✓ totalMinted detected:', totalSupply.toString(), 'tokens');
-      console.info('[ContractReads] totalMinted value logged in Admin Audit Log');
+        if (totalMintedResult.totalMinted !== null) {
+          totalSupply = totalMintedResult.totalMinted;
+          console.info('[ContractReads] ✓ totalMinted:', totalSupply.toString());
+        } else {
+          console.warn('[ContractReads] totalMinted unavailable - defaulting to 0 (RULE 2: zero is valid)');
+        }
+      } catch (mintErr) {
+        console.warn('[ContractReads] totalMinted fetch failed (non-blocking):', mintErr);
+        // RULE 2: Zero values are valid - continue with 0
+      }
 
       // OPTIONAL reads in parallel - EXPLICITLY READ ALL CONTRACT FIELDS
       // Read from UI-friendly getter functions as specified
