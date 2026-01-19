@@ -2024,6 +2024,126 @@ export function useNFTMint() {
     return executeMint(walletAddress, tokenURI, 1);
   }, [executeMint]);
 
+  /**
+   * @notice Mint NFT with full game stats using mintGameNFT()
+   * @param tokenURI IPFS metadata URI
+   * @param walletAddress Player wallet
+   * @param gameStats Game performance data (level, rarity, score, etc.)
+   */
+  const mintGameNFT = useCallback(async (
+    tokenURI: string,
+    walletAddress: string,
+    gameStats: {
+      level: number;
+      rarity: number;
+      score: number;
+      completionTime: number;
+      comboStreak: number;
+      perfectGame: boolean;
+      playerName: string;
+      farcasterFid: bigint;
+    }
+  ): Promise<boolean> => {
+    if (!window.ethereum || !walletAddress) {
+      setMintState(prev => ({ ...prev, error: 'Wallet not connected', txPhase: 'failed' }));
+      return false;
+    }
+
+    const freshConfig = await fetchAdminConfig(true);
+    const { allowed, error } = await enforceMintAllowed(walletAddress, freshConfig.activePaymentToken);
+    if (!allowed) {
+      setMintState(prev => ({ ...prev, error: error || 'Mint not allowed', txPhase: 'failed' }));
+      return false;
+    }
+
+    const isBase = await verifyBaseNetwork();
+    if (!isBase) {
+      setMintState(prev => ({ ...prev, error: 'Please switch to Base network', txPhase: 'failed' }));
+      return false;
+    }
+
+    setMintState(prev => ({
+      ...prev,
+      isMinting: true,
+      error: null,
+      success: false,
+      txPhase: 'simulating',
+      pollingMessage: 'Preparing game NFT mint...',
+    }));
+
+    try {
+      const isFreeMint = freshConfig.isFreeMint === true;
+      let priceWei = 0n;
+      if (!isFreeMint) {
+        priceWei = await getMintPriceETH();
+      }
+
+      // Use parseAbi for mintGameNFT since local ABI may not have it
+      const mintGameNFTAbi = [
+        'function mintGameNFT(string tokenURI_, uint8 level, uint8 rarity, uint16 score, uint32 completionTime, uint8 comboStreak, bool perfectGame, string playerName, uint64 farcasterFid) payable returns (uint256)'
+      ] as const;
+      
+      const { encodeFunctionData: encodeWithAbi } = await import('viem');
+      const { parseAbi: parseAbiViem } = await import('viem');
+      
+      const data = encodeWithAbi({
+        abi: parseAbiViem(mintGameNFTAbi),
+        functionName: 'mintGameNFT',
+        args: [
+          tokenURI,
+          gameStats.level,
+          gameStats.rarity,
+          gameStats.score,
+          gameStats.completionTime,
+          gameStats.comboStreak,
+          gameStats.perfectGame,
+          gameStats.playerName,
+          gameStats.farcasterFid,
+        ],
+      });
+
+      setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...', txPhase: 'awaiting_wallet' }));
+
+      const txHash = await (window.ethereum as any).request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: walletAddress,
+          to: NFT_CONTRACT_ADDRESS,
+          data,
+          value: priceWei > 0n ? `0x${priceWei.toString(16)}` : '0x0',
+        }],
+      });
+
+      setMintState(prev => ({ ...prev, txHash, txPhase: 'pending', pollingMessage: 'Confirming...' }));
+
+      const { success, tokenIds } = await waitForReceipt(txHash, walletAddress);
+
+      setMintState(prev => ({
+        ...prev,
+        isMinting: false,
+        txHash,
+        tokenId: tokenIds[0] || null,
+        tokenIds: tokenIds.length > 0 ? tokenIds : null,
+        success,
+        txPhase: success ? 'success' : 'failed',
+        pollingMessage: null,
+      }));
+
+      if (success) notifyMinted(walletAddress, tokenIds, txHash);
+      return success;
+    } catch (error: unknown) {
+      const errorInfo = decodeMintErrorWithCode(error);
+      setMintState(prev => ({
+        ...prev,
+        isMinting: false,
+        error: errorInfo.message,
+        txPhase: errorInfo.isCancelled ? 'cancelled' : 'failed',
+        pollingMessage: null,
+      }));
+      return false;
+    }
+  }, [fetchAdminConfig, enforceMintAllowed, verifyBaseNetwork, getMintPriceETH, waitForReceipt, notifyMinted]);
+
   const batchMintNFT = useCallback(async (walletAddress: string, quantity: number): Promise<boolean> => {
     if (quantity < 1 || quantity > 10) {
       setMintState(prev => ({ ...prev, error: 'Batch size must be 1-10' }));
@@ -2367,6 +2487,7 @@ export function useNFTMint() {
     ...mintState,
     // ETH mint functions (direct, no signature required)
     mintNFT,
+    mintGameNFT, // NEW: Mint with full game stats
     batchMintNFT,
     quickMint,
     // USDC mint functions (direct, no signature required)
