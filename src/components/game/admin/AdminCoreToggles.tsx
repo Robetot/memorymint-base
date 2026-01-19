@@ -21,9 +21,11 @@ interface AdminCoreTogglesProps {
   isPreviewMode: boolean;
   isPending: boolean;
   
-  // Handlers
+  // Handlers - EXACT CONTRACT FUNCTIONS
   onSetMintPaused: (paused: boolean) => Promise<boolean>;
-  onSetMintPrice: (ethPrice: bigint, usdcPrice: bigint) => Promise<boolean>;
+  onSetFreeMint: (isFree: boolean) => Promise<boolean>;
+  onSetMintPriceETH: (priceWei: bigint) => Promise<boolean>;
+  onSetMintPriceUSDC: (priceUSDC: bigint) => Promise<boolean>;
   onActivateKillSwitch: () => Promise<boolean>;
   onDeactivateKillSwitch: () => Promise<boolean>;
 }
@@ -33,7 +35,9 @@ export function AdminCoreToggles({
   isPreviewMode,
   isPending,
   onSetMintPaused,
-  onSetMintPrice,
+  onSetFreeMint,
+  onSetMintPriceETH,
+  onSetMintPriceUSDC,
   onActivateKillSwitch,
   onDeactivateKillSwitch,
 }: AdminCoreTogglesProps) {
@@ -41,27 +45,23 @@ export function AdminCoreToggles({
   const [priceUSDC, setPriceUSDC] = useState('');
   const [isSettingPrice, setIsSettingPrice] = useState(false);
 
-  // Use explicit getters from contract - DO NOT INFER
+  // RULE 9: Use explicit getter functions - DO NOT INFER
+  // These may be undefined if reads failed - that's OK, writes still work
   const isMintActive = config?.isMintActive ?? true;
   const isKillSwitchActive = config?.isKillSwitchActive ?? false;
-  // Free mint status from explicit getters - DO NOT INFER FROM PRICES
+  // Free mint ONLY from explicit getters - NEVER from price inference
   const isFreeMint = config?.isFreeMint ?? config?.freeMintActive ?? false;
 
   // Toggle: Mint Enabled (inverted from mintPaused)
+  // setMintPaused(true) = minting OFF, setMintPaused(false) = minting ON
   const handleToggleMint = async (enabled: boolean) => {
-    // enabled = true means minting ON, so mintPaused = false
     return onSetMintPaused(!enabled);
   };
 
-  // Toggle: Free Mint Mode
+  // Toggle: Free Mint Mode - USES DEDICATED setFreeMint(bool)
+  // RULE 4: Free mint source of truth is freeMintActive() / setFreeMint(bool)
   const handleToggleFreeMint = async (free: boolean) => {
-    if (free) {
-      // Set prices to 0
-      return onSetMintPrice(0n, 0n);
-    } else {
-      // Show paid mint inputs - don't execute anything yet
-      return true;
-    }
+    return onSetFreeMint(free);
   };
 
   // Toggle: Kill Switch
@@ -77,19 +77,30 @@ export function AdminCoreToggles({
     }
   };
 
-  // Set paid mint prices
-  const handleSetPrices = async () => {
-    if (!priceETH && !priceUSDC) return;
-    
+  // Set paid mint prices - uses separate functions per the V3 contract
+  const handleSetPriceETH = async () => {
+    if (!priceETH) return;
     setIsSettingPrice(true);
     try {
-      const ethWei = priceETH ? parseEther(priceETH) : 0n;
-      const usdcUnits = priceUSDC ? parseUnits(priceUSDC, 6) : 0n;
-      await onSetMintPrice(ethWei, usdcUnits);
+      const ethWei = parseEther(priceETH);
+      await onSetMintPriceETH(ethWei);
       setPriceETH('');
+    } catch (err) {
+      console.error('Failed to set ETH price:', err);
+    } finally {
+      setIsSettingPrice(false);
+    }
+  };
+
+  const handleSetPriceUSDC = async () => {
+    if (!priceUSDC) return;
+    setIsSettingPrice(true);
+    try {
+      const usdcUnits = parseUnits(priceUSDC, 6);
+      await onSetMintPriceUSDC(usdcUnits);
       setPriceUSDC('');
     } catch (err) {
-      console.error('Failed to set prices:', err);
+      console.error('Failed to set USDC price:', err);
     } finally {
       setIsSettingPrice(false);
     }
@@ -109,7 +120,7 @@ export function AdminCoreToggles({
 
       <Card className="border-border/50">
         <CardContent className="p-4 space-y-4">
-          {/* 1. Mint Enabled Toggle - uses isMintActive() */}
+          {/* 1. Mint Enabled Toggle - uses isMintActive() / setMintPaused(bool) */}
           <AdminToggle
             id="mint-enabled"
             label="Mint Active"
@@ -123,7 +134,7 @@ export function AdminCoreToggles({
             variant={isMintActive ? 'success' : 'default'}
           />
 
-          {/* 2. Free Mint Mode Toggle - uses freeMintActive() */}
+          {/* 2. Free Mint Mode Toggle - uses freeMintActive() / setFreeMint(bool) */}
           <AdminToggle
             id="free-mint"
             label="Free Mint Active"
@@ -140,50 +151,60 @@ export function AdminCoreToggles({
             {!isFreeMint && (
               <div className="space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Set mint prices (one transaction updates both):
+                  Set mint prices (separate transactions):
                 </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">ETH Price</Label>
-                    <Input
-                      type="text"
-                      placeholder={formatEther(config?.mintPriceETH ?? 0n)}
-                      value={priceETH}
-                      onChange={(e) => setPriceETH(e.target.value)}
-                      disabled={isPreviewMode || isPending || isSettingPrice}
-                      className="h-8 text-sm"
-                    />
+                <div className="space-y-2">
+                  {/* ETH Price */}
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <Label className="text-xs">ETH Price</Label>
+                      <Input
+                        type="text"
+                        placeholder={formatEther(config?.mintPriceETH ?? 0n)}
+                        value={priceETH}
+                        onChange={(e) => setPriceETH(e.target.value)}
+                        disabled={isPreviewMode || isPending || isSettingPrice}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handleSetPriceETH}
+                      disabled={isPreviewMode || isPending || isSettingPrice || !priceETH}
+                      className="self-end h-8"
+                    >
+                      {isSettingPrice ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                    </Button>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">USDC Price</Label>
-                    <Input
-                      type="text"
-                      placeholder={formatUnits(config?.mintPriceUSDC ?? 0n, 6)}
-                      value={priceUSDC}
-                      onChange={(e) => setPriceUSDC(e.target.value)}
-                      disabled={isPreviewMode || isPending || isSettingPrice}
-                      className="h-8 text-sm"
-                    />
+                  
+                  {/* USDC Price */}
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <Label className="text-xs">USDC Price</Label>
+                      <Input
+                        type="text"
+                        placeholder={formatUnits(config?.mintPriceUSDC ?? 0n, 6)}
+                        value={priceUSDC}
+                        onChange={(e) => setPriceUSDC(e.target.value)}
+                        disabled={isPreviewMode || isPending || isSettingPrice}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handleSetPriceUSDC}
+                      disabled={isPreviewMode || isPending || isSettingPrice || !priceUSDC}
+                      className="self-end h-8"
+                    >
+                      {isSettingPrice ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                    </Button>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={handleSetPrices}
-                  disabled={isPreviewMode || isPending || isSettingPrice || (!priceETH && !priceUSDC)}
-                  className="w-full"
-                >
-                  {isSettingPrice ? (
-                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  ) : (
-                    <Save className="h-3 w-3 mr-1" />
-                  )}
-                  Update Prices
-                </Button>
               </div>
             )}
           </AdminToggle>
 
-          {/* 3. Global Kill Switch (Highest Priority) - uses iskillSwitchActive() */}
+          {/* 3. Global Kill Switch (Highest Priority) - uses isKillSwitchActive() */}
           <div className="pt-2 border-t border-border/30">
             <AdminToggle
               id="kill-switch"
