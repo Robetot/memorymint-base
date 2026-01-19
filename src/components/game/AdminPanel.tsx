@@ -31,7 +31,6 @@ import {
   ContractCapabilities,
 } from './admin';
 import { getCachedOwner } from '@/hooks/useOwnerFetch';
-import { getCachedTotalMinted } from '@/hooks/useTotalMintedFetch';
 
 // Hardcoded admin address for display verification
 const ADMIN_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
@@ -91,23 +90,17 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       return false;
     }
 
+    // RULE 1: READS MUST NEVER BLOCK WRITES
+    // Owner check is best-effort - if we have cached owner, verify; otherwise allow tx
     const detectedOwner = getCachedOwner() || config?.owner;
-    if (!detectedOwner) {
-      toast.error('Owner not detected. Cannot execute admin action.');
-      return false;
+    if (detectedOwner) {
+      const isOwner = walletAddress.toLowerCase() === detectedOwner.toLowerCase();
+      if (!isOwner) {
+        toast.error('Not authorized - only contract owner can execute this action.');
+        return false;
+      }
     }
-
-    const detectedTotalMinted = getCachedTotalMinted() ?? config?.totalSupply;
-    if (detectedTotalMinted === null || detectedTotalMinted === undefined) {
-      toast.error('totalMinted not detected. Cannot execute operation.');
-      return false;
-    }
-
-    const isOwner = walletAddress.toLowerCase() === detectedOwner.toLowerCase();
-    if (!isOwner) {
-      toast.error('Not authorized - only contract owner can execute this action.');
-      return false;
-    }
+    // NOTE: We do NOT block if owner is unknown - let the contract enforce ownership
 
     setIsSubmitting(true);
     const startTime = Date.now();
@@ -381,21 +374,19 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
       </div>
 
       <div className="space-y-6 max-w-4xl mx-auto w-full mt-6">
-        {/* Config Load Error */}
+        {/* RULE 3: Non-blocking config warning - panel remains fully usable */}
         {!config && (
-          <div className="mb-2">
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4">
-              <p className="font-medium">Admin configuration unavailable</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                On-chain reads failed or timed out. Safe defaults are applied.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Button variant="outline" size="sm" onClick={retry}>Retry</Button>
-                <Button variant="ghost" size="sm" onClick={() => refreshConfig()} disabled={isLoading}>Refresh</Button>
+          <div className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-amber-600 dark:text-amber-400">Some on-chain reads unavailable</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Admin actions still work. Displayed values use safe defaults.
+                </p>
               </div>
-            </div>
-            <div className="mt-4">
-              <AdminHealthCheck healthStatus={healthStatus} onRunCheck={runHealthCheck} isLoading={isLoading} />
+              <Button variant="ghost" size="sm" onClick={() => refreshConfig()} disabled={isLoading} className="h-7 px-2">
+                <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+              </Button>
             </div>
           </div>
         )}

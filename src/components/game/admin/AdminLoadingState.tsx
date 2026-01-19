@@ -58,24 +58,27 @@ export function AdminLoadingState({
   // Unified loading message with phase-specific text
   const getMessage = () => {
     if (isError) {
-      // Show descriptive error for owner detection failures
-      if (error?.includes('Owner not detected')) {
-        return 'Owner not detected. Check network or proxy.';
-      }
-      // Show descriptive error for totalMinted detection failures
+      // RULE 5: totalMinted errors are display-only - should not block
       if (error?.includes('totalMinted') || error?.includes('Failed to read totalMinted')) {
-        return 'Failed to read totalMinted. Check network or proxy.';
+        return 'Some contract reads unavailable. Admin actions will still work.';
+      }
+      // Owner detection is best-effort
+      if (error?.includes('Owner not detected')) {
+        return 'Owner detection unavailable. Proceeding with limited verification.';
       }
       if (error?.includes('Wrong network')) {
         return error;
       }
-      return error || 'Failed to load admin panel';
+      if (error?.includes('Not authorized')) {
+        return error;
+      }
+      return error || 'Failed to load some admin data';
     }
     if (authPhase === 'connecting') {
       return 'Connecting to wallet...';
     }
     if (authPhase === 'verifying') {
-      return 'Verifying network, fetching owner and totalMinted (up to 10 attempts each)...';
+      return 'Verifying access and loading contract data...';
     }
     return 'Loading Admin Panel...';
   };
