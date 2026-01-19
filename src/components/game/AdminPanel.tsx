@@ -25,6 +25,7 @@ import {
   AdminTreasuryToggles,
   AdminEmergencyToggles,
   AdminOwnershipToggles,
+  AdminBatchPreflightPanel,
   logAdminAction,
   logOwnerAuditAction,
   detectContractCapabilities,
@@ -400,6 +401,15 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
 
         {/* SECTION 1: Read-Only Live Stats */}
         <AdminReadOnlyStats config={config} walletAddress={walletAddress} />
+
+        <Separator className="my-6" />
+
+        {/* SECTION 1.5: Batch Mint Pre-flight Simulation */}
+        <AdminBatchPreflightPanel
+          walletAddress={walletAddress}
+          isConnected={true}
+          chainId={'0x2105'}
+        />
 
         <Separator className="my-6" />
 
