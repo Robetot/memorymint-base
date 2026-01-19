@@ -64,7 +64,7 @@ export function useSafeMint() {
       const encodedData = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: 'mintNFT',
-        args: [],
+        args: [''],
       });
 
       // Step 2: Check for no-op conditions

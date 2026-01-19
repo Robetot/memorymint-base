@@ -208,9 +208,16 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
     return sendAdminTx('setWalletMintLimit', [limit], undefined, `Set Wallet Limit: ${limit.toString()}`);
   };
 
-  const handleSetMintPrice = async (priceETH: bigint, priceUSDC: bigint) => {
-    return sendAdminTx('setMintPrice', [priceETH, priceUSDC], undefined, 
-      `Set Prices: ${Number(priceETH) / 1e18} ETH, ${Number(priceUSDC) / 1e6} USDC`);
+  const handleSetFreeMint = async (isFree: boolean) => {
+    return sendAdminTx('setFreeMint', [isFree], undefined, isFree ? 'Enable Free Mint' : 'Disable Free Mint');
+  };
+
+  const handleSetMintPriceETH = async (priceWei: bigint) => {
+    return sendAdminTx('setMintPriceETH', [priceWei], undefined, `Set ETH Price: ${Number(priceWei) / 1e18} ETH`);
+  };
+
+  const handleSetMintPriceUSDC = async (priceUSDC: bigint) => {
+    return sendAdminTx('setMintPriceUSDC', [priceUSDC], undefined, `Set USDC Price: ${Number(priceUSDC) / 1e6} USDC`);
   };
 
   const handleSetClaimMode = async (mode: number) => {
@@ -409,7 +416,9 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
         <AdminCoreToggles
           config={config}
           onSetMintPaused={handleSetMintPaused}
-          onSetMintPrice={handleSetMintPrice}
+          onSetFreeMint={handleSetFreeMint}
+          onSetMintPriceETH={handleSetMintPriceETH}
+          onSetMintPriceUSDC={handleSetMintPriceUSDC}
           onActivateKillSwitch={handleActivateKillSwitch}
           onDeactivateKillSwitch={handleDeactivateKillSwitch}
           isPending={isSubmitting}
