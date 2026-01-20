@@ -17,13 +17,20 @@ const USDC_DECIMALS = 6;
 
 // Base Mainnet Chain ID
 const BASE_CHAIN_ID = IMPORTED_BASE_CHAIN_ID;
-
-// RPC endpoints for reading contract state
+// RPC endpoints for reading contract state - 7 reliable Base Mainnet providers
+// Ordered by reliability to minimize rate limiting issues
 const RPC_ENDPOINTS = [
-  'https://mainnet.base.org',
-  'https://base.llamarpc.com',
-  'https://base.meowrpc.com',
+  'https://base.llamarpc.com',           // LlamaNodes - high reliability
+  'https://base-mainnet.public.blastapi.io', // BlastAPI
+  'https://1rpc.io/base',                // 1RPC
+  'https://base.meowrpc.com',            // MeowRPC
+  'https://base.drpc.org',               // DRPC
+  'https://base-pokt.nodies.app',        // Nodies
+  'https://mainnet.base.org',            // Official (often rate-limited, try last)
 ];
+
+// Edge function URL for fail-open admin config
+const EDGE_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/contract-admin-config`;
 
 // Coinbase Paymaster URL for Base Mainnet
 const COINBASE_PAYMASTER_URL = 'https://api.developer.coinbase.com/rpc/v1/base/paymaster';
@@ -508,7 +515,8 @@ function supportsWalletSendCalls(): boolean {
   return !!(ethereum.isSmartWallet || ethereum.isPasskeyWallet || ethereum.isCoinbaseWallet);
 }
 
-// RPC call with timeout, retry logic, and rate limit handling for bot-resistance
+// RPC call with timeout, retry logic, rate limit handling, and 0x filtering
+// HARDENED: Skips empty (0x) or short results, retries on rate limits
 async function rpcCall(method: string, params: any[], timeout = 10000): Promise<any> {
   const errors: string[] = [];
   const maxRetries = 2;
@@ -541,9 +549,17 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
         }
         
         const data = await response.json();
+        
+        // Handle rate limiting errors in JSON response
+        if (data.error?.code === -32016 || data.error?.message?.includes('rate limit')) {
+          errors.push(`${endpoint}: Rate limited`);
+          await new Promise(r => setTimeout(r, 1000 * (retry + 1)));
+          continue;
+        }
+        
         if (data.error) {
           // Retry on temporary errors
-          if (data.error.code === -32005 || data.error.message?.includes('rate limit')) {
+          if (data.error.code === -32005) {
             await new Promise(r => setTimeout(r, 1000 * (retry + 1)));
             continue;
           }
@@ -551,7 +567,18 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
           break; // Try next endpoint
         }
         
-        return data.result;
+        const result = data.result;
+        
+        // CRITICAL: Skip empty or short results (rate-limited nodes return 0x)
+        // For view functions, valid results are typically 66+ chars (32 bytes + 0x prefix)
+        if (typeof result === 'string' && result.startsWith('0x')) {
+          if (result === '0x' || result.length < 66) {
+            errors.push(`${endpoint}: Empty/short result (${result.length} chars)`);
+            break; // Try next endpoint
+          }
+        }
+        
+        return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         if (msg.includes('aborted')) {
@@ -731,9 +758,86 @@ export function useNFTMint() {
     }
   }, []);
 
-   // ============ FETCH ADMIN CONFIG WITH CACHING ============
+   // ============ FETCH FROM EDGE FUNCTION (PRIMARY) ============
+  // Uses the HTTP-200 fail-open edge function for admin config
+  const fetchFromEdgeFunction = useCallback(async (): Promise<AdminConfig | null> => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
+      const response = await fetch(EDGE_FUNCTION_URL, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      // Edge function always returns 200 with fail-open defaults
+      if (!response.ok) {
+        console.warn('[AdminConfig] Edge function returned non-2xx:', response.status);
+        return null;
+      }
+      
+      const data = await response.json();
+      
+      if (!data.reads) {
+        console.warn('[AdminConfig] Edge function response missing reads');
+        return null;
+      }
+      
+      const now = Date.now();
+      const isMintActive = data.reads.isMintActive ?? true;
+      const isKillSwitchActive = data.reads.isKillSwitchActive ?? false;
+      const isFreeMint = data.reads.isFreeMint ?? false;
+      const freeMintActive = data.reads.freeMintActive ?? false;
+      const mintCurrency = data.reads.mintCurrency ?? 0;
+      const mintPaused = data.reads.mintPaused ?? false;
+      
+      const mintEnabled = data.derived?.mintingAllowed ?? (isMintActive && !isKillSwitchActive);
+      
+      let disabledReason: string | null = null;
+      if (isKillSwitchActive) {
+        disabledReason = 'Kill switch is active - minting disabled';
+      } else if (!isMintActive) {
+        disabledReason = 'Minting is not active';
+      } else if (mintPaused) {
+        disabledReason = 'Minting is paused';
+      }
+      
+      console.log('[AdminConfig] Edge function response:', {
+        isMintActive, isKillSwitchActive, isFreeMint, mintCurrency,
+        source: data.success === false ? 'fallback-defaults' : 'edge-function'
+      });
+      
+      return {
+        mintEnabled,
+        claimEnabled: true,
+        activePaymentToken: mintCurrency === 1 ? 'USDC' : 'ETH',
+        signatureRequired: false,
+        disabledReason,
+        lastFetched: now,
+        isLoaded: true,
+        configFetchFailed: data.success === false,
+        isMintActive,
+        isKillSwitchActive,
+        isFreeMint,
+        freeMintActive,
+        mintCurrency,
+      };
+    } catch (error) {
+      console.warn('[AdminConfig] Edge function fetch failed:', error);
+      return null;
+    }
+  }, []);
+
+  // ============ FETCH ADMIN CONFIG WITH CACHING ============
   // V3 Contract: Uses mintPaused(), killSwitch(), claimsPaused() for state checks
   // FAIL-OPEN: If reads fail, allow minting - the contract will enforce the real state
+  // PRIORITY: Edge function first, then direct RPC, then permissive defaults
   const fetchAdminConfig = useCallback(async (force = false): Promise<AdminConfig> => {
     const now = Date.now();
     
@@ -751,6 +855,14 @@ export function useNFTMint() {
     
     lastForcedFetchTime = now;
     
+    // PRIORITY 1: Try edge function first (most reliable, always returns 200)
+    const edgeResult = await fetchFromEdgeFunction();
+    if (edgeResult) {
+      cachedAdminConfig = edgeResult;
+      return edgeResult;
+    }
+    
+    // PRIORITY 2: Fallback to direct RPC calls
     try {
       // V3 ABI: Read ALL state including UI-friendly getters
       // CRITICAL: Read isMintActive, iskillSwitchActive, isFreeMint to determine tx params
@@ -903,8 +1015,9 @@ export function useNFTMint() {
       cachedAdminConfig = config;
       return config;
     } catch (error) {
-      console.error('[AdminConfig] Fetch failed:', error);
-      // FAIL-OPEN: Return permissive config so users can still try to mint
+      console.error('[AdminConfig] Direct RPC fetch failed:', error);
+      
+      // PRIORITY 3: FAIL-OPEN - Return permissive config so users can still try to mint
       // The smart contract will enforce the real state on-chain
       const failOpenConfig: AdminConfig = {
         mintEnabled: true,
@@ -915,15 +1028,16 @@ export function useNFTMint() {
         lastFetched: now,
         isLoaded: true,
         configFetchFailed: true,
-        // Default to paid mint when config fails - contract will enforce
-        isFreeMint: false,
+        // Default to FREE mint when all sources fail - contract will enforce
+        isFreeMint: true,
         isMintActive: true,
         isKillSwitchActive: false,
       };
+      console.log('[AdminConfig] Using permissive fail-open defaults');
       cachedAdminConfig = failOpenConfig;
       return failOpenConfig;
     }
-  }, []);
+  }, [fetchFromEdgeFunction]);
 
   // ============ FETCH ANTI-BOT CONFIG (V3 - uses walletData) ============
   const fetchAntiBotConfig = useCallback(async (walletAddress: string): Promise<AntiBotConfig | null> => {
