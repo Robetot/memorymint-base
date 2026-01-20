@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { ANIMALS } from '@/data/animals';
 import { BatchImageGenerator } from './BatchImageGenerator';
 import { ConfigWarningBanner } from './ConfigWarningBanner';
+import { MintStatusIndicator } from './MintStatusIndicator';
 
 interface AIImageGeneratorProps {
   score: number;
@@ -548,6 +549,9 @@ export function AIImageGenerator({
 
             {/* Config Warning Banner - shows when RPC reads failed but minting still allowed */}
             <ConfigWarningBanner show={adminConfig?.configFetchFailed === true} />
+
+            {/* Mint Status Indicator - live contract status */}
+            <MintStatusIndicator className="mb-4" compact={false} />
 
 
             {/* Cooldown Countdown - Real-time display */}
