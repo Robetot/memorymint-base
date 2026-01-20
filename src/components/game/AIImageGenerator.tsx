@@ -137,20 +137,38 @@ export function AIImageGenerator({
       setRollsRemaining(prev => prev - 1);
       setShowPresetFallback(false);
       toast.success('Image generated successfully!');
-    } else if (generateError) {
-      // Show fallback option when AI fails
+    } else {
+      // Show fallback option when AI fails - don't block minting
       setShowPresetFallback(true);
-      toast.error(generateError);
+      const errorMessage = generateError || 'AI generation unavailable';
+      console.warn('[AIImageGenerator] Generation failed, showing preset fallback:', errorMessage);
+      // Toast already shown by useAIGenerate hook
     }
   };
 
-  const handleSelectPreset = (animalImage: string) => {
+  const handleSelectPreset = async (animalImage: string) => {
     setSelectedPreset(animalImage);
-    setGeneratedImage(animalImage);
     setShowPresetFallback(false);
     // Default to classic style for preset images
     if (!selectedStyle) setSelectedStyle('classic');
-    toast.success('Preset image selected!');
+    
+    // Convert local asset path to base64 for IPFS upload
+    try {
+      const response = await fetch(animalImage);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64data = reader.result as string;
+        setGeneratedImage(base64data);
+        toast.success('Preset image ready for minting!');
+      };
+      reader.readAsDataURL(blob);
+    } catch (err) {
+      console.error('Failed to load preset image:', err);
+      // Fallback: use the original URL directly
+      setGeneratedImage(animalImage);
+      toast.success('Preset image selected!');
+    }
   };
 
   const handleReroll = async () => {
@@ -206,13 +224,26 @@ export function AIImageGenerator({
     setMintStep('uploading');
     toast.info('Uploading to IPFS...');
     
+    // Determine if this is a preset image or AI-generated
+    const isPresetImage = !!selectedPreset;
+    const imageSource = isPresetImage ? 'Preset Animal' : 'AI Generated';
+    
     const metadata = {
-      name: `MemoryMint #${Date.now()}`,
-      description: `A skill-based NFT from MemoryMint. Created with prompt: "${prompt}"`,
+      name: `MemoryMint Level ${level} - ${rarity.tier}`,
+      description: isPresetImage 
+        ? `A skill-based NFT from MemoryMint. Level ${level} ${rarity.tier} achievement using preset artwork.`
+        : `A skill-based NFT from MemoryMint. Created with prompt: "${prompt}"`,
       attributes: [
+        { trait_type: 'Level', value: level },
         { trait_type: 'Score', value: score },
         { trait_type: 'Rarity', value: rarity.tier },
+        { trait_type: 'Rarity Score', value: rarity.score },
+        { trait_type: 'Moves', value: moves },
+        { trait_type: 'Time Taken', value: `${time}s` },
+        { trait_type: 'Max Combo', value: maxCombo },
+        { trait_type: 'Perfect Game', value: moves === totalPairs ? 'Yes' : 'No' },
         { trait_type: 'Art Style', value: style.name },
+        { trait_type: 'Image Source', value: imageSource },
         { trait_type: 'Created', value: new Date().toISOString() },
       ],
     };
@@ -221,7 +252,10 @@ export function AIImageGenerator({
     
     if (!result) {
       setMintStep('idle');
-      toast.error(uploadError || 'Failed to upload metadata');
+      // Show edge function failure warning but don't block completely
+      const errorMsg = uploadError || 'Failed to upload metadata. Edge function may be unavailable.';
+      toast.error(errorMsg);
+      console.error('[Mint] IPFS upload failed:', errorMsg);
       return;
     }
 
@@ -230,6 +264,7 @@ export function AIImageGenerator({
     toast.success('Please confirm in your wallet...');
 
     // Mint with the short token URI from IPFS upload
+    // Contract will enforce all rules (free mint, kill switch, anti-bot, etc.)
     const mintResult = await mintNFT(result.tokenURI, address!);
     
     if (mintResult) {
@@ -237,6 +272,7 @@ export function AIImageGenerator({
       toast.success('NFT minted successfully!');
     } else {
       setMintStep('idle');
+      // Show error but don't block - contract enforced the rule
     }
   };
 
