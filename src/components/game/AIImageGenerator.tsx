@@ -61,6 +61,7 @@ export function AIImageGenerator({
   const [showBatchMode, setShowBatchMode] = useState(false);
   const [balanceCheck, setBalanceCheck] = useState<{ hasEnough: boolean; balance: string; required: string; shortfall: string | null } | null>(null);
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
+  const [uploadFailed, setUploadFailed] = useState(false);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting, chainId } = useWallet();
   const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getMintPriceEstimate, checkBalance, antiBotConfig, adminConfig } = useNFTMint();
@@ -68,7 +69,7 @@ export function AIImageGenerator({
   // Estimated gas fee for display
   const estimatedGasEth = '0.0002';
   const { isGenerating, generateImage, error: generateError } = useAIGenerate();
-  const { isUploading, uploadToIPFS, error: uploadError } = useIPFSUpload();
+  const { isUploading, uploadToIPFS, error: uploadError, attempt: uploadAttempt, maxAttempts: maxUploadAttempts, clearError: clearUploadError } = useIPFSUpload();
 
   // Removed preflight checks - direct mint flow
 
@@ -215,21 +216,15 @@ export function AIImageGenerator({
     }
   };
 
-  const handleMint = async () => {
-    if (!generatedImage || !selectedStyle) return;
-    
+  /**
+   * Build NFT metadata from game stats
+   */
+  const buildMetadata = () => {
     const style = STYLE_OPTIONS.find(s => s.id === selectedStyle);
-    if (!style) return;
-
-    // Step 1: Upload to IPFS
-    setMintStep('uploading');
-    toast.info('Uploading to IPFS...');
-    
-    // Determine if this is a preset image or AI-generated
     const isPresetImage = !!selectedPreset;
     const imageSource = isPresetImage ? 'Preset Animal' : 'AI Generated';
     
-    const metadata = {
+    return {
       name: `MemoryMint Level ${level} - ${rarity.tier}`,
       description: isPresetImage 
         ? `A skill-based NFT from MemoryMint. Level ${level} ${rarity.tier} achievement using preset artwork.`
@@ -243,20 +238,71 @@ export function AIImageGenerator({
         { trait_type: 'Time Taken', value: `${time}s` },
         { trait_type: 'Max Combo', value: maxCombo },
         { trait_type: 'Perfect Game', value: moves === totalPairs ? 'Yes' : 'No' },
-        { trait_type: 'Art Style', value: style.name },
+        { trait_type: 'Art Style', value: style?.name || 'Classic' },
         { trait_type: 'Image Source', value: imageSource },
         { trait_type: 'Created', value: new Date().toISOString() },
       ],
     };
+  };
 
+  /**
+   * Retry upload only (when upload failed but user wants to try again)
+   */
+  const handleRetryUpload = async () => {
+    if (!generatedImage || !selectedStyle) return;
+    
+    setUploadFailed(false);
+    clearUploadError();
+    setMintStep('uploading');
+    
+    const metadata = buildMetadata();
     const result = await uploadToIPFS(generatedImage, metadata);
     
     if (!result) {
       setMintStep('idle');
-      // Show edge function failure warning but don't block completely
-      const errorMsg = uploadError || 'Failed to upload metadata. Edge function may be unavailable.';
-      toast.error(errorMsg);
-      console.error('[Mint] IPFS upload failed:', errorMsg);
+      setUploadFailed(true);
+      // User-friendly error already set by hook
+      return;
+    }
+    
+    // Upload succeeded - proceed to mint
+    setMintStep('confirming');
+    toast.success('Upload complete! Please confirm in your wallet...');
+    
+    const mintResult = await mintNFT(result.tokenURI, address!);
+    
+    if (mintResult) {
+      setMintStep('success');
+      setUploadFailed(false);
+      toast.success('NFT minted successfully!');
+    } else {
+      setMintStep('idle');
+    }
+  };
+
+  const handleMint = async () => {
+    if (!generatedImage || !selectedStyle) return;
+    
+    const style = STYLE_OPTIONS.find(s => s.id === selectedStyle);
+    if (!style) return;
+
+    // Reset any previous upload failure state
+    setUploadFailed(false);
+    clearUploadError();
+    
+    // Step 1: Upload to IPFS (with auto-retry 3x)
+    setMintStep('uploading');
+    toast.info('Uploading to IPFS...');
+    
+    const metadata = buildMetadata();
+    const result = await uploadToIPFS(generatedImage, metadata);
+    
+    if (!result) {
+      setMintStep('idle');
+      setUploadFailed(true);
+      // Show user-friendly retry UI instead of scary error
+      // Error message is already set by the hook
+      console.warn('[Mint] IPFS upload failed after all retries');
       return;
     }
 
@@ -270,6 +316,7 @@ export function AIImageGenerator({
     
     if (mintResult) {
       setMintStep('success');
+      setUploadFailed(false);
       toast.success('NFT minted successfully!');
     } else {
       setMintStep('idle');
@@ -506,14 +553,21 @@ export function AIImageGenerator({
               </div>
             </div>
 
-            {/* Mint Status - Enhanced Progress */}
+            {/* Mint Status - Enhanced Progress with upload attempt indicator */}
             {mintStep !== 'idle' && mintStep !== 'success' && (
               <div className="mb-4 p-4 rounded-xl bg-primary/10 border border-primary/20">
                 <div className="flex items-center gap-3 mb-3">
                   <Loader2 className="w-5 h-5 animate-spin text-primary" />
                   <div>
                     <p className="font-medium text-foreground">{getMintStepText().title}</p>
-                    <p className="text-sm text-muted-foreground">{getMintStepText().subtitle}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {getMintStepText().subtitle}
+                      {mintStep === 'uploading' && uploadAttempt > 1 && (
+                        <span className="ml-2 text-xs text-muted-foreground/70">
+                          (Retry {uploadAttempt}/{maxUploadAttempts})
+                        </span>
+                      )}
+                    </p>
                   </div>
                 </div>
                 {/* Progress bar */}
@@ -564,11 +618,54 @@ export function AIImageGenerator({
               </div>
             )}
 
-            {/* Errors - Only show non-cooldown errors, or cooldown if no live countdown */}
-            {((mintError && !isCooldownError) || (!shouldShowCooldown && isCooldownError) || uploadError) && (
+            {/* Upload Failed - Friendly Retry UI (Gold Standard: don't block, allow retry) */}
+            {uploadFailed && uploadError && !success && (
+              <div className="mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <Upload className="w-5 h-5 text-amber-500" />
+                  <p className="font-medium text-foreground">Upload Delayed</p>
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  {uploadError}
+                </p>
+                <Button 
+                  onClick={handleRetryUpload} 
+                  size="sm" 
+                  variant="outline"
+                  className="w-full border-amber-500/30 hover:bg-amber-500/10"
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Retrying...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Retry Upload
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+
+            {/* Contract Errors - Only show real contract reverts (not infra errors) */}
+            {mintError && !isCooldownError && !uploadFailed && (
               <div className="mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-destructive" />
-                <p className="text-sm text-destructive">{mintError || uploadError}</p>
+                <p className="text-sm text-destructive">{mintError}</p>
+                <Button variant="ghost" size="sm" onClick={resetMintState} className="ml-auto">
+                  Retry
+                </Button>
+              </div>
+            )}
+            
+            {/* Cooldown error display (when no live countdown) */}
+            {!shouldShowCooldown && isCooldownError && (
+              <div className="mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-destructive" />
+                <p className="text-sm text-destructive">{mintError}</p>
                 <Button variant="ghost" size="sm" onClick={resetMintState} className="ml-auto">
                   Retry
                 </Button>
