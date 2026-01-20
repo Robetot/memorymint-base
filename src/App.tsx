@@ -9,7 +9,7 @@ import { BaseAppProvider } from "@/contexts/BaseAppContext";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
-// Import contract state check - runs on load for debugging
+// Contract state check helper (manual): run `window.checkAdminConfig()` in console when needed.
 import '@/utils/contractStateCheck';
 // QueryClient instance - stable singleton
 const queryClient = new QueryClient({
