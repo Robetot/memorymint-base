@@ -9,6 +9,9 @@ interface IPFSUploadState {
   error: string | null;
   attempt: number;
   maxAttempts: number;
+  usedFallback: boolean;
+  providerUsed: string;
+  errorCode: string | null;
 }
 
 interface NFTMetadata {
@@ -25,6 +28,7 @@ export interface IPFSUploadResult {
   cid: string;
   imageGatewayUrl?: string;
   imageUrl?: string;
+  usedFallback?: boolean;
 }
 
 const MAX_UPLOAD_ATTEMPTS = 3;
@@ -33,13 +37,33 @@ const RETRY_DELAYS = [0, 2000, 4000]; // Exponential backoff
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Translates technical errors into user-friendly messages.
- * We hide non-2xx, RPC, and infra errors from users.
+ * Translates error codes into user-friendly messages.
+ * Never expose technical infrastructure errors to users.
  */
-function getUserFriendlyError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+function getUserFriendlyError(errorCode: string | null, rawMessage?: string): string {
+  switch (errorCode) {
+    case 'RATE_LIMITED':
+    case 'PROVIDER_RATE_LIMITED':
+      return 'Service busy. Please wait a moment and retry.';
+    case 'CONFIG_ERROR':
+      return 'Service temporarily unavailable. Please retry.';
+    case 'INVALID_INPUT':
+    case 'INVALID_METADATA':
+      return 'Invalid image data. Please try a different image.';
+    case 'SIZE_EXCEEDED':
+      return 'Image too large. Please use a smaller image.';
+    case 'UPLOAD_FAILED':
+    case 'PARTIAL_UPLOAD':
+      return 'Upload failed. Please retry.';
+    case 'UNEXPECTED_ERROR':
+      return 'Network temporarily unstable. Please retry.';
+    default:
+      break;
+  }
   
-  // Hide technical infrastructure errors
+  // Legacy fallback for raw messages
+  const message = rawMessage || '';
+  
   if (message.includes('non-2xx') || message.includes('Edge Function')) {
     return 'Network temporarily unstable. Please retry.';
   }
@@ -56,8 +80,28 @@ function getUserFriendlyError(error: unknown): string {
     return 'Storage service unavailable. Please retry.';
   }
   
-  // Generic fallback - still friendly
   return 'Upload failed. Please retry.';
+}
+
+/**
+ * Generate a placeholder data URI for emergency fallback minting.
+ * This ensures minting can proceed even if IPFS is completely unavailable.
+ */
+function generatePlaceholderDataURI(metadata: NFTMetadata): string {
+  const placeholderMetadata = {
+    name: metadata.name,
+    description: `${metadata.description} [Metadata pending - will be updated]`,
+    image: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzMzMyIvPjx0ZXh0IHg9IjEwMCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiPk1lbW9yeU1pbnQ8L3RleHQ+PC9zdmc+',
+    external_url: 'https://memorymint.app',
+    attributes: [
+      ...metadata.attributes,
+      { trait_type: 'Metadata Status', value: 'Pending' },
+    ],
+  };
+  
+  const jsonString = JSON.stringify(placeholderMetadata);
+  const base64 = btoa(unescape(encodeURIComponent(jsonString)));
+  return `data:application/json;base64,${base64}`;
 }
 
 export function useIPFSUpload() {
@@ -69,34 +113,55 @@ export function useIPFSUpload() {
     error: null,
     attempt: 0,
     maxAttempts: MAX_UPLOAD_ATTEMPTS,
+    usedFallback: false,
+    providerUsed: 'none',
+    errorCode: null,
   });
   
   const abortControllerRef = useRef<AbortController | null>(null);
 
   /**
-   * Single upload attempt to IPFS
+   * Single upload attempt to IPFS via Edge Function
    */
   const attemptUpload = useCallback(
-    async (imageData: string, metadata: NFTMetadata): Promise<IPFSUploadResult | null> => {
+    async (imageData: string, metadata: NFTMetadata): Promise<{ 
+      result: IPFSUploadResult | null; 
+      errorCode?: string;
+      error?: string;
+    }> => {
       const { data, error } = await supabase.functions.invoke('upload-to-ipfs', {
         body: { imageData, metadata },
       });
 
+      // Edge function network error
       if (error) {
-        console.warn('[IPFS] Upload attempt failed:', error);
-        throw error;
+        console.warn('[IPFS] Edge function error:', error);
+        return { result: null, errorCode: 'EDGE_ERROR', error: error.message };
       }
 
-      if (data?.tokenURI && data?.cid) {
-        return {
-          tokenURI: data.tokenURI,
-          cid: data.cid,
-          imageGatewayUrl: data.imageGatewayUrl,
-          imageUrl: data.imageUrl,
+      // Check for fail-open response (success: false but HTTP 200)
+      if (data && data.success === false) {
+        console.warn('[IPFS] Upload returned failure:', data.errorCode, data.error);
+        return { 
+          result: null, 
+          errorCode: data.errorCode || 'UPLOAD_FAILED',
+          error: data.error
         };
       }
 
-      throw new Error('Invalid response from upload');
+      // Success
+      if (data?.tokenURI && data?.cid) {
+        return {
+          result: {
+            tokenURI: data.tokenURI,
+            cid: data.cid,
+            imageGatewayUrl: data.imageGatewayUrl,
+            imageUrl: data.imageUrl,
+          }
+        };
+      }
+
+      return { result: null, errorCode: 'INVALID_RESPONSE', error: 'Invalid response from upload' };
     },
     []
   );
@@ -104,9 +169,16 @@ export function useIPFSUpload() {
   /**
    * Upload with automatic retry (3 attempts with exponential backoff)
    * Returns null if all attempts fail - caller decides what to do
+   * 
+   * Options:
+   * - allowPlaceholder: if true, returns a placeholder data URI when all attempts fail
    */
   const uploadToIPFS = useCallback(
-    async (imageData: string, metadata: NFTMetadata): Promise<IPFSUploadResult | null> => {
+    async (
+      imageData: string, 
+      metadata: NFTMetadata,
+      options?: { allowPlaceholder?: boolean }
+    ): Promise<IPFSUploadResult | null> => {
       // Cancel any previous upload
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -120,10 +192,14 @@ export function useIPFSUpload() {
         cid: null, 
         imageGatewayUrl: null, 
         error: null,
-        attempt: 0 
+        errorCode: null,
+        attempt: 0,
+        usedFallback: false,
+        providerUsed: 'pinata',
       }));
 
-      let lastError: unknown = null;
+      let lastErrorCode: string | null = null;
+      let lastError: string | undefined;
 
       for (let i = 0; i < MAX_UPLOAD_ATTEMPTS; i++) {
         // Check if upload was cancelled
@@ -141,7 +217,7 @@ export function useIPFSUpload() {
             await sleep(RETRY_DELAYS[i]);
           }
 
-          const result = await attemptUpload(imageData, metadata);
+          const { result, errorCode, error } = await attemptUpload(imageData, metadata);
           
           if (result) {
             console.log(`[IPFS] Upload succeeded on attempt ${i + 1}`);
@@ -151,20 +227,57 @@ export function useIPFSUpload() {
               cid: result.cid,
               imageGatewayUrl: result.imageGatewayUrl ?? null,
               error: null,
+              errorCode: null,
               attempt: i + 1,
               maxAttempts: MAX_UPLOAD_ATTEMPTS,
+              usedFallback: false,
+              providerUsed: 'pinata',
             });
             return result;
           }
+          
+          lastErrorCode = errorCode || null;
+          lastError = error;
+          
+          // Don't retry on certain error codes
+          if (errorCode === 'INVALID_INPUT' || errorCode === 'SIZE_EXCEEDED' || errorCode === 'INVALID_METADATA') {
+            break;
+          }
+          
         } catch (err) {
-          lastError = err;
+          lastError = err instanceof Error ? err.message : String(err);
           console.warn(`[IPFS] Attempt ${i + 1}/${MAX_UPLOAD_ATTEMPTS} failed:`, err);
         }
       }
 
       // All attempts failed
-      const friendlyError = getUserFriendlyError(lastError);
-      console.error('[IPFS] All upload attempts failed:', lastError);
+      const friendlyError = getUserFriendlyError(lastErrorCode, lastError);
+      console.error('[IPFS] All upload attempts failed:', lastErrorCode, lastError);
+      
+      // If allowPlaceholder, return placeholder instead of null
+      if (options?.allowPlaceholder) {
+        console.log('[IPFS] Returning placeholder for fail-open minting');
+        const placeholderURI = generatePlaceholderDataURI(metadata);
+        
+        setState({
+          isUploading: false,
+          tokenURI: placeholderURI,
+          cid: null,
+          imageGatewayUrl: null,
+          error: friendlyError,
+          errorCode: lastErrorCode,
+          attempt: MAX_UPLOAD_ATTEMPTS,
+          maxAttempts: MAX_UPLOAD_ATTEMPTS,
+          usedFallback: true,
+          providerUsed: 'placeholder',
+        });
+        
+        return {
+          tokenURI: placeholderURI,
+          cid: 'placeholder',
+          usedFallback: true,
+        };
+      }
       
       setState({
         isUploading: false,
@@ -172,8 +285,11 @@ export function useIPFSUpload() {
         cid: null,
         imageGatewayUrl: null,
         error: friendlyError,
+        errorCode: lastErrorCode,
         attempt: MAX_UPLOAD_ATTEMPTS,
         maxAttempts: MAX_UPLOAD_ATTEMPTS,
+        usedFallback: false,
+        providerUsed: 'none',
       });
       
       return null;
@@ -191,13 +307,16 @@ export function useIPFSUpload() {
       cid: null,
       imageGatewayUrl: null,
       error: null,
+      errorCode: null,
       attempt: 0,
       maxAttempts: MAX_UPLOAD_ATTEMPTS,
+      usedFallback: false,
+      providerUsed: 'none',
     });
   }, []);
 
   const clearError = useCallback(() => {
-    setState(prev => ({ ...prev, error: null }));
+    setState(prev => ({ ...prev, error: null, errorCode: null }));
   }, []);
 
   return {
@@ -205,5 +324,6 @@ export function useIPFSUpload() {
     uploadToIPFS,
     resetState,
     clearError,
+    generatePlaceholderDataURI,
   };
 }

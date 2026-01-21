@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload, Image, Layers, DollarSign } from 'lucide-react';
+import { ArrowLeft, Sparkles, Wand2, RefreshCw, Download, X, ExternalLink, Loader2, CheckCircle, AlertCircle, Wallet, Upload, Image, Layers, DollarSign, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/hooks/useWallet';
 import { useNFTMint } from '@/hooks/useNFTMint';
 import { useAIGenerate } from '@/hooks/useAIGenerate';
 import { useIPFSUpload } from '@/hooks/useIPFSUpload';
+import { useUploadQueue } from '@/hooks/useUploadQueue';
 import { calculateRarity } from '@/utils/rarityCalculator';
 import { getLevel } from '@/data/levels';
 import { toast } from 'sonner';
@@ -14,6 +15,7 @@ import { ANIMALS } from '@/data/animals';
 import { BatchImageGenerator } from './BatchImageGenerator';
 import { ConfigWarningBanner } from './ConfigWarningBanner';
 import { MintStatusIndicator } from './MintStatusIndicator';
+import { IPFSDiagnosticPanel } from './IPFSDiagnosticPanel';
 
 interface AIImageGeneratorProps {
   score: number;
@@ -62,6 +64,7 @@ export function AIImageGenerator({
   const [balanceCheck, setBalanceCheck] = useState<{ hasEnough: boolean; balance: string; required: string; shortfall: string | null } | null>(null);
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
   const [uploadFailed, setUploadFailed] = useState(false);
+  const [pendingMetadataUpdate, setPendingMetadataUpdate] = useState(false);
   
   const { isConnected, address, formatAddress, connectWallet, isConnecting, chainId } = useWallet();
   const { isMinting, txHash, success, error: mintError, mintNFT, resetMintState, contractAddress, getMintPriceEstimate, checkBalance, antiBotConfig, adminConfig } = useNFTMint();
@@ -69,7 +72,13 @@ export function AIImageGenerator({
   // Estimated gas fee for display
   const estimatedGasEth = '0.0002';
   const { isGenerating, generateImage, error: generateError } = useAIGenerate();
-  const { isUploading, uploadToIPFS, error: uploadError, attempt: uploadAttempt, maxAttempts: maxUploadAttempts, clearError: clearUploadError } = useIPFSUpload();
+  const { isUploading, uploadToIPFS, error: uploadError, attempt: uploadAttempt, maxAttempts: maxUploadAttempts, clearError: clearUploadError, usedFallback } = useIPFSUpload();
+  
+  // Background upload queue for failed uploads
+  const uploadQueue = useUploadQueue(async (imageData, metadata) => {
+    const result = await uploadToIPFS(imageData, metadata);
+    return result;
+  });
 
   // Removed preflight checks - direct mint flow
 
@@ -288,6 +297,7 @@ export function AIImageGenerator({
 
     // Reset any previous upload failure state
     setUploadFailed(false);
+    setPendingMetadataUpdate(false);
     clearUploadError();
     
     // Step 1: Upload to IPFS (with auto-retry 3x)
@@ -295,29 +305,43 @@ export function AIImageGenerator({
     toast.info('Uploading to IPFS...');
     
     const metadata = buildMetadata();
-    const result = await uploadToIPFS(generatedImage, metadata);
+    
+    // Try normal upload first
+    let result = await uploadToIPFS(generatedImage, metadata);
     
     if (!result) {
+      // All attempts failed - show retry UI
+      // DO NOT mint with placeholder unless user explicitly chooses
       setMintStep('idle');
       setUploadFailed(true);
-      // Show user-friendly retry UI instead of scary error
-      // Error message is already set by the hook
-      console.warn('[Mint] IPFS upload failed after all retries');
+      console.warn('[Mint] IPFS upload failed after all retries - showing retry UI');
       return;
+    }
+
+    // Check if we used a placeholder (fail-open mode)
+    if (result.usedFallback) {
+      // Queue background retry for real upload
+      uploadQueue.addToQueue(generatedImage, metadata);
+      setPendingMetadataUpdate(true);
+      toast.warning('Minting with temporary metadata. Will update automatically.');
     }
 
     // Step 2: Confirm transaction in wallet (single transaction)
     setMintStep('confirming');
     toast.success('Please confirm in your wallet...');
 
-    // Mint with the short token URI from IPFS upload
+    // Mint with the token URI (real or placeholder)
     // Contract will enforce all rules (free mint, kill switch, anti-bot, etc.)
     const mintResult = await mintNFT(result.tokenURI, address!);
     
     if (mintResult) {
       setMintStep('success');
       setUploadFailed(false);
-      toast.success('NFT minted successfully!');
+      if (result.usedFallback) {
+        toast.success('NFT minted! Metadata will be updated shortly.');
+      } else {
+        toast.success('NFT minted successfully!');
+      }
     } else {
       setMintStep('idle');
       // Show error but don't block - contract enforced the rule
@@ -598,6 +622,22 @@ export function AIImageGenerator({
                 >
                   View on BaseScan <ExternalLink className="w-3 h-3" />
                 </a>
+                {pendingMetadataUpdate && (
+                  <div className="mt-2 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                    <Clock className="w-3 h-3" />
+                    <span>Metadata update pending - will sync automatically</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Background Queue Status */}
+            {uploadQueue.hasPending && (
+              <div className="mb-4 p-3 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">
+                  {uploadQueue.pendingUploads.length} upload(s) syncing in background...
+                </span>
               </div>
             )}
 
@@ -799,6 +839,9 @@ export function AIImageGenerator({
           </>
         )}
       </div>
+      
+      {/* Developer Diagnostic Panel */}
+      <IPFSDiagnosticPanel />
     </div>
   );
 }
