@@ -18,7 +18,7 @@ const USDC_DECIMALS = 6;
 // Base Mainnet Chain ID
 const BASE_CHAIN_ID = IMPORTED_BASE_CHAIN_ID;
 // RPC endpoints - using centralized provider
-import { BASE_RPC_ENDPOINTS, getCurrentRpcUrl, markCurrentEndpointFailed, markRequestSuccess } from '@/utils/rpcProvider';
+import { BASE_RPC_ENDPOINTS, getCurrentRpcUrl, markCurrentEndpointFailed, markRequestSuccess, getAllEndpointsHealth } from '@/utils/rpcProvider';
 const RPC_ENDPOINTS = BASE_RPC_ENDPOINTS;
 
 // Edge function URL for fail-open admin config
@@ -509,11 +509,21 @@ function supportsWalletSendCalls(): boolean {
 
 // RPC call with timeout, retry logic, rate limit handling, and 0x filtering
 // HARDENED: Skips empty (0x) or short results, retries on rate limits
-async function rpcCall(method: string, params: any[], timeout = 10000): Promise<any> {
+// FAIL-OPEN: Returns null instead of throwing when all endpoints fail
+async function rpcCall(method: string, params: any[], timeout = 10000, failOpen = false): Promise<any> {
   const errors: string[] = [];
   const maxRetries = 2;
   
-  for (const endpoint of RPC_ENDPOINTS) {
+  // Get prioritized endpoints - healthy ones first
+  const healthyEndpoints = RPC_ENDPOINTS.filter(url => {
+    const allHealth = getAllEndpointsHealth();
+    const health = allHealth.find(e => e.url === url);
+    return health?.healthy !== false;
+  });
+  const unhealthyEndpoints = RPC_ENDPOINTS.filter(url => !healthyEndpoints.includes(url));
+  const orderedEndpoints = [...healthyEndpoints, ...unhealthyEndpoints];
+  
+  for (const endpoint of orderedEndpoints) {
     for (let retry = 0; retry < maxRetries; retry++) {
       try {
         const controller = new AbortController();
@@ -591,6 +601,13 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
   }
   
   console.error('[RPC] All endpoints failed:', errors);
+  
+  // FAIL-OPEN: Return null instead of throwing to allow fallback behavior
+  if (failOpen) {
+    console.warn('[RPC] Fail-open mode: returning null instead of throwing');
+    return null;
+  }
+  
   throw new Error('RPC temporarily unavailable. Please try again.');
 }
 

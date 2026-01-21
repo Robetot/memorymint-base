@@ -11,16 +11,17 @@ const corsHeaders = {
 
 const CONTRACT_ADDRESS = "0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0" as const;
 
-// Expanded list of reliable public Base Mainnet RPCs
-// Ordered by reliability - prioritize paid/reliable endpoints
+// Reliable public Base Mainnet RPCs - synced with frontend rpcProvider.ts
+// Removed Ankr (requires API key)
 const RPC_ENDPOINTS = [
-  "https://base.llamarpc.com",           // LlamaNodes - high reliability
+  "https://mainnet.base.org",             // Official (prioritized)
+  "https://base.publicnode.com",          // Public node
+  "https://base.gateway.tenderly.co",     // Tenderly
+  "https://base.llamarpc.com",            // LlamaNodes
+  "https://base.drpc.org",                // DRPC
+  "https://1rpc.io/base",                 // 1RPC
   "https://base-mainnet.public.blastapi.io", // BlastAPI
-  "https://1rpc.io/base",                // 1RPC
-  "https://base.meowrpc.com",            // MeowRPC
-  "https://base.drpc.org",               // DRPC
-  "https://base-pokt.nodies.app",        // Nodies
-  "https://mainnet.base.org",            // Official (often rate-limited)
+  "https://base.meowrpc.com",             // MeowRPC
 ];
 
 const READ_ABI = parseAbi([
