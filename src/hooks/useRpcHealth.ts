@@ -12,6 +12,8 @@ import {
   getHealthyEndpointCount,
   forceEndpoint,
   BASE_RPC_ENDPOINTS,
+  isQAModeEnabled,
+  getDisabledEndpoints,
 } from '@/utils/rpcProvider';
 
 export interface RPCEndpointHealth {
@@ -33,6 +35,8 @@ export interface UseRpcHealthReturn {
   isHealthy: boolean;
   refreshHealth: () => Promise<void>;
   forceEndpoint: (url: string) => boolean;
+  isQAModeEnabled: boolean;
+  disabledEndpoints: string[];
 }
 
 export function useRpcHealth(): UseRpcHealthReturn {
@@ -82,5 +86,7 @@ export function useRpcHealth(): UseRpcHealthReturn {
     isHealthy: healthyCount > 0,
     refreshHealth,
     forceEndpoint: handleForceEndpoint,
+    isQAModeEnabled: isQAModeEnabled(),
+    disabledEndpoints: getDisabledEndpoints(),
   };
 }

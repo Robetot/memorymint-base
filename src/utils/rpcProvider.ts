@@ -34,6 +34,11 @@ let currentEndpointIndex = 0;
 let isInitialized = false;
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
+// ============ QA FAULT INJECTION (Dev Only) ============
+// Stores manually disabled endpoints for testing fail-open behavior
+const disabledEndpointsSet = new Set<string>();
+let qaFaultInjectionEnabled = false;
+
 // Initialize health map
 BASE_RPC_ENDPOINTS.forEach((url) => {
   endpointHealthMap.set(url, {
@@ -46,6 +51,88 @@ BASE_RPC_ENDPOINTS.forEach((url) => {
     totalFailures: 0,
   });
 });
+
+// ============ QA MODE FUNCTIONS ============
+
+/**
+ * Check if QA fault injection mode is active (dev only)
+ */
+export function isQAModeEnabled(): boolean {
+  return qaFaultInjectionEnabled;
+}
+
+/**
+ * Enable QA fault injection mode (dev environments only)
+ */
+export function enableQAMode(): boolean {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname.includes('preview') || hostname.includes('lovable')) {
+      qaFaultInjectionEnabled = true;
+      console.log('[RPC QA] Fault injection mode ENABLED');
+      return true;
+    }
+  }
+  console.warn('[RPC QA] Cannot enable QA mode in production');
+  return false;
+}
+
+/**
+ * Disable QA fault injection mode
+ */
+export function disableQAMode(): void {
+  qaFaultInjectionEnabled = false;
+  disabledEndpointsSet.clear();
+  console.log('[RPC QA] Fault injection mode DISABLED, all endpoints restored');
+}
+
+/**
+ * Disable a specific endpoint for testing (QA mode only)
+ */
+export function disableEndpoint(url: string): boolean {
+  if (!qaFaultInjectionEnabled) {
+    console.warn('[RPC QA] Enable QA mode first with enableQAMode()');
+    return false;
+  }
+  if (BASE_RPC_ENDPOINTS.includes(url as typeof BASE_RPC_ENDPOINTS[number])) {
+    disabledEndpointsSet.add(url);
+    const health = endpointHealthMap.get(url);
+    if (health) {
+      health.healthy = false;
+    }
+    console.log('[RPC QA] Endpoint DISABLED:', url);
+    return true;
+  }
+  console.warn('[RPC QA] Unknown endpoint:', url);
+  return false;
+}
+
+/**
+ * Re-enable a specific endpoint (QA mode only)
+ */
+export function enableEndpoint(url: string): boolean {
+  if (!qaFaultInjectionEnabled) {
+    console.warn('[RPC QA] Enable QA mode first with enableQAMode()');
+    return false;
+  }
+  disabledEndpointsSet.delete(url);
+  console.log('[RPC QA] Endpoint ENABLED:', url);
+  return true;
+}
+
+/**
+ * Get list of currently disabled endpoints
+ */
+export function getDisabledEndpoints(): string[] {
+  return Array.from(disabledEndpointsSet);
+}
+
+/**
+ * Check if an endpoint is disabled by QA mode
+ */
+export function isEndpointDisabled(url: string): boolean {
+  return qaFaultInjectionEnabled && disabledEndpointsSet.has(url);
+}
 
 // ============ CORE FUNCTIONS ============
 
@@ -285,6 +372,13 @@ export async function executeWithFallback<T = unknown>(
   
   for (const endpoint of sortedEndpoints) {
     if (triedEndpoints.has(endpoint)) continue;
+    
+    // Skip QA-disabled endpoints
+    if (isEndpointDisabled(endpoint)) {
+      errors.push(`${endpoint}: QA-disabled`);
+      continue;
+    }
+    
     triedEndpoints.add(endpoint);
     
     try {
@@ -412,13 +506,16 @@ if (typeof window !== 'undefined') {
     const endpoints = getAllEndpointsHealth();
     console.log('[RPC Debug] Current endpoint:', getCurrentRpcUrl());
     console.log('[RPC Debug] Healthy count:', getHealthyEndpointCount(), '/', endpoints.length);
+    console.log('[RPC Debug] QA Mode:', isQAModeEnabled() ? 'ENABLED' : 'disabled');
+    console.log('[RPC Debug] Disabled endpoints:', getDisabledEndpoints());
     console.table(endpoints.map((e) => ({
       url: new URL(e.url).hostname,
       healthy: e.healthy ? '✅' : '❌',
+      disabled: isEndpointDisabled(e.url) ? '🚫' : '',
       latency: e.latencyMs ? `${e.latencyMs}ms` : '-',
       failures: e.consecutiveFailures,
     })));
-    return { current: getCurrentRpcUrl(), healthy: getHealthyEndpointCount() };
+    return { current: getCurrentRpcUrl(), healthy: getHealthyEndpointCount(), qaMode: isQAModeEnabled() };
   };
   
   (window as any).rpcDiagnostics = async () => {
@@ -431,6 +528,7 @@ if (typeof window !== 'undefined') {
     console.table(report.endpoints.map((e) => ({
       url: new URL(e.url).hostname,
       healthy: e.healthy ? '✅' : '❌',
+      disabled: isEndpointDisabled(e.url) ? '🚫' : '',
       latency: e.latencyMs ? `${e.latencyMs}ms` : '-',
       failures: e.consecutiveFailures,
     })));
@@ -441,5 +539,36 @@ if (typeof window !== 'undefined') {
     const success = forceEndpoint(url);
     console.log(success ? `[RPC] Forced to: ${url}` : `[RPC] Invalid endpoint: ${url}`);
     return success;
+  };
+  
+  // QA Mode controls
+  (window as any).rpcQA = {
+    enable: enableQAMode,
+    disable: disableQAMode,
+    isEnabled: isQAModeEnabled,
+    disableEndpoint,
+    enableEndpoint,
+    getDisabled: getDisabledEndpoints,
+    endpoints: () => BASE_RPC_ENDPOINTS,
+    help: () => {
+      console.log(`
+╔════════════════════════════════════════════════════════════════╗
+║                   RPC QA FAULT INJECTION                       ║
+╠════════════════════════════════════════════════════════════════╣
+║ rpcQA.enable()              - Enable QA mode                   ║
+║ rpcQA.disable()             - Disable QA mode & restore all    ║
+║ rpcQA.endpoints()           - List all RPC endpoints           ║
+║ rpcQA.disableEndpoint(url)  - Disable specific endpoint        ║
+║ rpcQA.enableEndpoint(url)   - Re-enable specific endpoint      ║
+║ rpcQA.getDisabled()         - List disabled endpoints          ║
+╠════════════════════════════════════════════════════════════════╣
+║ TESTING FAIL-OPEN:                                             ║
+║ 1. rpcQA.enable()                                              ║
+║ 2. Disable all endpoints one by one                            ║
+║ 3. Attempt a mint - it should proceed to wallet                ║
+║ 4. rpcQA.disable() to restore                                  ║
+╚════════════════════════════════════════════════════════════════╝
+      `);
+    }
   };
 }
