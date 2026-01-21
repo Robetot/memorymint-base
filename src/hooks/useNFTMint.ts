@@ -312,6 +312,26 @@ interface MintErrorResult {
   providedWei?: bigint;
 }
 
+// Classify infra/RPC problems so mint can proceed (fail-open).
+function isRpcLevelError(error: unknown): boolean {
+  const msg = (error as any)?.message?.toLowerCase?.() || '';
+  const patterns = [
+    'timeout',
+    'network',
+    'fetch failed',
+    'temporarily unavailable',
+    'all endpoints failed',
+    'all rpc endpoints failed',
+    'rate limit',
+    'http 429',
+    'unable to reach',
+    'failed to fetch',
+    'econnrefused',
+    'enotfound',
+  ];
+  return patterns.some(p => msg.includes(p));
+}
+
 function decodeMintErrorWithCode(error: unknown): MintErrorResult {
   const err: any = error;
 
@@ -1618,6 +1638,8 @@ export function useNFTMint() {
     success: boolean; 
     error: string | null; 
     errorCode: string | null;
+    warning?: string | null;
+    isSimulated?: boolean;
     gasLimit: bigint | null;
     maxFeePerGas: bigint | null;
     maxPriorityFeePerGas: bigint | null;
@@ -1659,6 +1681,25 @@ export function useNFTMint() {
       try {
         await rpcCallForSimulation('eth_call', [callParams, 'latest']);
       } catch (simErr: any) {
+        // ✅ Fail-open on RPC/network errors (no revert payload)
+        if (isRpcLevelError(simErr) && !(simErr?.rpcError?.data || simErr?.data)) {
+          console.warn('[Simulation] RPC/network error during eth_call; proceeding fail-open:', simErr?.message);
+          const gasEstimate = 150000n;
+          const gasWithBuffer = gasEstimate + (gasEstimate * GAS_BUFFER_PERCENT / 100n);
+          setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
+          return {
+            success: true,
+            error: null,
+            errorCode: null,
+            warning: 'Simulation skipped due to RPC/network issue',
+            isSimulated: false,
+            gasLimit: gasWithBuffer,
+            maxFeePerGas: null,
+            maxPriorityFeePerGas: null,
+            estimatedCostEth: null,
+          };
+        }
+
         const decoded = decodeMintErrorWithCode(simErr);
         console.error('[Simulation] eth_call reverted:', decoded);
 
@@ -1684,7 +1725,9 @@ export function useNFTMint() {
           return {
             success: false,
             error: blockedMsg,
-            errorCode: decoded.code,
+            errorCode: 'CONTRACT_REVERT',
+            warning: null,
+            isSimulated: true,
             gasLimit: null,
             maxFeePerGas: null,
             maxPriorityFeePerGas: null,
@@ -1696,7 +1739,9 @@ export function useNFTMint() {
         return {
           success: false,
           error: decoded.message,
-          errorCode: decoded.code,
+          errorCode: 'CONTRACT_REVERT',
+          warning: null,
+          isSimulated: true,
           gasLimit: null,
           maxFeePerGas: null,
           maxPriorityFeePerGas: null,
@@ -1711,13 +1756,34 @@ export function useNFTMint() {
         const gasResult = await rpcCallForSimulation('eth_estimateGas', [callParams]);
         gasEstimate = BigInt(gasResult as string);
       } catch (gasErr: any) {
+        // ✅ Fail-open on RPC/network errors (no revert payload)
+        if (isRpcLevelError(gasErr) && !(gasErr?.rpcError?.data || gasErr?.data)) {
+          console.warn('[Simulation] RPC/network error during gas estimate; proceeding fail-open:', gasErr?.message);
+          const gasEstimate = 150000n;
+          const gasWithBuffer = gasEstimate + (gasEstimate * GAS_BUFFER_PERCENT / 100n);
+          setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
+          return {
+            success: true,
+            error: null,
+            errorCode: null,
+            warning: 'Gas estimate skipped due to RPC/network issue',
+            isSimulated: false,
+            gasLimit: gasWithBuffer,
+            maxFeePerGas: null,
+            maxPriorityFeePerGas: null,
+            estimatedCostEth: null,
+          };
+        }
+
         const decoded = decodeMintErrorWithCode(gasErr);
         console.error('[Simulation] Gas estimation failed:', decoded);
         setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
         return {
           success: false,
           error: decoded.message,
-          errorCode: decoded.code,
+          errorCode: 'CONTRACT_REVERT',
+          warning: null,
+          isSimulated: true,
           gasLimit: null,
           maxFeePerGas: null,
           maxPriorityFeePerGas: null,
@@ -1756,6 +1822,8 @@ export function useNFTMint() {
         success: true,
         error: null,
         errorCode: null,
+        warning: null,
+        isSimulated: true,
         gasLimit: gasWithBuffer,
         maxFeePerGas,
         maxPriorityFeePerGas,
@@ -1765,10 +1833,30 @@ export function useNFTMint() {
       const errorInfo = decodeMintErrorWithCode(error);
       console.error('[Simulation] Unexpected error:', error);
       setMintState(prev => ({ ...prev, isSimulating: false, pollingMessage: null }));
+
+      // ✅ Fail-open on infrastructure issues
+      if (isRpcLevelError(error) && !((error as any)?.rpcError?.data || (error as any)?.data)) {
+        const gasEstimate = 150000n;
+        const gasWithBuffer = gasEstimate + (gasEstimate * GAS_BUFFER_PERCENT / 100n);
+        return {
+          success: true,
+          error: null,
+          errorCode: null,
+          warning: 'Simulation skipped due to RPC/network issue',
+          isSimulated: false,
+          gasLimit: gasWithBuffer,
+          maxFeePerGas: null,
+          maxPriorityFeePerGas: null,
+          estimatedCostEth: null,
+        };
+      }
+
       return {
         success: false,
         error: errorInfo.message,
-        errorCode: errorInfo.code,
+        errorCode: 'CONTRACT_REVERT',
+        warning: null,
+        isSimulated: true,
         gasLimit: null,
         maxFeePerGas: null,
         maxPriorityFeePerGas: null,
@@ -1860,8 +1948,14 @@ export function useNFTMint() {
         });
 
         if (!simulation.success) {
-          resetOnError(simulation.error || 'Transaction would fail', 'failed');
-          return false;
+          if (simulation.errorCode === 'CONTRACT_REVERT') {
+            resetOnError(simulation.error || 'Transaction would fail', 'failed');
+            return false;
+          }
+          console.warn('[Mint] Simulation failed due to network; proceeding:', simulation.error);
+        }
+        if (simulation.warning) {
+          console.warn('[Mint] Proceeding with warning:', simulation.warning);
         }
 
         setMintState(prev => ({ ...prev, pollingMessage: 'Waiting for signature...', txPhase: 'awaiting_wallet' }));
@@ -2035,9 +2129,15 @@ export function useNFTMint() {
           });
           
           if (!simulation.success) {
-            // Block transaction if simulation fails
-            resetOnError(simulation.error || 'Transaction would fail - blocked', 'failed');
-            return false;
+            if (simulation.errorCode === 'CONTRACT_REVERT') {
+              // Block only on real contract-level reverts
+              resetOnError(simulation.error || 'Transaction would fail - blocked', 'failed');
+              return false;
+            }
+            console.warn('[Mint] Simulation failed due to network; proceeding:', simulation.error);
+          }
+          if (simulation.warning) {
+            console.warn('[Mint] Proceeding with warning:', simulation.warning);
           }
           
           setMintState(prev => ({ 

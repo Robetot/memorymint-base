@@ -8,6 +8,7 @@ export interface SimulationResult {
   success: boolean;
   error: string | null;
   errorCode: string | null;
+  warning: string | null;
   gasEstimate: bigint | null;
   gasWithBuffer: bigint | null;
   gasPrice: bigint | null;
@@ -16,6 +17,7 @@ export interface SimulationResult {
   estimatedCostWei: bigint | null;
   estimatedCostEth: string | null;
   isNoOp: boolean;
+  isSimulated: boolean;
 }
 
 export interface TransactionPreview {
@@ -39,6 +41,26 @@ export interface SimulationState {
 const GAS_BUFFER_PERCENT = 7;
 const BASE_MAX_PRIORITY_FEE = 1000000n; // 0.001 gwei - minimal for Base L2
 const SIMULATION_TIMEOUT_MS = 8000;
+
+// ============ RPC ERROR CLASSIFIER (Fail-Open) ============
+const isRpcLevelError = (error: unknown): boolean => {
+  const msg = (error as any)?.message?.toLowerCase?.() || '';
+  const patterns = [
+    'timeout',
+    'network',
+    'fetch failed',
+    'temporarily unavailable',
+    'all rpc endpoints failed',
+    'rate limit',
+    'http 429',
+    '0x',
+    'unable to reach',
+    'failed to fetch',
+    'econnrefused',
+    'enotfound',
+  ];
+  return patterns.some(p => msg.includes(p));
+};
 
 // ============ ERROR DECODING ============
 const decodeSimulationError = (error: unknown): { message: string; code: string | null } => {
@@ -172,6 +194,7 @@ export function useTransactionSimulation() {
         success: false,
         error: 'Simulation already in progress',
         errorCode: 'BUSY',
+        warning: null,
         gasEstimate: null,
         gasWithBuffer: null,
         gasPrice: null,
@@ -180,6 +203,7 @@ export function useTransactionSimulation() {
         estimatedCostWei: null,
         estimatedCostEth: null,
         isNoOp: false,
+        isSimulated: false,
       };
     }
 
@@ -219,7 +243,9 @@ export function useTransactionSimulation() {
         const result: SimulationResult = {
           success: false,
           error: message,
-          errorCode: code,
+          // Only contract-level reverts should hard-block downstream flows
+          errorCode: code === 'USER_REJECTED' ? code : 'CONTRACT_REVERT',
+          warning: null,
           gasEstimate: null,
           gasWithBuffer: null,
           gasPrice: null,
@@ -228,6 +254,7 @@ export function useTransactionSimulation() {
           estimatedCostWei: null,
           estimatedCostEth: null,
           isNoOp: false,
+          isSimulated: true,
         };
         
         setState(prev => ({ ...prev, isSimulating: false, lastSimulation: result, preview: null }));
@@ -246,7 +273,8 @@ export function useTransactionSimulation() {
         const result: SimulationResult = {
           success: false,
           error: message,
-          errorCode: code,
+          errorCode: code === 'USER_REJECTED' ? code : 'CONTRACT_REVERT',
+          warning: null,
           gasEstimate: null,
           gasWithBuffer: null,
           gasPrice: null,
@@ -255,6 +283,7 @@ export function useTransactionSimulation() {
           estimatedCostWei: null,
           estimatedCostEth: null,
           isNoOp: false,
+          isSimulated: true,
         };
         
         setState(prev => ({ ...prev, isSimulating: false, lastSimulation: result, preview: null }));
@@ -295,6 +324,7 @@ export function useTransactionSimulation() {
         success: true,
         error: null,
         errorCode: null,
+        warning: null,
         gasEstimate,
         gasWithBuffer,
         gasPrice: baseGasPrice,
@@ -303,6 +333,7 @@ export function useTransactionSimulation() {
         estimatedCostWei,
         estimatedCostEth,
         isNoOp: false,
+        isSimulated: true,
       };
 
       const preview: TransactionPreview = {
@@ -318,13 +349,42 @@ export function useTransactionSimulation() {
       setState(prev => ({ ...prev, isSimulating: false, lastSimulation: result, preview }));
       return result;
     } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : 'Simulation failed';
+
+      // ✅ Fail-open on RPC/network errors: allow the wallet/contract to be the authority.
+      if (isRpcLevelError(error)) {
+        const gasEstimate = 150000n; // conservative default for NFT mint
+        const gasWithBuffer = gasEstimate + (gasEstimate * BigInt(GAS_BUFFER_PERCENT) / 100n);
+
+        const result: SimulationResult = {
+          success: true,
+          error: null,
+          errorCode: null,
+          warning: 'Simulation skipped due to RPC/network issue',
+          gasEstimate,
+          gasWithBuffer,
+          gasPrice: null,
+          maxFeePerGas: null,
+          maxPriorityFeePerGas: null,
+          estimatedCostWei: null,
+          estimatedCostEth: null,
+          isNoOp: false,
+          isSimulated: false,
+        };
+
+        console.warn('[Simulation] RPC/network failure; proceeding fail-open:', rawMessage);
+        setState(prev => ({ ...prev, isSimulating: false, lastSimulation: result, preview: null }));
+        return result;
+      }
+
       const { message, code } = decodeSimulationError(error);
       console.error('[Simulation] Failed:', error);
-      
+
       const result: SimulationResult = {
         success: false,
         error: message,
-        errorCode: code,
+        errorCode: code === 'USER_REJECTED' ? code : 'CONTRACT_REVERT',
+        warning: null,
         gasEstimate: null,
         gasWithBuffer: null,
         gasPrice: null,
@@ -333,8 +393,9 @@ export function useTransactionSimulation() {
         estimatedCostWei: null,
         estimatedCostEth: null,
         isNoOp: false,
+        isSimulated: false,
       };
-      
+
       setState(prev => ({ ...prev, isSimulating: false, lastSimulation: result, preview: null }));
       return result;
     } finally {
@@ -420,6 +481,7 @@ export function useTransactionSimulation() {
           success: false,
           error: noOpResult.reason,
           errorCode: 'NO_OP',
+          warning: null,
           gasEstimate: null,
           gasWithBuffer: null,
           gasPrice: null,
@@ -428,6 +490,7 @@ export function useTransactionSimulation() {
           estimatedCostWei: null,
           estimatedCostEth: null,
           isNoOp: true,
+          isSimulated: false,
         },
         preview: null,
       };
@@ -449,7 +512,8 @@ export function useTransactionSimulation() {
       valid: true,
       error: null,
       simulation,
-      preview: state.preview,
+      // Avoid returning stale previews when simulation was skipped fail-open
+      preview: simulation.isSimulated ? state.preview : null,
     };
   }, [checkIsNoOp, simulateTransaction, state.preview]);
 
