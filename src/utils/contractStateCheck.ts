@@ -12,16 +12,8 @@ const NFT_CONTRACT_ADDRESS = '0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0';
 // Edge function URL - primary source
 const EDGE_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/contract-admin-config`;
 
-// Expanded RPC endpoints - more reliable order, avoiding rate-limited endpoints first
-const RPC_ENDPOINTS = [
-  'https://base.llamarpc.com',
-  'https://base-mainnet.public.blastapi.io',
-  'https://1rpc.io/base',
-  'https://base.meowrpc.com',
-  'https://base.drpc.org',
-  'https://base-pokt.nodies.app',
-  'https://mainnet.base.org', // Official often rate-limits, try last
-];
+// Using centralized RPC provider
+import { BASE_RPC_ENDPOINTS as RPC_ENDPOINTS, markCurrentEndpointFailed, markRequestSuccess } from '@/utils/rpcProvider';
 
 const READ_ABI = parseAbi([
   'function isMintActive() view returns (bool)',
@@ -124,6 +116,7 @@ async function rpcCall(method: string, params: unknown[]): Promise<unknown> {
       
       if (!response.ok) {
         errors.push(`${endpoint}: HTTP ${response.status}`);
+        markCurrentEndpointFailed();
         continue;
       }
       
@@ -132,21 +125,26 @@ async function rpcCall(method: string, params: unknown[]): Promise<unknown> {
       // Handle rate limiting
       if (json.error?.code === -32016 || json.error?.message?.includes('rate limit')) {
         errors.push(`${endpoint}: Rate limited`);
+        markCurrentEndpointFailed();
         continue;
       }
       
       if (json.result !== undefined && json.result !== '0x' && json.result.length >= 66) {
+        markRequestSuccess();
         return json.result;
       }
       
       if (json.error) {
         errors.push(`${endpoint}: ${json.error.message || 'RPC error'}`);
+        markCurrentEndpointFailed();
       } else {
         errors.push(`${endpoint}: Empty result`);
+        markCurrentEndpointFailed();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       errors.push(`${endpoint}: ${msg}`);
+      markCurrentEndpointFailed();
     }
   }
   

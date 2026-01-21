@@ -1,6 +1,7 @@
 import { useCallback, useState, useRef } from 'react';
 import { encodeFunctionData, parseAbi, decodeErrorResult, formatEther, formatGwei } from 'viem';
-import { NFT_CONTRACT_ADDRESS, RPC_ENDPOINTS, BASE_CHAIN_ID, CONTRACT_ABI, CONTRACT_ERRORS } from '@/contracts/MemoryMintContract';
+import { NFT_CONTRACT_ADDRESS, BASE_CHAIN_ID, CONTRACT_ABI, CONTRACT_ERRORS } from '@/contracts/MemoryMintContract';
+import { BASE_RPC_ENDPOINTS as RPC_ENDPOINTS, markCurrentEndpointFailed, markRequestSuccess } from '@/utils/rpcProvider';
 
 // ============ TYPES ============
 export interface SimulationResult {
