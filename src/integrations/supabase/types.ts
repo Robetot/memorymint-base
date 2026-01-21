@@ -14,16 +14,59 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      admin_roles: {
+        Row: {
+          expires_at: string | null
+          granted_at: string
+          granted_by: string | null
+          id: string
+          is_active: boolean
+          notes: string | null
+          role: Database["public"]["Enums"]["admin_role"]
+          wallet_address: string
+        }
+        Insert: {
+          expires_at?: string | null
+          granted_at?: string
+          granted_by?: string | null
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          role?: Database["public"]["Enums"]["admin_role"]
+          wallet_address: string
+        }
+        Update: {
+          expires_at?: string | null
+          granted_at?: string
+          granted_by?: string | null
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          role?: Database["public"]["Enums"]["admin_role"]
+          wallet_address?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_wallet_roles: {
+        Args: { _wallet: string }
+        Returns: Database["public"]["Enums"]["admin_role"][]
+      }
+      wallet_has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["admin_role"]
+          _wallet: string
+        }
+        Returns: boolean
+      }
+      wallet_is_admin: { Args: { _wallet: string }; Returns: boolean }
     }
     Enums: {
-      [_ in never]: never
+      admin_role: "owner" | "admin" | "moderator" | "viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +193,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      admin_role: ["owner", "admin", "moderator", "viewer"],
+    },
   },
 } as const
