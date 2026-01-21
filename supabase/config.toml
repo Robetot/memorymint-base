@@ -8,3 +8,12 @@ verify_jwt = false
 
 [functions.verify-siwe]
 verify_jwt = false
+
+[functions.contract-state]
+verify_jwt = false
+
+[functions.sync-state]
+verify_jwt = false
+
+[functions.admin-api]
+verify_jwt = false
