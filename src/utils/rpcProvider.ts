@@ -7,21 +7,21 @@ import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
 
 // ============ RPC ENDPOINTS (ordered by reliability) ============
+// Removed Ankr (requires API key) - all others are public/free
 export const BASE_RPC_ENDPOINTS = [
-  // Tier 1: Most reliable public endpoints
+  // Tier 1: Official & most reliable
   'https://mainnet.base.org',
-  'https://base.llamarpc.com',
-  'https://base.meowrpc.com',
+  'https://base.publicnode.com',
+  'https://base.gateway.tenderly.co',
   
-  // Tier 2: Aggregator services
+  // Tier 2: High-quality aggregators
+  'https://base.llamarpc.com',
   'https://base.drpc.org',
   'https://1rpc.io/base',
-  'https://rpc.ankr.com/base',
   
-  // Tier 3: Backup endpoints
-  'https://base.publicnode.com',
+  // Tier 3: Additional backups
   'https://base-mainnet.public.blastapi.io',
-  'https://base.gateway.tenderly.co',
+  'https://base.meowrpc.com',
 ] as const;
 
 // ============ CONFIGURATION ============
@@ -338,7 +338,55 @@ export const __debugState = () => ({
   initialized: state.initialized,
 });
 
+/**
+ * Run comprehensive RPC diagnostics and return a report
+ */
+export async function runRpcDiagnostics(): Promise<{
+  currentUrl: string;
+  healthyCount: number;
+  totalCount: number;
+  unhealthyEndpoints: string[];
+  fastestEndpoint: { url: string; latencyMs: number } | null;
+  allEndpoints: RPCEndpointHealth[];
+  recommendation: string;
+}> {
+  // Run fresh health check
+  const results = await runHealthCheck();
+  
+  const healthyEndpoints = results.filter(e => e.healthy);
+  const unhealthyEndpoints = results.filter(e => !e.healthy).map(e => e.url);
+  
+  // Find fastest
+  const sorted = healthyEndpoints.sort((a, b) => (a.latencyMs ?? 9999) - (b.latencyMs ?? 9999));
+  const fastest = sorted[0];
+  
+  // Force use fastest
+  if (fastest) {
+    forceEndpoint(fastest.url);
+  }
+  
+  const report = {
+    currentUrl: getCurrentRpcUrl(),
+    healthyCount: healthyEndpoints.length,
+    totalCount: results.length,
+    unhealthyEndpoints,
+    fastestEndpoint: fastest ? { url: fastest.url, latencyMs: fastest.latencyMs ?? 0 } : null,
+    allEndpoints: results,
+    recommendation: fastest 
+      ? `Using ${fastest.url} (${fastest.latencyMs}ms latency)` 
+      : 'No healthy endpoints - using fallback',
+  };
+  
+  console.log('[RPC Diagnostics]', report);
+  
+  return report;
+}
+
 // Expose to window for debugging
 if (typeof window !== 'undefined') {
-  (window as unknown as { rpcDebug: typeof __debugState }).rpcDebug = __debugState;
+  (window as unknown as { 
+    rpcDebug: typeof __debugState;
+    rpcDiagnostics: typeof runRpcDiagnostics;
+  }).rpcDebug = __debugState;
+  (window as unknown as { rpcDiagnostics: typeof runRpcDiagnostics }).rpcDiagnostics = runRpcDiagnostics;
 }
