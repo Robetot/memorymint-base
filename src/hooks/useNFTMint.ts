@@ -17,17 +17,9 @@ const USDC_DECIMALS = 6;
 
 // Base Mainnet Chain ID
 const BASE_CHAIN_ID = IMPORTED_BASE_CHAIN_ID;
-// RPC endpoints for reading contract state - 7 reliable Base Mainnet providers
-// Ordered by reliability to minimize rate limiting issues
-const RPC_ENDPOINTS = [
-  'https://base.llamarpc.com',           // LlamaNodes - high reliability
-  'https://base-mainnet.public.blastapi.io', // BlastAPI
-  'https://1rpc.io/base',                // 1RPC
-  'https://base.meowrpc.com',            // MeowRPC
-  'https://base.drpc.org',               // DRPC
-  'https://base-pokt.nodies.app',        // Nodies
-  'https://mainnet.base.org',            // Official (often rate-limited, try last)
-];
+// RPC endpoints - using centralized provider
+import { BASE_RPC_ENDPOINTS, getCurrentRpcUrl, markCurrentEndpointFailed, markRequestSuccess } from '@/utils/rpcProvider';
+const RPC_ENDPOINTS = BASE_RPC_ENDPOINTS;
 
 // Edge function URL for fail-open admin config
 const EDGE_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/contract-admin-config`;
@@ -539,12 +531,14 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
         // Handle rate limiting with backoff
         if (response.status === 429) {
           const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+          markCurrentEndpointFailed();
           await new Promise(r => setTimeout(r, retryAfter * 1000));
           continue;
         }
         
         if (!response.ok) {
           errors.push(`${endpoint}: HTTP ${response.status}`);
+          markCurrentEndpointFailed();
           break; // Try next endpoint
         }
         
@@ -553,6 +547,7 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
         // Handle rate limiting errors in JSON response
         if (data.error?.code === -32016 || data.error?.message?.includes('rate limit')) {
           errors.push(`${endpoint}: Rate limited`);
+          markCurrentEndpointFailed();
           await new Promise(r => setTimeout(r, 1000 * (retry + 1)));
           continue;
         }
@@ -564,6 +559,7 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
             continue;
           }
           errors.push(`${endpoint}: ${data.error.message || 'RPC error'}`);
+          markCurrentEndpointFailed();
           break; // Try next endpoint
         }
         
@@ -574,10 +570,12 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
         if (typeof result === 'string' && result.startsWith('0x')) {
           if (result === '0x' || result.length < 66) {
             errors.push(`${endpoint}: Empty/short result (${result.length} chars)`);
+            markCurrentEndpointFailed();
             break; // Try next endpoint
           }
         }
         
+        markRequestSuccess();
         return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -586,6 +584,7 @@ async function rpcCall(method: string, params: any[], timeout = 10000): Promise<
         } else {
           errors.push(`${endpoint}: ${msg}`);
         }
+        markCurrentEndpointFailed();
         break; // Try next endpoint
       }
     }
