@@ -1,40 +1,25 @@
 // ============================================================
-// Robust RPC Provider Manager for Base Mainnet
-// Features: Auto-detection, health monitoring, automatic failover
+// Robust Multi-RPC Provider for Base Mainnet
+// Features: Health monitoring, automatic failover, fail-open design
 // ============================================================
 
-import { createPublicClient, http } from 'viem';
-import { base } from 'viem/chains';
-
-// ============ RPC ENDPOINTS (ordered by reliability) ============
-// Removed Ankr (requires API key) - all others are public/free
+// ============ RPC ENDPOINTS ============
+// Prioritized list of reliable Base Mainnet endpoints
 export const BASE_RPC_ENDPOINTS = [
-  // Tier 1: Official & most reliable
   'https://mainnet.base.org',
-  'https://base.publicnode.com',
-  'https://base.gateway.tenderly.co',
-  
-  // Tier 2: High-quality aggregators
   'https://base.llamarpc.com',
   'https://base.drpc.org',
-  'https://1rpc.io/base',
-  
-  // Tier 3: Additional backups
+  'https://base.publicnode.com',
   'https://base-mainnet.public.blastapi.io',
+  'https://1rpc.io/base',
   'https://base.meowrpc.com',
+  'https://base.gateway.tenderly.co',
 ] as const;
 
-// ============ CONFIGURATION ============
-export const RPC_PROVIDER_CONFIG = {
-  healthCheckTimeoutMs: 3000,      // Quick health check
-  requestTimeoutMs: 10000,         // Standard request timeout
-  healthCheckIntervalMs: 60000,    // Re-check health every 60s
-  maxConsecutiveFailures: 3,       // Switch after 3 failures
-  minHealthyEndpoints: 2,          // Always keep 2 healthy options
-} as const;
+const BASE_CHAIN_ID = '0x2105'; // 8453 in hex
 
-// ============ TYPES ============
-export interface RPCEndpointHealth {
+// ============ STATE ============
+interface EndpointHealth {
   url: string;
   healthy: boolean;
   latencyMs: number | null;
@@ -44,17 +29,14 @@ export interface RPCEndpointHealth {
   totalFailures: number;
 }
 
-interface RPCProviderState {
-  currentIndex: number;
-  endpoints: RPCEndpointHealth[];
-  initialized: boolean;
-  lastHealthCheck: number;
-}
+const endpointHealthMap = new Map<string, EndpointHealth>();
+let currentEndpointIndex = 0;
+let isInitialized = false;
+let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
-// ============ SINGLETON STATE ============
-const state: RPCProviderState = {
-  currentIndex: 0,
-  endpoints: BASE_RPC_ENDPOINTS.map(url => ({
+// Initialize health map
+BASE_RPC_ENDPOINTS.forEach((url) => {
+  endpointHealthMap.set(url, {
     url,
     healthy: true, // Assume healthy until proven otherwise
     latencyMs: null,
@@ -62,72 +44,118 @@ const state: RPCProviderState = {
     consecutiveFailures: 0,
     totalRequests: 0,
     totalFailures: 0,
-  })),
-  initialized: false,
-  lastHealthCheck: 0,
-};
-
-// Active viem client cache - using 'any' to avoid viem's complex chain-specific types
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ViemClient = any;
-let currentClient: ViemClient | null = null;
+  });
+});
 
 // ============ CORE FUNCTIONS ============
 
 /**
- * Get the current best RPC URL
+ * Get the current RPC URL
  */
 export function getCurrentRpcUrl(): string {
-  const healthyEndpoints = state.endpoints.filter(e => e.healthy);
-  
-  if (healthyEndpoints.length === 0) {
-    // Fallback to first endpoint if all unhealthy
-    console.warn('[RPC] All endpoints unhealthy, using fallback');
-    return BASE_RPC_ENDPOINTS[0];
-  }
-  
-  // Sort by latency (fastest first)
-  healthyEndpoints.sort((a, b) => {
-    const latA = a.latencyMs ?? 10000;
-    const latB = b.latencyMs ?? 10000;
-    return latA - latB;
-  });
-  
-  return healthyEndpoints[0].url;
+  return BASE_RPC_ENDPOINTS[currentEndpointIndex];
 }
 
 /**
- * Get a viem PublicClient with the best available RPC
+ * Get all endpoint health data
  */
-export function getPublicClient(): ViemClient {
-  const rpcUrl = getCurrentRpcUrl();
+export function getAllEndpointsHealth(): EndpointHealth[] {
+  return BASE_RPC_ENDPOINTS.map((url) => endpointHealthMap.get(url)!);
+}
+
+/**
+ * Get count of healthy endpoints
+ */
+export function getHealthyEndpointCount(): number {
+  return getAllEndpointsHealth().filter((e) => e.healthy).length;
+}
+
+/**
+ * Force switch to a specific endpoint
+ */
+export function forceEndpoint(url: string): boolean {
+  const index = BASE_RPC_ENDPOINTS.indexOf(url as typeof BASE_RPC_ENDPOINTS[number]);
+  if (index !== -1) {
+    currentEndpointIndex = index;
+    console.log('[RPC] Forced endpoint:', url);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Mark current endpoint as failed and rotate to next healthy one
+ */
+export function markCurrentEndpointFailed(): void {
+  const currentUrl = getCurrentRpcUrl();
+  const health = endpointHealthMap.get(currentUrl);
   
-  // Reuse client if URL hasn't changed
-  if (currentClient) {
-    // Check if same URL (simplified check)
-    return currentClient;
+  if (health) {
+    health.consecutiveFailures++;
+    health.totalFailures++;
+    health.totalRequests++;
+    
+    // Mark unhealthy after 3 consecutive failures
+    if (health.consecutiveFailures >= 3) {
+      health.healthy = false;
+      console.warn('[RPC] Endpoint marked unhealthy:', currentUrl);
+    }
   }
   
-  currentClient = createPublicClient({
-    chain: base,
-    transport: http(rpcUrl, {
-      timeout: RPC_PROVIDER_CONFIG.requestTimeoutMs,
-      retryCount: 0, // We handle retries ourselves
-    }),
-  });
-  
-  return currentClient;
+  // Rotate to next healthy endpoint
+  rotateToNextHealthy();
 }
+
+/**
+ * Mark a successful request on current endpoint
+ */
+export function markRequestSuccess(): void {
+  const currentUrl = getCurrentRpcUrl();
+  const health = endpointHealthMap.get(currentUrl);
+  
+  if (health) {
+    health.consecutiveFailures = 0;
+    health.healthy = true;
+    health.totalRequests++;
+  }
+}
+
+/**
+ * Rotate to the next healthy endpoint
+ */
+function rotateToNextHealthy(): void {
+  const startIndex = currentEndpointIndex;
+  
+  for (let i = 1; i <= BASE_RPC_ENDPOINTS.length; i++) {
+    const nextIndex = (startIndex + i) % BASE_RPC_ENDPOINTS.length;
+    const url = BASE_RPC_ENDPOINTS[nextIndex];
+    const health = endpointHealthMap.get(url);
+    
+    if (health?.healthy) {
+      currentEndpointIndex = nextIndex;
+      console.log('[RPC] Rotated to:', url);
+      return;
+    }
+  }
+  
+  // If no healthy endpoint, reset to first
+  currentEndpointIndex = 0;
+  console.warn('[RPC] No healthy endpoints, resetting to first');
+}
+
+// ============ HEALTH CHECK ============
 
 /**
  * Check health of a single endpoint
  */
-async function checkEndpointHealth(url: string): Promise<{ healthy: boolean; latencyMs: number | null }> {
-  const startTime = performance.now();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), RPC_PROVIDER_CONFIG.healthCheckTimeoutMs);
+async function checkEndpointHealth(url: string): Promise<EndpointHealth> {
+  const health = endpointHealthMap.get(url)!;
+  const startTime = Date.now();
   
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -141,252 +169,277 @@ async function checkEndpointHealth(url: string): Promise<{ healthy: boolean; lat
     });
     
     clearTimeout(timeoutId);
-    const latencyMs = Math.round(performance.now() - startTime);
+    const latencyMs = Date.now() - startTime;
     
     if (!response.ok) {
-      return { healthy: false, latencyMs: null };
+      throw new Error(`HTTP ${response.status}`);
     }
     
     const data = await response.json();
     
-    // Verify it's Base Mainnet (0x2105 = 8453)
-    const isBase = data.result === '0x2105' || data.result === '8453';
-    
-    return { healthy: isBase && !data.error, latencyMs: isBase ? latencyMs : null };
+    // Check for correct chain ID
+    if (data.result === BASE_CHAIN_ID) {
+      health.healthy = true;
+      health.latencyMs = latencyMs;
+      health.consecutiveFailures = 0;
+    } else {
+      health.healthy = false;
+      health.latencyMs = null;
+    }
   } catch {
-    clearTimeout(timeoutId);
-    return { healthy: false, latencyMs: null };
+    health.healthy = false;
+    health.latencyMs = null;
+    health.consecutiveFailures++;
   }
+  
+  health.lastChecked = Date.now();
+  return health;
 }
 
 /**
  * Run health check on all endpoints
  */
-export async function runHealthCheck(): Promise<RPCEndpointHealth[]> {
+export async function runHealthCheck(): Promise<void> {
   console.log('[RPC] Running health check on all endpoints...');
   
   const results = await Promise.all(
-    state.endpoints.map(async (endpoint) => {
-      const { healthy, latencyMs } = await checkEndpointHealth(endpoint.url);
-      
-      return {
-        ...endpoint,
-        healthy,
-        latencyMs,
-        lastChecked: Date.now(),
-        consecutiveFailures: healthy ? 0 : endpoint.consecutiveFailures,
-      };
-    })
+    BASE_RPC_ENDPOINTS.map((url) => checkEndpointHealth(url))
   );
   
-  state.endpoints = results;
-  state.lastHealthCheck = Date.now();
-  state.initialized = true;
-  
-  // Reset client to use new best endpoint
-  currentClient = null;
-  
-  const healthyCount = results.filter(e => e.healthy).length;
+  const healthyCount = results.filter((r) => r.healthy).length;
   console.log(`[RPC] Health check complete: ${healthyCount}/${results.length} endpoints healthy`);
   
-  // Log the best endpoint
-  const best = results.filter(e => e.healthy).sort((a, b) => (a.latencyMs ?? 9999) - (b.latencyMs ?? 9999))[0];
-  if (best) {
-    console.log(`[RPC] Best endpoint: ${best.url} (${best.latencyMs}ms)`);
-  }
+  // Find fastest healthy endpoint
+  const fastestHealthy = results
+    .filter((r) => r.healthy && r.latencyMs !== null)
+    .sort((a, b) => (a.latencyMs ?? Infinity) - (b.latencyMs ?? Infinity))[0];
   
-  return results;
+  if (fastestHealthy) {
+    const index = BASE_RPC_ENDPOINTS.indexOf(fastestHealthy.url as typeof BASE_RPC_ENDPOINTS[number]);
+    if (index !== -1 && index !== currentEndpointIndex) {
+      currentEndpointIndex = index;
+      console.log(`[RPC] Best endpoint: ${fastestHealthy.url} (${fastestHealthy.latencyMs}ms)`);
+    }
+  }
 }
 
 /**
- * Initialize RPC provider (call on app startup)
+ * Initialize the RPC provider
  */
 export async function initializeRpcProvider(): Promise<void> {
-  if (state.initialized) {
-    // Check if we need a fresh health check
-    const timeSinceLastCheck = Date.now() - state.lastHealthCheck;
-    if (timeSinceLastCheck < RPC_PROVIDER_CONFIG.healthCheckIntervalMs) {
-      return;
-    }
-  }
+  if (isInitialized) return;
   
   await runHealthCheck();
-}
-
-/**
- * Mark current endpoint as failed and rotate to next
- */
-export function markCurrentEndpointFailed(): void {
-  const currentUrl = getCurrentRpcUrl();
-  const endpoint = state.endpoints.find(e => e.url === currentUrl);
   
-  if (endpoint) {
-    endpoint.consecutiveFailures++;
-    endpoint.totalFailures++;
-    
-    if (endpoint.consecutiveFailures >= RPC_PROVIDER_CONFIG.maxConsecutiveFailures) {
-      endpoint.healthy = false;
-      console.warn(`[RPC] Endpoint ${currentUrl} marked unhealthy after ${endpoint.consecutiveFailures} failures`);
-    }
-    
-    // Reset client to force new endpoint selection
-    currentClient = null;
+  // Set up periodic health checks (every 60 seconds)
+  if (!healthCheckInterval) {
+    healthCheckInterval = setInterval(() => {
+      runHealthCheck();
+    }, 60000);
   }
-}
-
-/**
- * Mark a successful request
- */
-export function markRequestSuccess(): void {
-  const currentUrl = getCurrentRpcUrl();
-  const endpoint = state.endpoints.find(e => e.url === currentUrl);
   
-  if (endpoint) {
-    endpoint.consecutiveFailures = 0;
-    endpoint.healthy = true;
-    endpoint.totalRequests++;
-  }
+  isInitialized = true;
+}
+
+// ============ RPC CALL WITH FAILOVER ============
+
+export interface RpcCallOptions {
+  timeout?: number;
+  failOpen?: boolean; // Return null instead of throwing on failure
+  skipRetryOnRevert?: boolean;
+}
+
+export interface RpcCallResult<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  endpoint?: string;
 }
 
 /**
- * Get all RPC endpoints with their health status
+ * Execute an RPC call with automatic failover
  */
-export function getAllEndpointsHealth(): RPCEndpointHealth[] {
-  return [...state.endpoints];
-}
-
-/**
- * Get count of healthy endpoints
- */
-export function getHealthyEndpointCount(): number {
-  return state.endpoints.filter(e => e.healthy).length;
-}
-
-/**
- * Force switch to a specific endpoint
- */
-export function forceEndpoint(url: string): boolean {
-  const endpoint = state.endpoints.find(e => e.url === url);
-  if (endpoint) {
-    // Move to front by marking as fastest
-    endpoint.latencyMs = 0;
-    endpoint.healthy = true;
-    endpoint.consecutiveFailures = 0;
-    currentClient = null;
-    return true;
-  }
-  return false;
-}
-
-/**
- * Execute an RPC call with automatic retry and failover
- */
-export async function executeWithFallback<T>(
-  operation: (client: ViemClient) => Promise<T>,
-  options: { maxRetries?: number; throwOnAllFailed?: boolean } = {}
-): Promise<T> {
-  const { maxRetries = 3, throwOnAllFailed = true } = options;
+export async function executeWithFallback<T = unknown>(
+  method: string,
+  params: unknown[],
+  options: RpcCallOptions = {}
+): Promise<RpcCallResult<T>> {
+  const { timeout = 8000, skipRetryOnRevert = true } = options;
   const errors: string[] = [];
+  const triedEndpoints = new Set<string>();
   
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const client = getPublicClient();
-    const currentUrl = getCurrentRpcUrl();
+  // Try all endpoints, starting with healthy ones
+  const sortedEndpoints = [...BASE_RPC_ENDPOINTS].sort((a, b) => {
+    const healthA = endpointHealthMap.get(a);
+    const healthB = endpointHealthMap.get(b);
+    
+    // Healthy endpoints first
+    if (healthA?.healthy && !healthB?.healthy) return -1;
+    if (!healthA?.healthy && healthB?.healthy) return 1;
+    
+    // Then by latency
+    const latA = healthA?.latencyMs ?? Infinity;
+    const latB = healthB?.latencyMs ?? Infinity;
+    return latA - latB;
+  });
+  
+  for (const endpoint of sortedEndpoints) {
+    if (triedEndpoints.has(endpoint)) continue;
+    triedEndpoints.add(endpoint);
     
     try {
-      const result = await operation(client);
-      markRequestSuccess();
-      return result;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`${currentUrl}: ${errorMsg}`);
-      console.warn(`[RPC] Attempt ${attempt + 1}/${maxRetries} failed on ${currentUrl}:`, errorMsg);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
       
-      markCurrentEndpointFailed();
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method,
+          params,
+        }),
+        signal: controller.signal,
+      });
       
-      // Small delay before retry
-      if (attempt < maxRetries - 1) {
-        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      clearTimeout(timeoutId);
+      
+      // Handle rate limiting
+      if (response.status === 429) {
+        errors.push(`${endpoint}: Rate limited`);
+        const health = endpointHealthMap.get(endpoint);
+        if (health) {
+          health.consecutiveFailures++;
+          health.totalFailures++;
+        }
+        continue;
       }
+      
+      if (!response.ok) {
+        errors.push(`${endpoint}: HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      
+      // Check for RPC error
+      if (data.error) {
+        const errorMsg = data.error.message || JSON.stringify(data.error);
+        
+        // Don't retry on contract reverts
+        if (skipRetryOnRevert && isContractRevert(data.error)) {
+          return { success: false, error: errorMsg, endpoint };
+        }
+        
+        errors.push(`${endpoint}: ${errorMsg}`);
+        continue;
+      }
+      
+      // Handle empty/truncated results (treat as retryable)
+      if (data.result === '0x' || data.result === undefined) {
+        errors.push(`${endpoint}: Empty result`);
+        continue;
+      }
+      
+      // Success!
+      markRequestSuccess();
+      return { success: true, data: data.result as T, endpoint };
+      
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      errors.push(`${endpoint}: ${msg}`);
     }
   }
   
-  if (throwOnAllFailed) {
-    throw new Error(`All RPC attempts failed: ${errors.join('; ')}`);
-  }
+  // All endpoints failed
+  const errorMessage = `All RPC endpoints failed: ${errors.slice(-3).join('; ')}`;
+  console.error('[RPC]', errorMessage);
   
-  return undefined as T;
+  return { success: false, error: errorMessage };
 }
-
-// ============ AUTO-INIT ============
-// Start health check in background when module loads
-if (typeof window !== 'undefined') {
-  // Delay initial check slightly to not block page load
-  setTimeout(() => {
-    initializeRpcProvider().catch(console.error);
-  }, 1000);
-  
-  // Periodic health checks
-  setInterval(() => {
-    runHealthCheck().catch(console.error);
-  }, RPC_PROVIDER_CONFIG.healthCheckIntervalMs);
-}
-
-// ============ EXPORTS FOR DEBUGGING ============
-export const __debugState = () => ({
-  currentUrl: getCurrentRpcUrl(),
-  endpoints: state.endpoints,
-  initialized: state.initialized,
-});
 
 /**
- * Run comprehensive RPC diagnostics and return a report
+ * Check if an RPC error is a contract revert (shouldn't retry)
+ */
+function isContractRevert(error: { code?: number; message?: string }): boolean {
+  const revertCodes = [-32000, -32003, 3];
+  if (error.code && revertCodes.includes(error.code)) return true;
+  
+  const message = error.message?.toLowerCase() ?? '';
+  return (
+    message.includes('revert') ||
+    message.includes('execution reverted') ||
+    message.includes('insufficient funds') ||
+    message.includes('gas required exceeds')
+  );
+}
+
+// ============ DIAGNOSTICS ============
+
+/**
+ * Run full diagnostics and return report
  */
 export async function runRpcDiagnostics(): Promise<{
   currentUrl: string;
   healthyCount: number;
   totalCount: number;
-  unhealthyEndpoints: string[];
-  fastestEndpoint: { url: string; latencyMs: number } | null;
-  allEndpoints: RPCEndpointHealth[];
-  recommendation: string;
+  endpoints: EndpointHealth[];
+  recommended: string | null;
 }> {
-  // Run fresh health check
-  const results = await runHealthCheck();
+  await runHealthCheck();
   
-  const healthyEndpoints = results.filter(e => e.healthy);
-  const unhealthyEndpoints = results.filter(e => !e.healthy).map(e => e.url);
+  const endpoints = getAllEndpointsHealth();
+  const healthyEndpoints = endpoints.filter((e) => e.healthy);
+  const fastestHealthy = healthyEndpoints.sort(
+    (a, b) => (a.latencyMs ?? Infinity) - (b.latencyMs ?? Infinity)
+  )[0];
   
-  // Find fastest
-  const sorted = healthyEndpoints.sort((a, b) => (a.latencyMs ?? 9999) - (b.latencyMs ?? 9999));
-  const fastest = sorted[0];
-  
-  // Force use fastest
-  if (fastest) {
-    forceEndpoint(fastest.url);
-  }
-  
-  const report = {
+  return {
     currentUrl: getCurrentRpcUrl(),
     healthyCount: healthyEndpoints.length,
-    totalCount: results.length,
-    unhealthyEndpoints,
-    fastestEndpoint: fastest ? { url: fastest.url, latencyMs: fastest.latencyMs ?? 0 } : null,
-    allEndpoints: results,
-    recommendation: fastest 
-      ? `Using ${fastest.url} (${fastest.latencyMs}ms latency)` 
-      : 'No healthy endpoints - using fallback',
+    totalCount: endpoints.length,
+    endpoints,
+    recommended: fastestHealthy?.url ?? null,
   };
-  
-  console.log('[RPC Diagnostics]', report);
-  
-  return report;
 }
 
-// Expose to window for debugging
+// ============ CONSOLE DEBUGGING ============
+
 if (typeof window !== 'undefined') {
-  (window as unknown as { 
-    rpcDebug: typeof __debugState;
-    rpcDiagnostics: typeof runRpcDiagnostics;
-  }).rpcDebug = __debugState;
-  (window as unknown as { rpcDiagnostics: typeof runRpcDiagnostics }).rpcDiagnostics = runRpcDiagnostics;
+  // Expose debug functions to console
+  (window as any).rpcDebug = () => {
+    const endpoints = getAllEndpointsHealth();
+    console.log('[RPC Debug] Current endpoint:', getCurrentRpcUrl());
+    console.log('[RPC Debug] Healthy count:', getHealthyEndpointCount(), '/', endpoints.length);
+    console.table(endpoints.map((e) => ({
+      url: new URL(e.url).hostname,
+      healthy: e.healthy ? '✅' : '❌',
+      latency: e.latencyMs ? `${e.latencyMs}ms` : '-',
+      failures: e.consecutiveFailures,
+    })));
+    return { current: getCurrentRpcUrl(), healthy: getHealthyEndpointCount() };
+  };
+  
+  (window as any).rpcDiagnostics = async () => {
+    console.log('[RPC] Running full diagnostics...');
+    const report = await runRpcDiagnostics();
+    console.log('[RPC] Diagnostics complete:');
+    console.log('  Current:', report.currentUrl);
+    console.log('  Healthy:', report.healthyCount, '/', report.totalCount);
+    console.log('  Recommended:', report.recommended);
+    console.table(report.endpoints.map((e) => ({
+      url: new URL(e.url).hostname,
+      healthy: e.healthy ? '✅' : '❌',
+      latency: e.latencyMs ? `${e.latencyMs}ms` : '-',
+      failures: e.consecutiveFailures,
+    })));
+    return report;
+  };
+  
+  (window as any).rpcForce = (url: string) => {
+    const success = forceEndpoint(url);
+    console.log(success ? `[RPC] Forced to: ${url}` : `[RPC] Invalid endpoint: ${url}`);
+    return success;
+  };
 }

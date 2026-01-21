@@ -1,7 +1,7 @@
 import { useCallback, useState, useRef } from 'react';
 import { encodeFunctionData, parseAbi, decodeErrorResult, formatEther, formatGwei } from 'viem';
 import { NFT_CONTRACT_ADDRESS, BASE_CHAIN_ID, CONTRACT_ABI, CONTRACT_ERRORS } from '@/contracts/MemoryMintContract';
-import { BASE_RPC_ENDPOINTS as RPC_ENDPOINTS, markCurrentEndpointFailed, markRequestSuccess } from '@/utils/rpcProvider';
+import { executeWithFallback } from '@/utils/rpcProvider';
 
 // ============ TYPES ============
 export interface SimulationResult {
@@ -113,48 +113,37 @@ const decodeSimulationError = (error: unknown): { message: string; code: string 
   return { message: 'Transaction simulation failed', code: 'UNKNOWN' };
 };
 
-// ============ RPC HELPER ============
-const rpcCall = async (method: string, params: unknown[], timeout = SIMULATION_TIMEOUT_MS): Promise<unknown> => {
-  const errors: string[] = [];
-
-  for (const endpoint of RPC_ENDPOINTS) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.status === 429) {
-        errors.push(`${endpoint}: Rate limited`);
-        continue;
-      }
-
-      if (!response.ok) {
-        errors.push(`${endpoint}: HTTP ${response.status}`);
-        continue;
-      }
-
-      const data = await response.json();
-      if (data.error) {
-        // Return error for simulation analysis
-        return { error: data.error };
-      }
-
-      return data.result;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      errors.push(`${endpoint}: ${msg}`);
+// ============ RPC HELPER (Fail-Open Design) ============
+const rpcCall = async (
+  method: string,
+  params: unknown[],
+  timeout = SIMULATION_TIMEOUT_MS,
+  failOpen = false
+): Promise<unknown> => {
+  const result = await executeWithFallback(method, params, {
+    timeout,
+    skipRetryOnRevert: true,
+  });
+  
+  if (result.success && result.data !== undefined) {
+    return result.data;
+  }
+  
+  // Return error object for simulation analysis (not throw)
+  if (result.error) {
+    // If it looks like a contract revert, return it for decoding
+    if (result.error.includes('revert') || result.error.includes('execution')) {
+      return { error: { message: result.error } };
     }
   }
-
-  console.error('[Simulation RPC] All endpoints failed:', errors);
+  
+  // For RPC-level failures in fail-open mode, return null
+  if (failOpen) {
+    console.warn('[Simulation RPC] Fail-open: returning null for RPC failure');
+    return null;
+  }
+  
+  console.error('[Simulation RPC] All endpoints failed:', result.error);
   throw new Error('Unable to reach Base network. Please try again.');
 };
 
