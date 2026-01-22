@@ -232,7 +232,7 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   };
 
   const handleWithdrawFees = async () => {
-    return sendAdminTx('withdrawFees', [], undefined, 'Withdraw ETH Fees');
+    return sendAdminTx('withdrawMintFees', [], undefined, 'Withdraw Mint Fees (ETH)');
   };
 
   const handleWithdrawBonusPool = async (ethAmount: bigint, usdcAmount: bigint) => {

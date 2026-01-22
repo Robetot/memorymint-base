@@ -199,7 +199,7 @@ export function AdminTreasurySection({
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Withdraw Mint Fees (ETH)'}
           </Button>
           <p className="text-xs text-muted-foreground text-center">
-            Note: withdrawFees() withdraws accumulated ETH fees to owner
+            Note: withdrawMintFees() withdraws accumulated ETH fees to owner
           </p>
         </CardContent>
       </Card>
