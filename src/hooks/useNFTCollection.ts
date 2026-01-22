@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { decodeFunctionResult, encodeFunctionData, parseAbi } from "viem";
+import { executeWithFallback } from "@/utils/rpcProvider";
 
 // ============================================================
 // IMPORTANT: Use the CURRENT deployed V3 contract address
@@ -6,30 +8,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // ============================================================
 const NFT_CONTRACT_ADDRESS = "0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0";
 
-// Base Mainnet chain ID
-const BASE_CHAIN_ID = "0x2105"; // 8453
-
-const BASE_CHAIN_CONFIG = {
-  chainId: BASE_CHAIN_ID,
-  chainName: "Base",
-  nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
-  rpcUrls: ["https://mainnet.base.org"],
-  blockExplorerUrls: ["https://basescan.org"],
-};
+// Base Mainnet chain ID (8453)
+const BASE_CHAIN_ID = "0x2105";
 
 // ERC-721 Transfer event signature
 const TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-// Multiple RPC endpoints for reliability - use public RPCs for reads
-const RPC_ENDPOINTS = [
-  "https://mainnet.base.org",
-  "https://base.llamarpc.com",
-  "https://base.drpc.org",
-  "https://1rpc.io/base",
-  "https://base.meowrpc.com",
-];
+// Minimal read ABI for wallet collection (matches the provided contract ABI)
+const NFT_READ_ABI = parseAbi([
+  "function balanceOf(address owner_) view returns (uint256)",
+  "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+  "function tokenURI(uint256 tokenId) view returns (string)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "function totalSupply() view returns (uint256)",
+  "function getNFTMetadata(uint256 tokenId) view returns (uint8 level, uint8 rarity, uint16 score, uint32 completionTime, uint8 comboStreak, bool perfectGame)",
+]);
 
 // IPFS gateways with better reliability
 const IPFS_GATEWAYS = [
@@ -75,44 +70,36 @@ interface FetchState {
   debug: DebugPanel | null;
 }
 
-async function fetchWithPublicRPC(method: string, params: unknown[], timeout = 15000): Promise<unknown> {
-  const errors: string[] = [];
+async function ethCall(data: `0x${string}`, timeout = 8000): Promise<`0x${string}`> {
+  const result = await executeWithFallback<string>(
+    "eth_call",
+    [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"],
+    { timeout, skipRetryOnRevert: true }
+  );
 
-  for (const rpc of RPC_ENDPOINTS) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-      const response = await fetch(rpc, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        errors.push(`${rpc}: HTTP ${response.status}`);
-        continue;
-      }
-
-      const data = await response.json();
-
-      if (data.error) {
-        errors.push(`${rpc}: ${data.error.message}`);
-        continue;
-      }
-
-      return data.result;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      errors.push(`${rpc}: ${msg}`);
-      continue;
-    }
+  if (result.success && typeof result.data === "string") {
+    return result.data as `0x${string}`;
   }
 
-  throw new Error(`All RPCs failed: ${errors.join("; ")}`);
+  throw new Error(result.error || "RPC eth_call failed");
+}
+
+async function rpcCall<T = unknown>(method: string, params: unknown[], timeout = 8000): Promise<T> {
+  const result = await executeWithFallback<T>(method, params, { timeout, skipRetryOnRevert: true });
+  if (result.success) return result.data as T;
+  throw new Error(result.error || `RPC ${method} failed`);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let t: number | undefined;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    t = window.setTimeout(() => reject(new Error("timeout")), ms);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (t) window.clearTimeout(t);
+  }
 }
 
 function addressToTopic(address: string): string {
@@ -128,7 +115,7 @@ type RpcLog = {
 };
 
 async function getBlockNumber(): Promise<number> {
-  const hex = (await fetchWithPublicRPC("eth_blockNumber", [])) as string;
+  const hex = await rpcCall<string>("eth_blockNumber", []);
   return parseInt(hex, 16);
 }
 
@@ -137,14 +124,14 @@ async function getTransferLogsSingle(filter: {
   toBlock: string;
   topics: (string | null)[];
 }): Promise<RpcLog[]> {
-  const logs = (await fetchWithPublicRPC("eth_getLogs", [
+  const logs = await rpcCall<RpcLog[]>("eth_getLogs", [
     {
       address: NFT_CONTRACT_ADDRESS,
       fromBlock: filter.fromBlock,
       toBlock: filter.toBlock,
       topics: filter.topics,
     },
-  ])) as RpcLog[];
+  ]);
 
   return Array.isArray(logs) ? logs : [];
 }
@@ -244,79 +231,45 @@ export function useNFTCollection(address: string | null) {
   });
 
   const fetchingRef = useRef(false);
-  const attemptedSwitchRef = useRef(false);
   const recentMintTokenIdsRef = useRef<Set<string>>(new Set());
   const retryCountRef = useRef(0);
   const maxRetries = 5;
 
-  const ensureBaseNetwork = useCallback(async (): Promise<{ ok: boolean; chainId: string | null; error?: string }> => {
-    if (!window.ethereum) {
-      console.log("[NFT] No window.ethereum, assuming Base App environment on Base Mainnet");
-      return { ok: true, chainId: BASE_CHAIN_ID };
-    }
-
+  // Non-blocking chainId check (never blocks collection reads)
+  const getConnectedChainIdSafe = useCallback(async (): Promise<string | null> => {
+    const eth = window.ethereum as any;
+    if (!eth?.request) return null;
     try {
-      const chainId = (await window.ethereum.request({ method: "eth_chainId" })) as string;
-      const chainIdNum = parseInt(chainId, 16);
-      
-      console.log(`[NFT] Current chain ID: ${chainIdNum} (expected: 8453)`);
-      
-      if (chainId?.toLowerCase() === BASE_CHAIN_ID.toLowerCase()) {
-        return { ok: true, chainId };
-      }
-
-      if (!attemptedSwitchRef.current) {
-        attemptedSwitchRef.current = true;
-        try {
-          await window.ethereum.request({
-            method: "wallet_switchEthereumChain",
-            params: [{ chainId: BASE_CHAIN_ID }],
-          });
-
-          const newChainId = (await window.ethereum.request({ method: "eth_chainId" })) as string;
-          return { ok: newChainId?.toLowerCase() === BASE_CHAIN_ID.toLowerCase(), chainId: newChainId };
-        } catch (switchErr: any) {
-          if (switchErr?.code === 4902) {
-            try {
-              await window.ethereum.request({
-                method: "wallet_addEthereumChain",
-                params: [BASE_CHAIN_CONFIG],
-              });
-              const newChainId = (await window.ethereum.request({ method: "eth_chainId" })) as string;
-              return { ok: newChainId?.toLowerCase() === BASE_CHAIN_ID.toLowerCase(), chainId: newChainId };
-            } catch {
-              return { ok: false, chainId, error: `Connected to chain ${chainIdNum}. Please switch to Base Mainnet (8453).` };
-            }
-          }
-
-          return { ok: false, chainId, error: `Connected to chain ${chainIdNum}. Please switch to Base Mainnet (8453).` };
-        }
-      }
-
-      return { ok: false, chainId, error: `Connected to chain ${chainIdNum}. Please switch to Base Mainnet (8453).` };
-    } catch (err) {
-      console.log("[NFT] Could not check chain, assuming Base App context");
-      return { ok: true, chainId: BASE_CHAIN_ID };
+      return await withTimeout(eth.request({ method: "eth_chainId" }) as Promise<string>, 2000);
+    } catch {
+      return null;
     }
   }, []);
 
   const fetchBalance = useCallback(async (ownerAddress: string): Promise<number> => {
-    const paddedAddress = ownerAddress.toLowerCase().replace("0x", "").padStart(64, "0");
-    const data = `0x70a08231${paddedAddress}`;
+    const data = encodeFunctionData({
+      abi: NFT_READ_ABI,
+      functionName: "balanceOf",
+      args: [ownerAddress as `0x${string}`],
+    });
 
-    const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"])) as string;
-    return parseInt(result, 16);
+    const raw = await ethCall(data);
+    const decoded = decodeFunctionResult({ abi: NFT_READ_ABI, functionName: "balanceOf", data: raw }) as bigint;
+    const asNumber = Number(decoded);
+    return Number.isFinite(asNumber) ? asNumber : 0;
   }, []);
 
   const fetchOwnerOf = useCallback(async (tokenId: bigint): Promise<string | null> => {
-    const paddedTokenId = tokenId.toString(16).padStart(64, "0");
-    const data = `0x6352211e${paddedTokenId}`;
-
     try {
-      const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"])) as string;
-      if (!result || result.length < 66) return null;
-      const addr = ("0x" + result.slice(-40)).toLowerCase();
-      if (addr === ZERO_ADDRESS) return null;
+      const data = encodeFunctionData({
+        abi: NFT_READ_ABI,
+        functionName: "ownerOf",
+        args: [tokenId],
+      });
+      const raw = await ethCall(data);
+      const owner = decodeFunctionResult({ abi: NFT_READ_ABI, functionName: "ownerOf", data: raw }) as string;
+      const addr = owner?.toLowerCase();
+      if (!addr || addr === ZERO_ADDRESS) return null;
       return addr;
     } catch {
       return null;
@@ -325,16 +278,21 @@ export function useNFTCollection(address: string | null) {
 
   // ERC721Enumerable: tokenOfOwnerByIndex(address, index) -> tokenId
   const fetchTokenOfOwnerByIndex = useCallback(async (ownerAddress: string, index: number): Promise<string | null> => {
-    const paddedAddress = ownerAddress.toLowerCase().replace("0x", "").padStart(64, "0");
-    const paddedIndex = index.toString(16).padStart(64, "0");
-    // tokenOfOwnerByIndex selector: 0x2f745c59
-    const data = `0x2f745c59${paddedAddress}${paddedIndex}`;
-
     try {
-      const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"])) as string;
-      if (!result || result === "0x" || result.length < 66) return null;
-      const tokenId = BigInt(result).toString();
-      return tokenId;
+      const data = encodeFunctionData({
+        abi: NFT_READ_ABI,
+        functionName: "tokenOfOwnerByIndex",
+        args: [ownerAddress as `0x${string}`, BigInt(index)],
+      });
+
+      const raw = await ethCall(data);
+      const tokenId = decodeFunctionResult({
+        abi: NFT_READ_ABI,
+        functionName: "tokenOfOwnerByIndex",
+        data: raw,
+      }) as bigint;
+
+      return tokenId.toString();
     } catch (err) {
       console.warn(`[NFT] tokenOfOwnerByIndex(${index}) failed:`, err);
       return null;
@@ -342,29 +300,51 @@ export function useNFTCollection(address: string | null) {
   }, []);
 
   const fetchTokenURI = useCallback(async (tokenId: bigint): Promise<string | null> => {
-    const paddedTokenId = tokenId.toString(16).padStart(64, "0");
-    const data = `0xc87b56dd${paddedTokenId}`;
-
     try {
-      const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"])) as string;
-      if (result && result.length > 130) {
-        const hex = result.slice(2);
-        const length = parseInt(hex.slice(64, 128), 16);
-        if (length > 0 && length < 10_000) {
-          const stringHex = hex.slice(128, 128 + length * 2);
-          const bytes: number[] = [];
-          for (let i = 0; i < stringHex.length; i += 2) {
-            bytes.push(parseInt(stringHex.substr(i, 2), 16));
-          }
-          return String.fromCharCode(...bytes);
-        }
-      }
+      const data = encodeFunctionData({
+        abi: NFT_READ_ABI,
+        functionName: "tokenURI",
+        args: [tokenId],
+      });
+      const raw = await ethCall(data);
+      const uri = decodeFunctionResult({ abi: NFT_READ_ABI, functionName: "tokenURI", data: raw }) as string;
+      return uri || null;
     } catch (err) {
       console.warn(`[NFT] tokenURI fetch failed for token ${tokenId}:`, err);
+      return null;
     }
-
-    return null;
   }, []);
+
+  const fetchOnchainNFTMetadata = useCallback(
+    async (tokenId: bigint): Promise<{
+      level: number;
+      rarity: number;
+      score: number;
+      completionTime: number;
+      comboStreak: number;
+      perfectGame: boolean;
+    } | null> => {
+      try {
+        const data = encodeFunctionData({
+          abi: NFT_READ_ABI,
+          functionName: "getNFTMetadata",
+          args: [tokenId],
+        });
+        const raw = await ethCall(data);
+        const decoded = decodeFunctionResult({
+          abi: NFT_READ_ABI,
+          functionName: "getNFTMetadata",
+          data: raw,
+        }) as readonly [number, number, number, number, number, boolean];
+
+        const [level, rarity, score, completionTime, comboStreak, perfectGame] = decoded;
+        return { level, rarity, score, completionTime, comboStreak, perfectGame };
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
 
   const fetchMetadata = useCallback(async (tokenURI: string): Promise<{ metadata: NFTItem["metadata"]; error?: string }> => {
     if (!tokenURI) return { metadata: undefined, error: "No tokenURI" };
@@ -512,11 +492,20 @@ export function useNFTCollection(address: string | null) {
       
       try {
         // Get totalSupply
-        const totalSupplyData = "0x18160ddd";
-        const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data: totalSupplyData }, "latest"])) as string;
-        const totalSupply = parseInt(result, 16);
+        const totalSupplyData = encodeFunctionData({
+          abi: NFT_READ_ABI,
+          functionName: "totalSupply",
+          args: [],
+        });
+        const raw = await ethCall(totalSupplyData);
+        const totalSupplyBig = decodeFunctionResult({
+          abi: NFT_READ_ABI,
+          functionName: "totalSupply",
+          data: raw,
+        }) as bigint;
+        const totalSupply = Number(totalSupplyBig);
         
-        if (totalSupply > 0) {
+        if (Number.isFinite(totalSupply) && totalSupply > 0) {
           console.log(`[NFT] Total supply: ${totalSupply}, scanning for ${targetBalance} owned tokens...`);
           
           // Scan from most recent token backwards, in parallel batches
@@ -552,77 +541,81 @@ export function useNFTCollection(address: string | null) {
     [fetchOwnerOf]
   );
 
-  // Progressive metadata loading - update state as each NFT loads
-  const loadNFTMetadataProgressively = useCallback(
-    async (
-      tokenIds: string[],
-      balance: number,
-      debug: DebugPanel,
-      onUpdate: (nfts: NFTItem[]) => void
-    ) => {
-      // Start with loading placeholders for all discovered tokens
-      const nfts: NFTItem[] = tokenIds.map((id) => ({
-        tokenId: id,
-        tokenURI: "",
-        isLoading: true,
-        hasError: false,
-        metadata: {
-          name: `Loading NFT #${id}...`,
-          description: "Fetching metadata...",
-        },
-      }));
-
-      // Immediately show loading state
-      onUpdate([...nfts]);
-
-      // Load each NFT's metadata independently
-      const loadToken = async (index: number, tokenId: string) => {
-        const tokenIdBig = BigInt(tokenId);
-        
-        // Fetch tokenURI
-        let tokenURI: string | null = null;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          tokenURI = await fetchTokenURI(tokenIdBig);
-          if (tokenURI) break;
-          await new Promise((r) => setTimeout(r, 500));
-        }
-
-        if (tokenURI) {
-          debug.tokenURIs[tokenId] = tokenURI;
-        }
-
-        // Fetch metadata
-        const { metadata, error } = tokenURI
-          ? await fetchMetadata(tokenURI)
-          : { metadata: undefined, error: "No tokenURI found" };
-
-        // Update this specific NFT
-        nfts[index] = {
-          tokenId,
-          tokenURI: tokenURI ?? "",
-          isLoading: false,
-          hasError: !metadata,
-          errorReason: error,
-          metadata: metadata ?? {
-            name: `MemoryMint #${tokenId}`,
-            description: error || "Metadata unavailable",
-          },
-        };
-
-        // Trigger UI update
-        onUpdate([...nfts]);
+  // Load all NFTs fully before updating UI (prevents endless "Scanning..." state)
+  const loadNFTsFully = useCallback(
+    async (tokenIds: string[], debug: DebugPanel): Promise<NFTItem[]> => {
+      const upsertAttr = (
+        attrs: Array<{ trait_type: string; value: string | number }> | undefined,
+        trait_type: string,
+        value: string | number
+      ) => {
+        const arr = Array.isArray(attrs) ? [...attrs] : [];
+        const idx = arr.findIndex((a) => a.trait_type === trait_type);
+        if (idx >= 0) arr[idx] = { trait_type, value };
+        else arr.push({ trait_type, value });
+        return arr;
       };
 
-      // Load tokens in parallel batches for speed
-      const batchSize = 3;
-      for (let i = 0; i < tokenIds.length; i += batchSize) {
-        const batch = tokenIds.slice(i, i + batchSize).map((id, j) => loadToken(i + j, id));
-        await Promise.all(batch);
-      }
+      const results: NFTItem[] = [];
+      const concurrency = 3;
+      let cursor = 0;
 
-      return nfts;
+      const worker = async () => {
+        while (cursor < tokenIds.length) {
+          const index = cursor++;
+          const tokenId = tokenIds[index];
+          const tokenIdBig = BigInt(tokenId);
+
+          // tokenURI
+          const tokenURI = await fetchTokenURI(tokenIdBig);
+          if (tokenURI) debug.tokenURIs[tokenId] = tokenURI;
+
+          // token metadata JSON (from tokenURI)
+          const { metadata, error } = tokenURI
+            ? await fetchMetadata(tokenURI)
+            : { metadata: undefined, error: "No tokenURI found" };
+
+          // on-chain metadata (level, rarity, etc.)
+          const onchain = await fetchOnchainNFTMetadata(tokenIdBig);
+
+          const merged = metadata
+            ? {
+                ...metadata,
+                attributes: (() => {
+                  let attrs = metadata.attributes;
+                  if (onchain) {
+                    attrs = upsertAttr(attrs, "Level", onchain.level);
+                    attrs = upsertAttr(attrs, "Rarity", onchain.rarity);
+                    attrs = upsertAttr(attrs, "Score", onchain.score);
+                    attrs = upsertAttr(attrs, "Completion Time", onchain.completionTime);
+                    attrs = upsertAttr(attrs, "Combo Streak", onchain.comboStreak);
+                    attrs = upsertAttr(attrs, "Perfect Game", onchain.perfectGame ? "Yes" : "No");
+                  }
+                  return attrs;
+                })(),
+              }
+            : undefined;
+
+          results[index] = {
+            tokenId,
+            tokenURI: tokenURI ?? "",
+            isLoading: false,
+            hasError: !merged,
+            errorReason: error,
+            metadata:
+              merged ??
+              ({
+                name: `MemoryMint #${tokenId}`,
+                description: error || "Metadata unavailable",
+              } as NFTItem["metadata"]),
+          };
+        }
+      };
+
+      await Promise.all(Array.from({ length: Math.min(concurrency, tokenIds.length) }, worker));
+      return results.filter(Boolean);
     },
-    [fetchTokenURI, fetchMetadata]
+    [fetchMetadata, fetchOnchainNFTMetadata, fetchTokenURI]
   );
 
   const fetchCollection = useCallback(
@@ -673,25 +666,9 @@ export function useNFTCollection(address: string | null) {
       };
 
       try {
-        const net = await ensureBaseNetwork();
-        debug.chainId = net.chainId;
+        debug.chainId = await getConnectedChainIdSafe();
 
-        if (!net.ok) {
-          const chainError = net.error || "Wrong network. Please switch to Base Mainnet (Chain ID: 8453).";
-          console.error("[NFT] Network check failed:", chainError);
-          setState({
-            nfts: [],
-            isLoading: false,
-            error: null,
-            chainError,
-            balance: null,
-            debug,
-          });
-          fetchingRef.current = false;
-          return;
-        }
-
-        console.log("[NFT] Network check passed, fetching balance...");
+        console.log("[NFT] Starting collection fetch via Base public RPC...");
 
         // Fetch balance
         let balance: number;
@@ -860,17 +837,15 @@ export function useNFTCollection(address: string | null) {
         // Reset retry count on successful discovery
         retryCountRef.current = 0;
 
-        // Load metadata progressively
-        await loadNFTMetadataProgressively(tokenIds, balance, debug, (updatedNfts) => {
-          setState((prev) => ({
-            ...prev,
-            nfts: updatedNfts,
-            isLoading: false,
-            error: null,
-            chainError: null,
-            balance,
-            debug,
-          }));
+        // Load ALL NFT metadata first, then update UI once (prevents stuck scanning)
+        const loaded = await loadNFTsFully(tokenIds, debug);
+        setState({
+          nfts: loaded,
+          isLoading: false,
+          error: null,
+          chainError: null,
+          balance,
+          debug,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to fetch NFTs";
@@ -908,11 +883,11 @@ export function useNFTCollection(address: string | null) {
     },
     [
       address,
-      ensureBaseNetwork,
+      getConnectedChainIdSafe,
       fetchBalance,
       fetchTokenOfOwnerByIndex,
       fetchOwnedTokenIdsByEvents,
-      loadNFTMetadataProgressively,
+      loadNFTsFully,
       scanRecentTokenIds,
     ]
   );
@@ -948,7 +923,6 @@ export function useNFTCollection(address: string | null) {
   }, [address, fetchCollection]);
 
   const refetch = useCallback(() => {
-    attemptedSwitchRef.current = false;
     recentMintTokenIdsRef.current.clear();
     retryCountRef.current = 0;
     return fetchCollection(true);
