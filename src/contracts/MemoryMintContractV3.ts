@@ -1,6 +1,6 @@
 // ============================================================
 // MemoryMintUltraV3 Contract Integration
-// Deployed: 0x8A6EAc80dd2cC5efE7a6b10a4430a89871A4672B
+// Deployed: 0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0
 // Network: Base Mainnet (Chain ID: 8453)
 // Features: Dynamic Pricing, Multi-tier Bonuses, USDC Support
 // ============================================================
@@ -8,7 +8,8 @@
 import { parseAbi } from 'viem';
 
 // ============ CONTRACT ADDRESS ============
-export const NFT_CONTRACT_ADDRESS_V3 = '0x8A6EAc80dd2cC5efE7a6b10a4430a89871A4672B' as const;
+// IMPORTANT: This is the CURRENT production V3 contract
+export const NFT_CONTRACT_ADDRESS_V3 = '0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0' as const;
 
 // ============ NETWORK CONSTANTS ============
 export const BASE_CHAIN_ID = '0x2105'; // 8453 in hex
