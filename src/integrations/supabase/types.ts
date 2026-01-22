@@ -47,6 +47,111 @@ export type Database = {
         }
         Relationships: []
       }
+      contract_state_snapshots: {
+        Row: {
+          created_at: string
+          description: string | null
+          fetch_duration_ms: number | null
+          id: string
+          requested_by: string | null
+          rpc_endpoint_used: string | null
+          snapshot_type: string
+          state: Json
+          tags: string[] | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          fetch_duration_ms?: number | null
+          id?: string
+          requested_by?: string | null
+          rpc_endpoint_used?: string | null
+          snapshot_type?: string
+          state: Json
+          tags?: string[] | null
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          fetch_duration_ms?: number | null
+          id?: string
+          requested_by?: string | null
+          rpc_endpoint_used?: string | null
+          snapshot_type?: string
+          state?: Json
+          tags?: string[] | null
+          version?: number
+        }
+        Relationships: []
+      }
+      rpc_health: {
+        Row: {
+          avg_response_time_ms: number | null
+          circuit_breaker_attempts: number | null
+          circuit_breaker_opened_at: string | null
+          consecutive_failures: number
+          consecutive_successes: number
+          created_at: string
+          enabled: boolean
+          endpoint: string
+          failed_calls: number
+          id: string
+          last_failure: string | null
+          last_success: string | null
+          metadata: Json | null
+          p95_response_time_ms: number | null
+          priority: number
+          status: string
+          successful_calls: number
+          total_calls: number
+          updated_at: string
+        }
+        Insert: {
+          avg_response_time_ms?: number | null
+          circuit_breaker_attempts?: number | null
+          circuit_breaker_opened_at?: string | null
+          consecutive_failures?: number
+          consecutive_successes?: number
+          created_at?: string
+          enabled?: boolean
+          endpoint: string
+          failed_calls?: number
+          id?: string
+          last_failure?: string | null
+          last_success?: string | null
+          metadata?: Json | null
+          p95_response_time_ms?: number | null
+          priority?: number
+          status?: string
+          successful_calls?: number
+          total_calls?: number
+          updated_at?: string
+        }
+        Update: {
+          avg_response_time_ms?: number | null
+          circuit_breaker_attempts?: number | null
+          circuit_breaker_opened_at?: string | null
+          consecutive_failures?: number
+          consecutive_successes?: number
+          created_at?: string
+          enabled?: boolean
+          endpoint?: string
+          failed_calls?: number
+          id?: string
+          last_failure?: string | null
+          last_success?: string | null
+          metadata?: Json | null
+          p95_response_time_ms?: number | null
+          priority?: number
+          status?: string
+          successful_calls?: number
+          total_calls?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
