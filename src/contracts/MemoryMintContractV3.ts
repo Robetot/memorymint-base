@@ -188,7 +188,7 @@ export const CONTRACT_ABI_V3 = parseAbi([
   'function setTokenURI(uint256 tokenId, string uri)',
   
   // ===== Admin: Fee Withdrawal =====
-  'function withdrawFees()',
+  'function withdrawMintFees()',
   'function emergencyWithdraw()',
 ]);
 
@@ -277,7 +277,7 @@ export const GAS_BASELINES_V3: Record<string, bigint> = {
   depositBonusPool: 30000n,
   depositBonusPoolUSDC: 70000n,
   withdrawBonusPool: 50000n,
-  withdrawFees: 45000n,
+  withdrawMintFees: 45000n,
   setMintPrice: 45000n,
   setLevelPrice: 50000n,
   setSupplyPriceTier: 55000n,

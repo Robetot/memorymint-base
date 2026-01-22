@@ -137,7 +137,7 @@ const V3_VERIFIED_FUNCTIONS = new Set([
   'mintPaused', 'claimsPaused', 'killSwitch', 'killed', 'mintPriceETH', 'mintPriceUSDC',
   'bonusPoolETH', 'bonusPoolUSDC', 'currencyConfig', 'eligibilityRules',
   'setMintPaused', 'setClaimsPaused', 'setWalletMintLimit', 'setAntiBotMode', 'setClaimMode',
-  'setMintPrice', 'activateKillSwitch', 'deactivateKillSwitch', 'withdrawFees', 'emergencyWithdraw',
+  'setMintPrice', 'activateKillSwitch', 'deactivateKillSwitch', 'withdrawMintFees', 'emergencyWithdraw',
   'mint', 'mintNFT', 'mintWithUSDC', 'batchMint', 'mintTo', 'mintWithSignature',
   'claimBonus', 'getEffectiveBonus', 'getEffectiveMintPrice', 'setEligibilityRules',
 ]);
