@@ -168,12 +168,12 @@ export function detectContractCapabilities(): ContractCapabilities {
     hasSetMintPriceETH: false, // V3 uses combined setter
     hasSetMintPriceUSDC: false, // V3 uses combined setter
     
-    // Treasury - V3 SUPPORTED
+    // Treasury - V3 SUPPORTED (correct function names per ABI)
     hasBonusPool: hasFunc('bonusPoolETH'),
-    hasDepositETH: hasFunc('depositBonusPool'),
-    hasDepositUSDC: hasFunc('depositBonusPool'),
-    hasWithdrawETH: hasFunc('withdrawBonusPool'),
-    hasWithdrawUSDC: hasFunc('withdrawBonusPool'),
+    hasDepositETH: hasFunc('depositETH'),
+    hasDepositUSDC: hasFunc('depositUSDC'),
+    hasWithdrawETH: hasFunc('withdrawETH'),
+    hasWithdrawUSDC: hasFunc('withdrawUSDC'),
     hasSetBonusLevel: hasFunc('setLevelBonus'),
     
     // Emergency Controls - V3 VERIFIED SUPPORTED

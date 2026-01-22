@@ -224,20 +224,23 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
   };
 
   const handleDepositETH = async (amount: bigint) => {
-    return sendAdminTx('depositBonusPool', [], amount, `Deposit ${Number(amount) / 1e18} ETH to Bonus Pool`);
+    return sendAdminTx('depositETH', [], amount, `Deposit ${Number(amount) / 1e18} ETH to Bonus Pool`);
   };
 
   const handleDepositUSDC = async (amount: bigint) => {
-    return sendAdminTx('depositBonusPoolUSDC', [amount], undefined, `Deposit ${Number(amount) / 1e6} USDC to Bonus Pool`);
+    return sendAdminTx('depositUSDC', [amount], undefined, `Deposit ${Number(amount) / 1e6} USDC to Bonus Pool`);
   };
 
   const handleWithdrawFees = async () => {
     return sendAdminTx('withdrawMintFees', [], undefined, 'Withdraw Mint Fees (ETH)');
   };
 
-  const handleWithdrawBonusPool = async (ethAmount: bigint, usdcAmount: bigint) => {
-    return sendAdminTx('withdrawBonusPool', [ethAmount, usdcAmount], undefined, 
-      `Withdraw ${Number(ethAmount) / 1e18} ETH, ${Number(usdcAmount) / 1e6} USDC from Bonus Pool`);
+  const handleWithdrawETH = async (amount: bigint) => {
+    return sendAdminTx('withdrawETH', [amount], undefined, `Withdraw ${Number(amount) / 1e18} ETH from Bonus Pool`);
+  };
+
+  const handleWithdrawUSDC = async (amount: bigint) => {
+    return sendAdminTx('withdrawUSDC', [amount], undefined, `Withdraw ${Number(amount) / 1e6} USDC from Bonus Pool`);
   };
 
   const handleEmergencyWithdraw = async () => {
@@ -493,7 +496,8 @@ export function AdminPanel({ walletAddress, onClose }: AdminPanelProps) {
           onDepositETH={handleDepositETH}
           onDepositUSDC={handleDepositUSDC}
           onWithdrawFees={handleWithdrawFees}
-          onWithdrawBonusPool={handleWithdrawBonusPool}
+          onWithdrawETH={handleWithdrawETH}
+          onWithdrawUSDC={handleWithdrawUSDC}
           onSetAllowBonusDeposit={handleSetAllowBonusDeposit}
           onSetWithdrawFeesEnabled={handleSetWithdrawFeesEnabled}
           onRefresh={refreshConfig}

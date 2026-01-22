@@ -26,7 +26,8 @@ interface AdminTreasuryTogglesProps {
   onDepositETH: (amount: bigint) => Promise<boolean>;
   onDepositUSDC: (amount: bigint) => Promise<boolean>;
   onWithdrawFees: () => Promise<boolean>;
-  onWithdrawBonusPool: (ethAmount: bigint, usdcAmount: bigint) => Promise<boolean>;
+  onWithdrawETH: (amount: bigint) => Promise<boolean>;
+  onWithdrawUSDC: (amount: bigint) => Promise<boolean>;
   onSetAllowBonusDeposit: (enabled: boolean) => Promise<boolean>;
   onSetWithdrawFeesEnabled: (enabled: boolean) => Promise<boolean>;
   onRefresh: () => void;
@@ -39,7 +40,8 @@ export function AdminTreasuryToggles({
   onDepositETH,
   onDepositUSDC,
   onWithdrawFees,
-  onWithdrawBonusPool,
+  onWithdrawETH,
+  onWithdrawUSDC,
   onSetAllowBonusDeposit,
   onSetWithdrawFeesEnabled,
   onRefresh,
@@ -104,15 +106,30 @@ export function AdminTreasuryToggles({
     }
   };
 
-  // Handle bonus pool withdrawal
-  const handleWithdrawBonusPool = async () => {
+  // Handle ETH withdrawal from bonus pool
+  const handleWithdrawETH = async () => {
+    if (!withdrawETH) return;
     setIsWithdrawing(true);
     try {
-      const ethAmount = withdrawETH ? parseEther(withdrawETH) : 0n;
-      const usdcAmount = withdrawUSDC ? parseUnits(withdrawUSDC, 6) : 0n;
-      const success = await onWithdrawBonusPool(ethAmount, usdcAmount);
+      const ethAmount = parseEther(withdrawETH);
+      const success = await onWithdrawETH(ethAmount);
       if (success) {
         setWithdrawETH('');
+        onRefresh();
+      }
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+
+  // Handle USDC withdrawal from bonus pool
+  const handleWithdrawUSDC = async () => {
+    if (!withdrawUSDC) return;
+    setIsWithdrawing(true);
+    try {
+      const usdcAmount = parseUnits(withdrawUSDC, 6);
+      const success = await onWithdrawUSDC(usdcAmount);
+      if (success) {
         setWithdrawUSDC('');
         onRefresh();
       }
@@ -249,47 +266,71 @@ export function AdminTreasuryToggles({
                 Withdraw Mint Fees
               </Button>
 
-              {/* Bonus Pool Withdrawal */}
+              {/* Bonus Pool Withdrawal - Separate ETH/USDC */}
               <div className="pt-2 border-t border-border/30">
                 <Label className="text-xs font-medium mb-2 block">Withdraw from Bonus Pool</Label>
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <div className="space-y-1">
-                    <Label className="text-xs">ETH</Label>
-                    <Input
-                      type="text"
-                      placeholder={formatEther(bonusPoolETH)}
-                      value={withdrawETH}
-                      onChange={(e) => setWithdrawETH(e.target.value)}
-                      disabled={isPreviewMode || isPending || isWithdrawing}
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">USDC</Label>
-                    <Input
-                      type="text"
-                      placeholder={formatUnits(bonusPoolUSDC, 6)}
-                      value={withdrawUSDC}
-                      onChange={(e) => setWithdrawUSDC(e.target.value)}
-                      disabled={isPreviewMode || isPending || isWithdrawing}
-                      className="h-8 text-sm"
-                    />
+                
+                {/* ETH Withdrawal */}
+                <div className="space-y-2 mb-3">
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <Label className="text-xs">ETH Amount</Label>
+                      <Input
+                        type="text"
+                        placeholder={formatEther(bonusPoolETH)}
+                        value={withdrawETH}
+                        onChange={(e) => setWithdrawETH(e.target.value)}
+                        disabled={isPreviewMode || isPending || isWithdrawing}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleWithdrawETH}
+                      disabled={isPreviewMode || isPending || isWithdrawing || !withdrawETH}
+                      className="self-end"
+                    >
+                      {isWithdrawing ? (
+                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      ) : (
+                        <ArrowUpCircle className="h-3 w-3 mr-1" />
+                      )}
+                      Withdraw ETH
+                    </Button>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleWithdrawBonusPool}
-                  disabled={isPreviewMode || isPending || isWithdrawing || (!withdrawETH && !withdrawUSDC)}
-                  className="w-full"
-                >
-                  {isWithdrawing ? (
-                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  ) : (
-                    <ArrowUpCircle className="h-3 w-3 mr-1" />
-                  )}
-                  Withdraw from Bonus Pool
-                </Button>
+
+                {/* USDC Withdrawal */}
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <Label className="text-xs">USDC Amount</Label>
+                      <Input
+                        type="text"
+                        placeholder={formatUnits(bonusPoolUSDC, 6)}
+                        value={withdrawUSDC}
+                        onChange={(e) => setWithdrawUSDC(e.target.value)}
+                        disabled={isPreviewMode || isPending || isWithdrawing}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleWithdrawUSDC}
+                      disabled={isPreviewMode || isPending || isWithdrawing || !withdrawUSDC}
+                      className="self-end"
+                    >
+                      {isWithdrawing ? (
+                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      ) : (
+                        <ArrowUpCircle className="h-3 w-3 mr-1" />
+                      )}
+                      Withdraw USDC
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </AdminToggle>
