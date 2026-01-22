@@ -35,7 +35,8 @@ interface AdminTreasurySectionProps {
   onDepositETH: (amount: bigint) => Promise<boolean>;
   onDepositUSDC: (amount: bigint) => Promise<boolean>;
   onWithdrawFees: () => Promise<boolean>;
-  onWithdrawBonusPool: (ethAmount: bigint, usdcAmount: bigint) => Promise<boolean>;
+  onWithdrawETH: (amount: bigint) => Promise<boolean>;
+  onWithdrawUSDC: (amount: bigint) => Promise<boolean>;
   onEmergencyWithdraw?: () => Promise<boolean>;
   onRefresh: () => Promise<void> | Promise<any>;
   isPending: boolean;
@@ -48,7 +49,8 @@ export function AdminTreasurySection({
   onDepositETH,
   onDepositUSDC,
   onWithdrawFees,
-  onWithdrawBonusPool,
+  onWithdrawETH,
+  onWithdrawUSDC,
   onEmergencyWithdraw,
   onRefresh,
   isPending,
@@ -92,18 +94,25 @@ export function AdminTreasurySection({
     }
   };
 
-  const handleWithdrawBonusPool = async () => {
+  const handleWithdrawETH = async () => {
+    if (!withdrawETHAmount) return;
     try {
-      const ethAmount = withdrawETHAmount ? parseEther(withdrawETHAmount) : 0n;
-      const usdcAmount = withdrawUSDCAmount ? parseUnits(withdrawUSDCAmount, 6) : 0n;
-      if (ethAmount === 0n && usdcAmount === 0n) return;
-      const success = await onWithdrawBonusPool(ethAmount, usdcAmount);
-      if (success) {
-        setWithdrawETHAmount('');
-        setWithdrawUSDCAmount('');
-      }
+      const ethAmount = parseEther(withdrawETHAmount);
+      const success = await onWithdrawETH(ethAmount);
+      if (success) setWithdrawETHAmount('');
     } catch (err) {
-      console.error('Invalid withdraw amount:', err);
+      console.error('Invalid ETH withdraw amount:', err);
+    }
+  };
+
+  const handleWithdrawUSDC = async () => {
+    if (!withdrawUSDCAmount) return;
+    try {
+      const usdcAmount = parseUnits(withdrawUSDCAmount, 6);
+      const success = await onWithdrawUSDC(usdcAmount);
+      if (success) setWithdrawUSDCAmount('');
+    } catch (err) {
+      console.error('Invalid USDC withdraw amount:', err);
     }
   };
 
@@ -213,42 +222,56 @@ export function AdminTreasurySection({
               Withdraw from Bonus Pool
             </h4>
             <p className="text-xs text-muted-foreground">
-              Use withdrawBonusPool(ethAmount, usdcAmount) to withdraw specific amounts
+              Use withdrawETH(amount) or withdrawUSDC(amount) to withdraw specific amounts
             </p>
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* ETH Withdraw */}
+            {capabilities.hasWithdrawETH && (
               <div className="space-y-2">
-                <Label>ETH Amount</Label>
-                <Input
-                  type="number"
-                  step="0.001"
-                  placeholder="0.0"
-                  value={withdrawETHAmount}
-                  onChange={(e) => setWithdrawETHAmount(e.target.value)}
-                  disabled={isPreviewMode || isPending}
-                />
+                <Label>Withdraw ETH</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    placeholder="0.0"
+                    value={withdrawETHAmount}
+                    onChange={(e) => setWithdrawETHAmount(e.target.value)}
+                    disabled={isPreviewMode || isPending}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={handleWithdrawETH}
+                    disabled={isPreviewMode || isPending || !withdrawETHAmount}
+                  >
+                    {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Withdraw ETH'}
+                  </Button>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>USDC Amount</Label>
-                <Input
-                  type="number"
-                  step="1"
-                  placeholder="0"
-                  value={withdrawUSDCAmount}
-                  onChange={(e) => setWithdrawUSDCAmount(e.target.value)}
-                  disabled={isPreviewMode || isPending}
-                />
-              </div>
-            </div>
+            )}
 
-            <Button
-              variant="outline"
-              onClick={handleWithdrawBonusPool}
-              disabled={isPreviewMode || isPending || (!withdrawETHAmount && !withdrawUSDCAmount)}
-              className="w-full"
-            >
-              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Withdraw from Bonus Pool'}
-            </Button>
+            {/* USDC Withdraw */}
+            {capabilities.hasWithdrawUSDC && (
+              <div className="space-y-2">
+                <Label>Withdraw USDC</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    step="1"
+                    placeholder="0"
+                    value={withdrawUSDCAmount}
+                    onChange={(e) => setWithdrawUSDCAmount(e.target.value)}
+                    disabled={isPreviewMode || isPending}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={handleWithdrawUSDC}
+                    disabled={isPreviewMode || isPending || !withdrawUSDCAmount}
+                  >
+                    {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Withdraw USDC'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -282,7 +305,7 @@ export function AdminTreasurySection({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Calls depositBonusPool() with ETH value
+                  Calls depositETH() with ETH value
                 </p>
               </div>
             )}
@@ -307,7 +330,7 @@ export function AdminTreasurySection({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Calls depositBonusPoolUSDC(amount) - ensure USDC approval first
+                  Calls depositUSDC(amount) - ensure USDC approval first
                 </p>
               </div>
             )}

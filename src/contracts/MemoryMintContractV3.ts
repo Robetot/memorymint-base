@@ -167,12 +167,13 @@ export const CONTRACT_ABI_V3 = parseAbi([
   
   // ===== Admin: Bonus System =====
   'function setDynamicBonusEnabled(bool enabled)',
-  'function setLevelBonus(uint8 level, uint256 bonusETH, uint256 bonusUSDC)',
-  'function setSupplyBonusTier(uint8 tier, uint256 minSupply, uint256 maxSupply, uint256 bonusETH, uint256 bonusUSDC)',
-  'function setBonusCapPerWallet(uint256 cap)',
-  'function depositBonusPool() payable',
-  'function depositBonusPoolUSDC(uint256 amount)',
-  'function withdrawBonusPool(uint256 ethAmount, uint256 usdcAmount)',
+  'function setLevelBonus(uint8 level, uint256 bonusETH, uint256 bonusUSDC, bool active)',
+  'function setSupplyBonusTier(uint8 tierIndex, uint256 minSupply, uint256 maxSupply, uint256 bonusETH, uint256 bonusUSDC, bool enabled)',
+  'function setAllowBonusDeposit(bool enabled)',
+  'function depositETH() payable',
+  'function depositUSDC(uint256 amount)',
+  'function withdrawETH(uint256 amount)',
+  'function withdrawUSDC(uint256 amount)',
 
   // ===== Admin: Currency & Anti-Bot =====
   'function setCurrencyConfig(bool ethEnabled, bool usdcEnabled, uint8 activeCurrency)',
