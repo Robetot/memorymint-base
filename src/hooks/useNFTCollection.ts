@@ -63,7 +63,7 @@ type DebugPanel = {
   discoveredTokenIds: string[];
   tokenURIs: Record<string, string>;
   errors: string[];
-  discoveryMethod?: 'events' | 'scan' | 'recent_mint' | 'none';
+  discoveryMethod?: 'enumerable' | 'events' | 'scan' | 'recent_mint' | 'none';
 };
 
 interface FetchState {
@@ -319,6 +319,24 @@ export function useNFTCollection(address: string | null) {
       if (addr === ZERO_ADDRESS) return null;
       return addr;
     } catch {
+      return null;
+    }
+  }, []);
+
+  // ERC721Enumerable: tokenOfOwnerByIndex(address, index) -> tokenId
+  const fetchTokenOfOwnerByIndex = useCallback(async (ownerAddress: string, index: number): Promise<string | null> => {
+    const paddedAddress = ownerAddress.toLowerCase().replace("0x", "").padStart(64, "0");
+    const paddedIndex = index.toString(16).padStart(64, "0");
+    // tokenOfOwnerByIndex selector: 0x2f745c59
+    const data = `0x2f745c59${paddedAddress}${paddedIndex}`;
+
+    try {
+      const result = (await fetchWithPublicRPC("eth_call", [{ to: NFT_CONTRACT_ADDRESS, data }, "latest"])) as string;
+      if (!result || result === "0x" || result.length < 66) return null;
+      const tokenId = BigInt(result).toString();
+      return tokenId;
+    } catch (err) {
+      console.warn(`[NFT] tokenOfOwnerByIndex(${index}) failed:`, err);
       return null;
     }
   }, []);
@@ -716,22 +734,57 @@ export function useNFTCollection(address: string | null) {
 
         let tokenIds: string[] = [];
 
-        // First check if we have recent mint token IDs (most reliable immediately after mint)
-        const recent = Array.from(recentMintTokenIdsRef.current);
-        if (recent.length > 0) {
-          console.log("[NFT] Using recent mint token IDs:", recent);
-          tokenIds = [...recent];
-          debug.discoveryMethod = "recent_mint";
+        // PRIMARY METHOD: Use tokenOfOwnerByIndex (ERC721Enumerable) - most reliable
+        try {
+          console.log("[NFT] Using tokenOfOwnerByIndex (ERC721Enumerable)...");
+          const enumTokenIds: string[] = [];
+          
+          // Fetch all token IDs in parallel batches
+          const batchSize = 5;
+          for (let i = 0; i < balance; i += batchSize) {
+            const batch = [];
+            for (let j = i; j < Math.min(i + batchSize, balance); j++) {
+              batch.push(fetchTokenOfOwnerByIndex(address, j));
+            }
+            const results = await Promise.all(batch);
+            for (const tokenId of results) {
+              if (tokenId !== null) {
+                enumTokenIds.push(tokenId);
+              }
+            }
+          }
+          
+          if (enumTokenIds.length > 0) {
+            console.log("[NFT] tokenOfOwnerByIndex found:", enumTokenIds);
+            tokenIds = enumTokenIds;
+            debug.discoveryMethod = "enumerable";
+          }
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          console.warn("[NFT] tokenOfOwnerByIndex failed:", errMsg);
+          debug.errors.push(`Enumerable: ${errMsg}`);
         }
 
-        // Try event-based discovery
+        // FALLBACK 1: Check recent mint token IDs
+        if (tokenIds.length < balance) {
+          const recent = Array.from(recentMintTokenIdsRef.current);
+          if (recent.length > 0) {
+            console.log("[NFT] Adding recent mint token IDs:", recent);
+            tokenIds = Array.from(new Set([...tokenIds, ...recent]));
+            if (debug.discoveryMethod === "none") {
+              debug.discoveryMethod = "recent_mint";
+            }
+          }
+        }
+
+        // FALLBACK 2: Try event-based discovery
         if (tokenIds.length < balance) {
           try {
             console.log("[NFT] Trying event-based discovery...");
             const eventTokenIds = await fetchOwnedTokenIdsByEvents(address);
             console.log("[NFT] Event discovery found:", eventTokenIds);
             tokenIds = Array.from(new Set([...tokenIds, ...eventTokenIds]));
-            if (eventTokenIds.length > 0) {
+            if (eventTokenIds.length > 0 && debug.discoveryMethod === "none") {
               debug.discoveryMethod = "events";
             }
           } catch (e) {
@@ -743,9 +796,9 @@ export function useNFTCollection(address: string | null) {
 
         debug.discoveredTokenIds = tokenIds;
 
-        // If we have balance but no token IDs from events, try scanning
+        // FALLBACK 3: Scan recent token IDs
         if (tokenIds.length === 0 && balance > 0) {
-          console.log("[NFT] Event discovery failed, trying token scan fallback...");
+          console.log("[NFT] All discovery methods failed, trying token scan fallback...");
           try {
             tokenIds = await scanRecentTokenIds(address, balance);
             console.log("[NFT] Scan fallback found:", tokenIds);
@@ -857,6 +910,7 @@ export function useNFTCollection(address: string | null) {
       address,
       ensureBaseNetwork,
       fetchBalance,
+      fetchTokenOfOwnerByIndex,
       fetchOwnedTokenIdsByEvents,
       loadNFTMetadataProgressively,
       scanRecentTokenIds,
