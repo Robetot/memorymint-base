@@ -48,6 +48,11 @@ export interface NFTItem {
   isLoading?: boolean;
   hasError?: boolean;
   errorReason?: string;
+  // On-chain metadata (directly from contract)
+  onChainLevel?: number;
+  onChainRarity?: number;
+  onChainScore?: number;
+  onChainPerfectGame?: boolean;
 }
 
 type DebugPanel = {
@@ -608,6 +613,11 @@ export function useNFTCollection(address: string | null) {
                 name: `MemoryMint #${tokenId}`,
                 description: error || "Metadata unavailable",
               } as NFTItem["metadata"]),
+            // Expose on-chain metadata directly for UI badges
+            onChainLevel: onchain?.level,
+            onChainRarity: onchain?.rarity,
+            onChainScore: onchain?.score,
+            onChainPerfectGame: onchain?.perfectGame,
           };
         }
       };
@@ -928,6 +938,62 @@ export function useNFTCollection(address: string | null) {
     return fetchCollection(true);
   }, [fetchCollection]);
 
+  // Retry a single NFT's metadata fetch without reloading the whole collection
+  const retryNFT = useCallback(
+    async (tokenId: string) => {
+      const tokenIdBig = BigInt(tokenId);
+      
+      // Mark as loading
+      setState((prev) => ({
+        ...prev,
+        nfts: prev.nfts.map((nft) =>
+          nft.tokenId === tokenId ? { ...nft, isLoading: true, hasError: false } : nft
+        ),
+      }));
+
+      try {
+        const tokenURI = await fetchTokenURI(tokenIdBig);
+        const { metadata } = tokenURI
+          ? await fetchMetadata(tokenURI)
+          : { metadata: undefined };
+        const onchain = await fetchOnchainNFTMetadata(tokenIdBig);
+
+        setState((prev) => ({
+          ...prev,
+          nfts: prev.nfts.map((nft) =>
+            nft.tokenId === tokenId
+              ? {
+                  ...nft,
+                  tokenURI: tokenURI ?? "",
+                  isLoading: false,
+                  hasError: !metadata,
+                  metadata: metadata ?? {
+                    name: `MemoryMint #${tokenId}`,
+                    description: "Metadata unavailable",
+                  },
+                  onChainLevel: onchain?.level,
+                  onChainRarity: onchain?.rarity,
+                  onChainScore: onchain?.score,
+                  onChainPerfectGame: onchain?.perfectGame,
+                }
+              : nft
+          ),
+        }));
+      } catch (err) {
+        console.error(`[NFT] Retry failed for token ${tokenId}:`, err);
+        setState((prev) => ({
+          ...prev,
+          nfts: prev.nfts.map((nft) =>
+            nft.tokenId === tokenId
+              ? { ...nft, isLoading: false, hasError: true, errorReason: "Retry failed" }
+              : nft
+          ),
+        }));
+      }
+    },
+    [fetchTokenURI, fetchMetadata, fetchOnchainNFTMetadata]
+  );
+
   return {
     nfts: state.nfts,
     isLoading: state.isLoading,
@@ -936,6 +1002,7 @@ export function useNFTCollection(address: string | null) {
     balance: state.balance,
     debug: state.debug,
     refetch,
+    retryNFT,
     contractAddress: NFT_CONTRACT_ADDRESS,
   };
 }
