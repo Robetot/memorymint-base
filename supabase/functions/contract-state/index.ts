@@ -959,9 +959,10 @@ async function createSnapshot(
       .eq("snapshot_type", options.snapshotType ?? "manual")
       .order("version", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
     
-    const nextVersion = (latestSnapshot?.version ?? 0) + 1;
+    const latestVersion = (latestSnapshot as { version: number } | null)?.version ?? 0;
+    const nextVersion = latestVersion + 1;
     
     const { data, error } = await supabase
       .from("contract_state_snapshots")
@@ -983,7 +984,7 @@ async function createSnapshot(
       return null;
     }
     
-    return data;
+    return data as { id: string; version: number };
   } catch (err) {
     console.error("Exception creating snapshot:", err);
     return null;
