@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Deployed MemoryMintUltraV3 contract on Base Mainnet
-const NFT_CONTRACT_ADDRESS = "0xA26e44EA246a1BA59Fd417380204Bce6a6A3Dc7E";
+// ============================================================
+// IMPORTANT: Use the CURRENT deployed V3 contract address
+// This must match the address in memory/tech/blockchain/contract-v3-address
+// ============================================================
+const NFT_CONTRACT_ADDRESS = "0x9FaB0dFce96D1861725Ba8C75AA0759fEd923af0";
 
 // Base Mainnet chain ID
 const BASE_CHAIN_ID = "0x2105"; // 8453
@@ -25,6 +28,7 @@ const RPC_ENDPOINTS = [
   "https://base.llamarpc.com",
   "https://base.drpc.org",
   "https://1rpc.io/base",
+  "https://base.meowrpc.com",
 ];
 
 // IPFS gateways with better reliability
