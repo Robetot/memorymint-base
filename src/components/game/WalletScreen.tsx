@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, ExternalLink, RefreshCw, Image as ImageIcon, Smartphone, LogOut, Copy, RotateCcw, Wifi, WifiOff } from 'lucide-react';
 
 import { useWallet, WalletType } from '@/hooks/useWallet';
 import { useNFTCollection } from '@/hooks/useNFTCollection';
+import { useRpcHealth } from '@/hooks/useRpcHealth';
 import { useFarcaster } from '@/contexts/FarcasterContext';
 import { useBaseApp } from '@/contexts/BaseAppContext';
 import { FarcasterSignIn, FarcasterIcon } from './FarcasterSignIn';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +21,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface WalletScreenProps {
   onBack: () => void;
@@ -88,6 +96,65 @@ function BaseAppIcon({ className }: { className?: string }) {
   );
 }
 
+// Rarity name mapping
+const RARITY_NAMES: Record<number, string> = {
+  0: 'Common',
+  1: 'Uncommon',
+  2: 'Rare',
+  3: 'Epic',
+  4: 'Legendary',
+  5: 'Mythic',
+};
+
+// Get rarity styling based on numeric rarity value
+function getRarityStyle(rarity?: number): string {
+  switch (rarity) {
+    case 5: return 'bg-gradient-to-r from-purple-500 to-pink-500 text-white';
+    case 4: return 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white';
+    case 3: return 'bg-purple-500/20 text-purple-400';
+    case 2: return 'bg-blue-500/20 text-blue-400';
+    case 1: return 'bg-emerald-500/20 text-emerald-400';
+    default: return 'bg-muted text-muted-foreground';
+  }
+}
+
+// RPC Health Indicator component
+function RpcHealthIndicator() {
+  const { isHealthy, healthyCount, totalCount, isInitialized } = useRpcHealth();
+  
+  if (!isInitialized) return null;
+  
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className={cn(
+            "inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium transition-colors",
+            isHealthy 
+              ? "bg-success/10 text-success border border-success/20" 
+              : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
+          )}>
+            {isHealthy ? (
+              <Wifi className="w-3 h-3" />
+            ) : (
+              <WifiOff className="w-3 h-3" />
+            )}
+            <span>{healthyCount}/{totalCount}</span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs">
+          <p className="text-xs">
+            {isHealthy 
+              ? `${healthyCount} of ${totalCount} RPC endpoints healthy. Collection loading should be fast.`
+              : `Only ${healthyCount} of ${totalCount} RPCs responding. Scans may be slower.`
+            }
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
   const [disconnectType, setDisconnectType] = useState<'wallet' | 'farcaster' | 'baseapp'>('wallet');
@@ -125,7 +192,12 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
     isLoading: isBaseAppLoading,
   } = useBaseApp();
 
-  const { nfts, isLoading: isLoadingNFTs, error: nftError, chainError, balance, debug, refetch, contractAddress } = useNFTCollection(address || baseAppAddress);
+  const { nfts, isLoading: isLoadingNFTs, error: nftError, chainError, balance, debug, refetch, retryNFT, contractAddress } = useNFTCollection(address || baseAppAddress);
+
+  const copyTokenId = (tokenId: string) => {
+    navigator.clipboard.writeText(tokenId);
+    toast.success(`Token ID ${tokenId} copied!`);
+  };
 
   const handleDisconnectClick = (type: 'wallet' | 'farcaster' | 'baseapp') => {
     setDisconnectType(type);
@@ -356,11 +428,22 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
       {(isConnected || isBaseAppConnected) && (address || baseAppAddress) && (
         <div className="w-full max-w-2xl mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-display font-bold text-foreground">Your NFT Collection</h2>
-            <Button variant="ghost" size="sm" onClick={refetch} disabled={isLoadingNFTs}>
-              <RefreshCw className={cn("w-4 h-4 mr-2", isLoadingNFTs && "animate-spin")} />
-              Refresh
-            </Button>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-display font-bold text-foreground">Your NFT Collection</h2>
+              {/* Balance badge - shows count even while loading */}
+              {balance !== null && balance > 0 && (
+                <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold rounded-full bg-primary/20 text-primary border border-primary/30">
+                  {balance}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <RpcHealthIndicator />
+              <Button variant="ghost" size="sm" onClick={refetch} disabled={isLoadingNFTs}>
+                <RefreshCw className={cn("w-4 h-4 mr-2", isLoadingNFTs && "animate-spin")} />
+                Refresh
+              </Button>
+            </div>
           </div>
 
           {isLoadingNFTs ? (
@@ -422,6 +505,12 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
                 const isPending = nft.tokenId.startsWith('pending-');
                 const showPlaceholder = isLoadingNFT || hasError || isPending;
                 const displayTokenId = nft.tokenId.replace(/^(loading-|syncing-|error-|pending-)/, '');
+                const isRealToken = !nft.tokenId.startsWith('loading-') && !nft.tokenId.startsWith('syncing-') && !nft.tokenId.startsWith('error-') && !nft.tokenId.startsWith('pending-');
+                
+                // Use on-chain data for badges (more reliable than tokenURI attributes)
+                const level = nft.onChainLevel;
+                const rarity = nft.onChainRarity;
+                const rarityName = rarity !== undefined ? RARITY_NAMES[rarity] || 'Common' : undefined;
                 
                 return (
                   <Card key={nft.tokenId} className={cn(
@@ -444,12 +533,65 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
                       ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-2">
                           <ImageIcon className="w-8 h-8 text-muted-foreground/50" />
-                          {hasError && <span className="text-xs text-amber-500">Tap Refresh</span>}
+                          {hasError && (
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="text-xs text-amber-500 hover:text-amber-400 gap-1"
+                              onClick={() => isRealToken && retryNFT(nft.tokenId)}
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              Retry
+                            </Button>
+                          )}
                           {isPending && <span className="text-xs text-muted-foreground">Pending</span>}
                         </div>
                       )}
+                      
+                      {/* Level badge overlay */}
+                      {!showPlaceholder && level !== undefined && (
+                        <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-xs font-bold bg-background/80 text-foreground backdrop-blur-sm border border-border">
+                          Lv.{level}
+                        </div>
+                      )}
+                      
+                      {/* Hover overlay with actions */}
                       {!showPlaceholder && (
-                        <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center p-2 gap-1">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="secondary"
+                                  className="h-7 w-7"
+                                  onClick={() => copyTokenId(displayTokenId)}
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Copy Token ID</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <a
+                                  href={`https://basescan.org/nft/${contractAddress}/${displayTokenId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex"
+                                >
+                                  <Button size="icon" variant="secondary" className="h-7 w-7">
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </Button>
+                                </a>
+                              </TooltipTrigger>
+                              <TooltipContent>View on BaseScan</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
                       )}
                     </div>
                     <CardContent className="p-3">
@@ -460,21 +602,29 @@ export function WalletScreen({ onBack, onConnected }: WalletScreenProps) {
                         {showPlaceholder ? (
                           <span className="text-xs text-muted-foreground italic flex items-center gap-1">
                             {isLoadingNFT && <Loader2 className="w-3 h-3 animate-spin" />}
-                            {isLoadingNFT ? 'Loading...' : hasError ? 'Refresh needed' : 'Pending...'}
+                            {isLoadingNFT ? 'Loading...' : hasError ? (
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="h-auto p-0 text-xs text-amber-500 hover:text-amber-400"
+                                onClick={() => isRealToken && retryNFT(nft.tokenId)}
+                              >
+                                <RotateCcw className="w-3 h-3 mr-1" />
+                                Retry
+                              </Button>
+                            ) : 'Pending...'}
                           </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground">#{displayTokenId}</span>
+                          <span className="text-xs text-muted-foreground font-mono">#{displayTokenId}</span>
                         )}
-                        {!showPlaceholder && nft.metadata?.attributes?.find(a => a.trait_type === 'Rarity') && (
+                        
+                        {/* Rarity badge from on-chain data */}
+                        {!showPlaceholder && rarityName && (
                           <span className={cn(
                             'text-xs px-1.5 py-0.5 rounded font-medium',
-                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Mythic' && 'bg-gradient-to-r from-purple-500 to-pink-500 text-white',
-                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Legendary' && 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white',
-                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Epic' && 'bg-purple-500/20 text-purple-400',
-                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Rare' && 'bg-blue-500/20 text-blue-400',
-                            nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value === 'Common' && 'bg-muted text-muted-foreground'
+                            getRarityStyle(rarity)
                           )}>
-                            {nft.metadata.attributes.find(a => a.trait_type === 'Rarity')?.value}
+                            {rarityName}
                           </span>
                         )}
                       </div>
