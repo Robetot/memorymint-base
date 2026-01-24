@@ -21,8 +21,9 @@ const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m =>
 const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
 const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
 const AdminPanel = lazy(() => import('@/components/game/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const GameSelector = lazy(() => import('@/components/game/GameSelector').then(m => ({ default: m.GameSelector })));
 
-type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements' | 'admin';
+type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements' | 'admin' | 'memory-game';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20, scale: 0.98 },
@@ -98,6 +99,10 @@ const Index = () => {
   }, [settings.showTutorial]);
 
   const handleStartGame = () => {
+    setCurrentView('memory-game');
+  };
+
+  const handlePlayClassicMode = () => {
     setCurrentView('levels');
   };
 
@@ -270,6 +275,12 @@ const Index = () => {
               <AdminPanel walletAddress={walletAddress || ''} onClose={handleBackToMenu} />
             </Suspense>
           </AdminErrorBoundary>
+        );
+      case 'memory-game':
+        return (
+          <Suspense fallback={null}>
+            <GameSelector onBack={handleBackToMenu} onPlayClassic={handlePlayClassicMode} />
+          </Suspense>
         );
       default:
         return null;

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 const ADMIN_OWNER_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
 
-type NavView = 'welcome' | 'levels' | 'game' | 'leaderboard' | 'achievements' | 'settings' | 'wallet' | 'stats' | 'ai-art' | 'admin';
+type NavView = 'welcome' | 'levels' | 'game' | 'leaderboard' | 'achievements' | 'settings' | 'wallet' | 'stats' | 'ai-art' | 'admin' | 'memory-game';
 
 interface BottomNavProps {
   currentView: NavView;
