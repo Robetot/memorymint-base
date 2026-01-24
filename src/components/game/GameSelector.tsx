@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import { MemoryBoard } from './MemoryBoard';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Gamepad2, Sparkles, Zap, ArrowLeft } from 'lucide-react';
+import { Gamepad2, Sparkles, Zap, ArrowLeft, Layers } from 'lucide-react';
 
 type GameMode = 'classic' | 'special';
 type Difficulty = 'easy' | 'medium' | 'hard';
+
+interface GameSelectorProps {
+  onBack?: () => void;
+  onPlayClassic?: () => void;
+}
 
 const difficultySettings = {
   easy: { gridSize: 4, timeLimit: 90 },
@@ -12,7 +17,7 @@ const difficultySettings = {
   hard: { gridSize: 6, timeLimit: 90 }
 };
 
-export function GameSelector() {
+export function GameSelector({ onBack, onPlayClassic }: GameSelectorProps) {
   const [gameMode, setGameMode] = useState<GameMode | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
@@ -30,6 +35,8 @@ export function GameSelector() {
       setDifficulty(null);
     } else if (gameMode) {
       setGameMode(null);
+    } else if (onBack) {
+      onBack();
     }
   };
 
@@ -73,10 +80,38 @@ export function GameSelector() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
+              <button
+                onClick={onBack}
+                className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Home
+              </button>
+
               <div className="text-center mb-8">
                 <h1 className="text-4xl font-bold text-foreground mb-2">Memory Match</h1>
                 <p className="text-muted-foreground">Choose your game mode</p>
               </div>
+
+              {/* Option to play classic NFT game */}
+              {onPlayClassic && (
+                <motion.button
+                  onClick={onPlayClassic}
+                  className="w-full p-6 rounded-2xl bg-gradient-to-r from-primary/20 to-secondary/20 border border-primary/30 hover:border-primary transition-all shadow-lg"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 rounded-xl bg-primary/20">
+                      <Layers className="w-8 h-8 text-primary" />
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-xl font-semibold text-card-foreground">NFT Mode</h3>
+                      <p className="text-muted-foreground text-sm">Play levels & mint NFTs</p>
+                    </div>
+                  </div>
+                </motion.button>
+              )}
 
               <motion.button
                 onClick={() => setGameMode('classic')}
