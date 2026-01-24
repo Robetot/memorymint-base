@@ -5,9 +5,10 @@ import { Trophy, Clock, Zap, Target } from 'lucide-react';
 interface MemoryBoardProps {
   gridSize: number;
   timeLimit: number;
+  enableSpecialCards?: boolean;
 }
 
-export function MemoryBoard({ gridSize, timeLimit }: MemoryBoardProps) {
+export function MemoryBoard({ gridSize, timeLimit, enableSpecialCards = false }: MemoryBoardProps) {
   const {
     cards,
     flipCard,
@@ -19,7 +20,7 @@ export function MemoryBoard({ gridSize, timeLimit }: MemoryBoardProps) {
     totalPairs,
     resetGame,
     isChecking
-  } = useMemoryGame(gridSize, timeLimit);
+  } = useMemoryGame(gridSize, timeLimit, enableSpecialCards);
 
   const isWon = gameOver && matchedPairs === totalPairs;
   const isLost = gameOver && !isWon;
