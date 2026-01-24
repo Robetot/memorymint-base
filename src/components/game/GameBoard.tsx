@@ -3,7 +3,7 @@ import { GameCard } from './GameCard';
 import { CardData } from '@/hooks/useGameState';
 import { cn } from '@/lib/utils';
 import { FloatingScore } from './FloatingScore';
-import { MatchParticles, ComboParticles } from './MatchParticles';
+import { LegacyMatchParticles, ComboParticles } from './MatchParticles';
 import { useMatchSounds } from '@/hooks/useMatchSounds';
 
 interface FloatingScoreData {
@@ -252,7 +252,7 @@ export function GameBoard({
 
       {/* Match Particles */}
       {particles.map(particle => (
-        <MatchParticles
+        <LegacyMatchParticles
           key={particle.id}
           x={particle.x}
           y={particle.y}

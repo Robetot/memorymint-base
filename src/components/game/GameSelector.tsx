@@ -62,6 +62,8 @@ export function GameSelector({ onBack, onPlayClassic }: GameSelectorProps) {
             gridSize={settings.gridSize}
             timeLimit={settings.timeLimit}
             enableSpecialCards={gameMode === 'special'}
+            gameMode={gameMode}
+            difficulty={difficulty}
           />
         </div>
       </div>

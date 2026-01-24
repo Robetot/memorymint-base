@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 
 interface Particle {
-  id: number;
+  id: string;
   x: number;
   y: number;
   size: number;
@@ -10,41 +10,147 @@ interface Particle {
   speed: number;
   rotation: number;
   shape: 'circle' | 'star' | 'sparkle';
+  isEmoji?: boolean;
+  emoji?: string;
 }
 
+const COLORS = ['#FFD700', '#FF6B6B', '#4ECDC4', '#A855F7', '#F97316'];
+const EMOJIS = ['✨', '⭐', '💫', '🌟', '🔥'];
+
+// Hook for managing particles across the game
+export function useParticles() {
+  const [particles, setParticles] = useState<Particle[]>([]);
+  const particleIdRef = useRef(0);
+
+  const spawnParticles = useCallback((
+    element: HTMLElement,
+    count: number = 6,
+    useEmoji: boolean = false
+  ) => {
+    const rect = element.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    const shapes: Particle['shape'][] = ['circle', 'star', 'sparkle'];
+    const newParticles: Particle[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const id = `particle-${Date.now()}-${particleIdRef.current++}`;
+      newParticles.push({
+        id,
+        x: centerX,
+        y: centerY,
+        size: 8 + Math.random() * 6,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        angle: (Math.PI * 2 * i) / count + Math.random() * 0.3,
+        speed: 50 + Math.random() * 50,
+        rotation: Math.random() * 360,
+        shape: shapes[Math.floor(Math.random() * shapes.length)],
+        isEmoji: useEmoji,
+        emoji: useEmoji ? EMOJIS[Math.floor(Math.random() * EMOJIS.length)] : undefined
+      });
+    }
+
+    setParticles(prev => [...prev, ...newParticles]);
+
+    // Auto-cleanup after animation
+    setTimeout(() => {
+      setParticles(prev => prev.filter(p => !newParticles.find(np => np.id === p.id)));
+    }, 800);
+  }, []);
+
+  return { particles, spawnParticles };
+}
+
+// Particle display component
 interface MatchParticlesProps {
+  particles: Particle[];
+  useEmoji?: boolean;
+}
+
+export function MatchParticles({ particles, useEmoji = false }: MatchParticlesProps) {
+  const renderShape = (particle: Particle) => {
+    if (particle.isEmoji && particle.emoji) {
+      return <span className="text-lg">{particle.emoji}</span>;
+    }
+
+    switch (particle.shape) {
+      case 'star':
+        return (
+          <svg viewBox="0 0 24 24" fill={particle.color} className="w-full h-full">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+          </svg>
+        );
+      case 'sparkle':
+        return (
+          <svg viewBox="0 0 24 24" fill={particle.color} className="w-full h-full">
+            <path d="M12 0L14 10L24 12L14 14L12 24L10 14L0 12L10 10L12 0Z" />
+          </svg>
+        );
+      default:
+        return (
+          <div 
+            className="w-full h-full rounded-full"
+            style={{ backgroundColor: particle.color }}
+          />
+        );
+    }
+  };
+
+  if (particles.length === 0) return null;
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+      {particles.map((particle) => (
+        <div
+          key={particle.id}
+          className="absolute"
+          style={{
+            left: particle.x,
+            top: particle.y,
+            width: particle.size,
+            height: particle.size,
+            transform: `rotate(${particle.rotation}deg)`,
+            animation: `particle-explode 0.6s ease-out forwards`,
+            '--particle-x': `${Math.cos(particle.angle) * particle.speed}px`,
+            '--particle-y': `${Math.sin(particle.angle) * particle.speed}px`,
+          } as React.CSSProperties}
+        >
+          {renderShape(particle)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Legacy component for backwards compatibility
+interface LegacyMatchParticlesProps {
   x: number;
   y: number;
   combo: number;
   onComplete: () => void;
 }
 
-const COLORS = ['#FFD700', '#FF6B6B', '#4ECDC4', '#A855F7', '#F97316'];
-
-export function MatchParticles({ x, y, combo, onComplete }: MatchParticlesProps) {
+export function LegacyMatchParticles({ x, y, combo, onComplete }: LegacyMatchParticlesProps) {
   const [particles, setParticles] = useState<Particle[]>([]);
   const onCompleteRef = useRef(onComplete);
   const hasInitRef = useRef(false);
   
-  // Keep ref updated but don't trigger effect
   useEffect(() => {
     onCompleteRef.current = onComplete;
   });
 
   useEffect(() => {
-    // Only initialize once
     if (hasInitRef.current) return;
     hasInitRef.current = true;
     
-    // Limit particle count based on combo
     const particleCount = Math.min(8 + combo * 2, 16);
-    
     const newParticles: Particle[] = [];
     const shapes: Particle['shape'][] = ['circle', 'star', 'sparkle'];
 
     for (let i = 0; i < particleCount; i++) {
       newParticles.push({
-        id: i,
+        id: `legacy-${i}`,
         x: 0,
         y: 0,
         size: 6 + Math.random() * 4,
@@ -58,13 +164,12 @@ export function MatchParticles({ x, y, combo, onComplete }: MatchParticlesProps)
 
     setParticles(newParticles);
 
-    // Auto-cleanup after animation
     const timer = setTimeout(() => {
       onCompleteRef.current();
     }, 600);
 
     return () => clearTimeout(timer);
-  }, []); // Empty deps - only run once on mount
+  }, []);
 
   const renderShape = (particle: Particle) => {
     switch (particle.shape) {
@@ -127,7 +232,6 @@ export function ComboParticles({ combo }: ComboParticlesProps) {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
@@ -136,9 +240,7 @@ export function ComboParticles({ combo }: ComboParticlesProps) {
   }, []);
 
   useEffect(() => {
-    // Only trigger sparks when combo increases to 2+
     if (combo >= 2 && combo > prevComboRef.current) {
-      // Clear existing timer
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
@@ -150,7 +252,6 @@ export function ComboParticles({ combo }: ComboParticlesProps) {
       }));
       setSparks(newSparks);
       
-      // Auto-cleanup sparks
       timerRef.current = setTimeout(() => {
         setSparks([]);
       }, 800);
