@@ -55,7 +55,7 @@ export function useParticles() {
 
     // Auto-cleanup after animation
     setTimeout(() => {
-      setParticles(prev => prev.filter(p => !newParticles.find(np => np.id === p.id)));
+      setParticles(prev => prev.filter(p => !newParticles.some(np => np.id === p.id)));
     }, 800);
   }, []);
 
