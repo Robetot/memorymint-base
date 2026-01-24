@@ -165,10 +165,13 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     prevComboRef.current = gameState.combo;
   }, [gameState.combo, trackCombo]);
 
-  // Handle game over - calculate rarity and track achievements (no sounds)
+  // Handle game over - calculate rarity and track achievements
   useEffect(() => {
     if (gameState.isGameOver) {
       if (gameState.isWin) {
+        // Play win sound
+        playWinSound();
+        
         // Track achievements
         trackLevelComplete();
         const completionTime = levelConfig.time - gameState.timeRemaining;
@@ -212,10 +215,12 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
             setShowScoreSubmit(true);
           }
         }
+      } else {
+        // Play lose sound
+        playLoseSound();
       }
-      // No sounds on win or lose
     }
-  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, levelConfig.time, levelConfig.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, settings.playerName, addEntry]);
+  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, levelConfig.time, levelConfig.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, settings.playerName, addEntry, playWinSound, playLoseSound]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
