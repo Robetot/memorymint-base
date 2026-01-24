@@ -8,6 +8,7 @@ import { useBackgroundMusic } from '@/hooks/useBackgroundMusic';
 import { useWallet } from '@/hooks/useWallet';
 import { RarityResult } from '@/utils/rarityCalculator';
 import { AdminErrorBoundary, AdminPanelRouteFallback } from '@/components/game/admin';
+import { MemoryGame } from '@/components/game/MemoryGame';
 
 // Lazy load components not needed on initial page load
 const GameScreen = lazy(() => import('@/components/game/GameScreen').then(m => ({ default: m.GameScreen })));
@@ -21,7 +22,6 @@ const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m =>
 const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
 const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
 const AdminPanel = lazy(() => import('@/components/game/AdminPanel').then(m => ({ default: m.AdminPanel })));
-const GameSelector = lazy(() => import('@/components/game/GameSelector').then(m => ({ default: m.GameSelector })));
 
 type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements' | 'admin' | 'memory-game';
 
@@ -277,11 +277,7 @@ const Index = () => {
           </AdminErrorBoundary>
         );
       case 'memory-game':
-        return (
-          <Suspense fallback={null}>
-            <GameSelector onBack={handleBackToMenu} onPlayClassic={handlePlayClassicMode} />
-          </Suspense>
-        );
+        return <MemoryGame onBack={handleBackToMenu} />;
       default:
         return null;
     }
