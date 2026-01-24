@@ -99,7 +99,7 @@ const Index = () => {
   }, [settings.showTutorial]);
 
   const handleStartGame = () => {
-    setCurrentView('memory-game');
+    setCurrentView('levels');
   };
 
   const handlePlayClassicMode = () => {
