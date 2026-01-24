@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type MouseEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trophy, RotateCcw, Star, Target, Zap, ArrowLeft } from "lucide-react";
 
@@ -52,7 +52,7 @@ const useGameParticles = () => {
   return { particles, spawnParticles };
 };
 
-const ParticleLayer: React.FC<{ particles: Particle[] }> = ({ particles }) => (
+const ParticleLayer = ({ particles }: { particles: Particle[] }) => (
   <>
     {particles.map(p => (
       <motion.div
@@ -167,7 +167,7 @@ export function MemoryGame({ onBack }: MemoryGameProps) {
   }, [matchedPairs, score, difficulty, highScores, currentConfig]);
 
   /* -------------------- Handle Card Click -------------------- */
-  const handleCardClick = (index: number, e: React.MouseEvent) => {
+  const handleCardClick = (index: number, e: MouseEvent<HTMLButtonElement>) => {
     if (
       !gameStarted ||
       timeLeft <= 0 ||
