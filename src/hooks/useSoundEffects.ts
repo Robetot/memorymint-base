@@ -198,6 +198,29 @@ class SynthSoundManager {
     this.playTone(2217, 0.15, 'sine', 0.16, 0.25);
   }
 
+  playPerfect() {
+    // Magical fanfare for perfect game - ascending sparkle celebration
+    this.playTone(523, 0.1, 'sine', 0, 0.35);      // C5
+    this.playTone(659, 0.1, 'sine', 0.08, 0.35);   // E5
+    this.playTone(784, 0.1, 'sine', 0.16, 0.35);   // G5
+    this.playTone(1047, 0.15, 'sine', 0.24, 0.4);  // C6
+    this.playTone(1319, 0.12, 'sine', 0.35, 0.35); // E6
+    this.playTone(1568, 0.18, 'sine', 0.45, 0.3);  // G6
+    this.playTone(2093, 0.25, 'sine', 0.55, 0.25); // C7 - shimmer
+  }
+
+  playTimerTick() {
+    // Tense ticking sound for timer warning
+    this.playTone(800, 0.05, 'square', 0, 0.15);
+    this.playNoise(0.02, 0.05, 0.08);
+  }
+
+  playTimerCritical() {
+    // Urgent alarm for critical timer (<=5s)
+    this.playTone(1000, 0.08, 'square', 0, 0.25);
+    this.playTone(800, 0.08, 'square', 0.1, 0.25);
+  }
+
   setMuted(muted: boolean) {
     this._isMuted = muted;
   }
@@ -287,6 +310,18 @@ export function useSoundEffects() {
     managerRef.current.playCombo();
   }, []);
 
+  const playPerfectSound = useCallback(() => {
+    managerRef.current.playPerfect();
+  }, []);
+
+  const playTimerTickSound = useCallback(() => {
+    managerRef.current.playTimerTick();
+  }, []);
+
+  const playTimerCriticalSound = useCallback(() => {
+    managerRef.current.playTimerCritical();
+  }, []);
+
   const setMuted = useCallback((muted: boolean) => {
     managerRef.current.setMuted(muted);
   }, []);
@@ -309,6 +344,9 @@ export function useSoundEffects() {
     playLoseSound,
     playClickSound,
     playComboSound,
+    playPerfectSound,
+    playTimerTickSound,
+    playTimerCriticalSound,
     setMuted,
     setVolume,
     stopAll,

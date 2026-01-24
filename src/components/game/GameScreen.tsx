@@ -45,6 +45,10 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     playWinSound,
     playLoseSound,
     playClickSound,
+    playComboSound,
+    playPerfectSound,
+    playTimerTickSound,
+    playTimerCriticalSound,
     setMuted,
   } = useSoundEffects();
   
@@ -156,14 +160,15 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
     }
   }, [usePowerUp, trackPowerUp, playPowerUpSound]);
 
-  // Track combo achievements
+  // Track combo achievements and play combo sound
   const prevComboRef = useRef(0);
   useEffect(() => {
     if (gameState.combo > 1 && gameState.combo > prevComboRef.current) {
       trackCombo(gameState.combo);
+      playComboSound();
     }
     prevComboRef.current = gameState.combo;
-  }, [gameState.combo, trackCombo]);
+  }, [gameState.combo, trackCombo, playComboSound]);
 
   // Handle game over - calculate rarity and track achievements
   useEffect(() => {
@@ -178,6 +183,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         trackSpeed(completionTime);
         if (perfectGame) {
           trackPerfectGame();
+          playPerfectSound(); // Magical fanfare for perfect game
         }
         trackDailyChallenge();
         
@@ -220,7 +226,7 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
         playLoseSound();
       }
     }
-  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, levelConfig.time, levelConfig.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, settings.playerName, addEntry, playWinSound, playLoseSound]);
+  }, [gameState.isGameOver, gameState.isWin, gameState.score, getTopScore, level, gameState.timeRemaining, levelConfig.time, levelConfig.gridSize, gameState.moves, totalPairs, gameState.maxCombo, perfectGame, trackLevelComplete, trackSpeed, trackPerfectGame, trackDailyChallenge, settings.playerName, addEntry, playWinSound, playLoseSound, playPerfectSound]);
 
   const handleCardClick = useCallback((cardId: number) => {
     playFlipSound();
@@ -452,7 +458,9 @@ export function GameScreen({ onBackToMenu, level, onCreateArt, onNextLevel }: Ga
       {/* Timer Warning Effect */}
       <TimerWarning 
         timeRemaining={gameState.timeRemaining} 
-        isPlaying={gameState.isPlaying && !isPaused} 
+        isPlaying={gameState.isPlaying && !isPaused}
+        onTickSound={playTimerTickSound}
+        onCriticalSound={playTimerCriticalSound}
       />
 
       {/* Perfect Game Indicator */}
