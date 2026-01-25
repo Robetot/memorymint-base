@@ -22,8 +22,9 @@ const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m =>
 const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
 const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
 const AdminPanel = lazy(() => import('@/components/game/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const Week01Game = lazy(() => import('@/components/weekly/Week01Game'));
 
-type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements' | 'admin' | 'memory-game';
+type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements' | 'admin' | 'memory-game' | 'weekly';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20, scale: 0.98 },
@@ -106,6 +107,10 @@ const Index = () => {
     setCurrentView('levels');
   };
 
+  const handleStartWeeklyChallenge = () => {
+    setCurrentView('weekly');
+  };
+
   const handleConnectWallet = () => {
     setCurrentView('wallet');
   };
@@ -181,6 +186,7 @@ const Index = () => {
             onViewStats={handleViewStats}
             onViewAchievements={handleViewAchievements}
             onStartDailyChallenge={handleStartDailyChallenge}
+            onStartWeeklyChallenge={handleStartWeeklyChallenge}
             achievementCount={{ unlocked: unlockedCount, total: totalCount }}
           />
         );
@@ -278,6 +284,12 @@ const Index = () => {
         );
       case 'memory-game':
         return <MemoryGame onBack={handleBackToMenu} />;
+      case 'weekly':
+        return (
+          <Suspense fallback={null}>
+            <Week01Game onBack={handleBackToMenu} />
+          </Suspense>
+        );
       default:
         return null;
     }

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 const ADMIN_OWNER_ADDRESS = '0x830f4c15480aa516a0cc4826902443936f9596cf';
 
-type NavView = 'welcome' | 'levels' | 'game' | 'leaderboard' | 'achievements' | 'settings' | 'wallet' | 'stats' | 'ai-art' | 'admin' | 'memory-game';
+type NavView = 'welcome' | 'levels' | 'game' | 'leaderboard' | 'achievements' | 'settings' | 'wallet' | 'stats' | 'ai-art' | 'admin' | 'memory-game' | 'weekly';
 
 interface BottomNavProps {
   currentView: NavView;
@@ -22,7 +22,7 @@ const navItems = [
 
 export function BottomNav({ currentView, onNavigate, walletAddress }: BottomNavProps) {
   // Hide bottom nav during gameplay
-  if (currentView === 'game' || currentView === 'ai-art') {
+  if (currentView === 'game' || currentView === 'ai-art' || currentView === 'weekly') {
     return null;
   }
 

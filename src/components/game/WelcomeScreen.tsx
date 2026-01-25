@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3, Award } from 'lucide-react';
+import { Sparkles, Play, Wallet, Trophy, Settings, BarChart3, Award, Calendar } from 'lucide-react';
 import { DailyChallengeCard } from './DailyChallengeCard';
 import { useDailyChallenge } from '@/hooks/useDailyChallenge';
 
@@ -16,6 +16,7 @@ interface WelcomeScreenProps {
   onViewStats?: () => void;
   onViewAchievements?: () => void;
   onStartDailyChallenge?: (gridSize: number, timeLimit: number) => void;
+  onStartWeeklyChallenge?: () => void;
   achievementCount?: { unlocked: number; total: number };
 }
 
@@ -34,6 +35,7 @@ export function WelcomeScreen({
   onViewStats, 
   onViewAchievements,
   onStartDailyChallenge,
+  onStartWeeklyChallenge,
   achievementCount,
 }: WelcomeScreenProps) {
   const { challenge, getStreak } = useDailyChallenge();
@@ -71,12 +73,26 @@ export function WelcomeScreen({
       </div>
 
       {/* Daily Challenge Card */}
-      <div className="relative z-10 w-full max-w-sm space-y-4 mb-4">
+      <div className="relative z-10 w-full max-w-sm space-y-3 mb-4">
         <DailyChallengeCard
           challenge={challenge}
           streak={getStreak()}
           onStart={handleStartDailyChallenge}
         />
+        
+        {/* Weekly Challenge Button */}
+        {onStartWeeklyChallenge && (
+          <Button
+            onClick={onStartWeeklyChallenge}
+            variant="outline"
+            className="w-full py-4 rounded-xl font-display border-primary/50 hover:border-primary hover:bg-primary/5 transition-all"
+          >
+            <Calendar className="w-5 h-5 mr-2 text-primary" />
+            <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent font-semibold">
+              Weekly Challenge: The Forgotten Atelier
+            </span>
+          </Button>
+        )}
       </div>
 
       {/* Animal cards */}
