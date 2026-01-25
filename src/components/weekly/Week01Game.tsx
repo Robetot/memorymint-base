@@ -4,7 +4,7 @@ import { Week01MemoryPhase } from "./Week01MemoryPhase";
 import { Week01Distortion } from "./Week01Distortion";
 import { WeeklyCompleteModal } from "./WeeklyCompleteModal";
 import { WEEK_01 } from "./week01.data";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Week01FlowProps {
@@ -12,7 +12,7 @@ interface Week01FlowProps {
 }
 
 function Week01Flow({ onBack }: Week01FlowProps) {
-  const { phase, completed, resetGame } = useWeeklyGame();
+  const { phase, completed, resetGame, foundObjects } = useWeeklyGame();
 
   const handleClose = () => {
     resetGame();
@@ -33,30 +33,46 @@ function Week01Flow({ onBack }: Week01FlowProps) {
         }}
       />
 
-      {/* Back button */}
-      {onBack && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleClose}
-          className="absolute top-4 left-4 z-40"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-      )}
+      {/* Fixed Header */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-card/90 backdrop-blur-md border-b border-border px-4 py-3">
+        <div className="flex items-center justify-between max-w-lg mx-auto">
+          {/* Back button */}
+          {onBack && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClose}
+              className="p-2"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+          )}
 
-      {/* Title */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 text-center">
-        <h1 className="text-xl font-bold text-foreground">{WEEK_01.title}</h1>
-        <p className="text-sm text-muted-foreground">Week {WEEK_01.weekId}</p>
-      </div>
+          {/* Title */}
+          <div className="text-center flex-1">
+            <h1 className="text-lg font-bold text-foreground">{WEEK_01.title}</h1>
+            <p className="text-xs text-muted-foreground">Week {WEEK_01.weekId}</p>
+          </div>
+
+          {/* Progress indicator for hidden phase */}
+          {phase === "hidden" && (
+            <div className="flex items-center gap-1.5 bg-primary/10 px-3 py-1.5 rounded-full">
+              <Search className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium text-primary">
+                {foundObjects.length}/{WEEK_01.hiddenObjects.length}
+              </span>
+            </div>
+          )}
+          
+          {phase !== "hidden" && <div className="w-16" />}
+        </div>
+      </header>
 
       {/* Distortion overlay during hidden phase */}
       <Week01Distortion active={phase === "hidden"} />
 
       {/* Game phases */}
-      <div className="relative z-20">
+      <div className="relative z-20 pt-16">
         {phase === "hidden" && <Week01HiddenPhase />}
         {phase === "memory" && <Week01MemoryPhase />}
       </div>

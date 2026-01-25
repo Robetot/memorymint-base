@@ -24,11 +24,11 @@ export const WEEK_01: WeekData = {
   weekId: 1,
   title: "The Forgotten Atelier",
   hiddenObjects: [
-    { id: "mirror", position: { top: "15%", left: "20%" }, size: { width: "80px", height: "80px" } },
-    { id: "clock", position: { top: "40%", left: "70%" }, size: { width: "80px", height: "80px" } },
-    { id: "key", position: { top: "60%", left: "30%" }, size: { width: "60px", height: "60px" } },
-    { id: "brush", position: { top: "75%", left: "50%" }, size: { width: "70px", height: "70px" } },
-    { id: "letter", position: { top: "20%", left: "80%" }, size: { width: "75px", height: "75px" } },
+    { id: "mirror", position: { top: "15%", left: "10%" }, size: { width: "65px", height: "65px" } },
+    { id: "clock", position: { top: "35%", left: "70%" }, size: { width: "65px", height: "65px" } },
+    { id: "key", position: { top: "55%", left: "20%" }, size: { width: "55px", height: "55px" } },
+    { id: "brush", position: { top: "70%", left: "60%" }, size: { width: "60px", height: "60px" } },
+    { id: "letter", position: { top: "45%", left: "40%" }, size: { width: "60px", height: "60px" } },
   ],
   memoryPairs: [
     ["mirror", "clock"],
