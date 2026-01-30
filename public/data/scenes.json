@@ -1,0 +1,20 @@
+{
+  "_comment": "Scene configuration - placeholder for ChatGPT",
+  "scenes": [
+    {
+      "id": "barracks",
+      "background": "/assets/images/backgrounds/scene_barracks.png",
+      "objects": []
+    },
+    {
+      "id": "market",
+      "background": "/assets/images/backgrounds/scene_market.png",
+      "objects": []
+    },
+    {
+      "id": "forum",
+      "background": "/assets/images/backgrounds/scene_forum.png",
+      "objects": []
+    }
+  ]
+}

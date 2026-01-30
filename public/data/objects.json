@@ -1,0 +1,25 @@
+{
+  "_comment": "Object definitions - placeholder for ChatGPT",
+  "objects": {
+    "1x1": [
+      "gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring",
+      "dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask", "mosaic_tile"
+    ],
+    "2x3": [
+      "ceramic_vase", "centurion_helmet", "torch", "aquila_standard", "perfume_bottle"
+    ],
+    "3x2": [
+      "open_scroll", "gladius_sword", "empire_map", "legionary_shield"
+    ]
+  },
+  "basePaths": {
+    "1x1": "/assets/images/objects/1x1/",
+    "2x3": "/assets/images/objects/2x3/",
+    "3x2": "/assets/images/objects/3x2/"
+  },
+  "dimensions": {
+    "1x1": { "width": 960, "height": 960 },
+    "2x3": { "width": 784, "height": 1176 },
+    "3x2": { "width": 1176, "height": 784 }
+  }
+}

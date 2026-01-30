@@ -1,0 +1,28 @@
+{
+  "_comment": "Audio event mapping - placeholder for ChatGPT",
+  "sfx": {
+    "objectFound": "/assets/audio/sfx/SFX_Object_Found.mp3",
+    "wrongTap": "/assets/audio/sfx/SFX_Wrong_Tap.mp3",
+    "uiTap": "/assets/audio/sfx/SFX_UI_Tap.mp3",
+    "menuOpen": "/assets/audio/sfx/SFX_Menu_Open.mp3",
+    "menuClose": "/assets/audio/sfx/SFX_Menu_Close.mp3",
+    "hintAvailable": "/assets/audio/sfx/SFX_Hint_Available.mp3",
+    "hintUsed": "/assets/audio/sfx/SFX_Hint_Used.mp3",
+    "sceneLoad": "/assets/audio/sfx/SFX_Scene_Load.mp3"
+  },
+  "voice": {
+    "sceneStart": "/assets/audio/voice/VO_Scene_Start.mp3",
+    "midScene": "/assets/audio/voice/VO_Mid_Scene.mp3",
+    "sceneComplete": "/assets/audio/voice/VO_Scene_Complete.mp3"
+  },
+  "eventMapping": {
+    "OBJECT_FOUND": "sfx.objectFound",
+    "WRONG_TAP": "sfx.wrongTap",
+    "SCENE_LOAD": "sfx.sceneLoad",
+    "HINT_AVAILABLE": "sfx.hintAvailable",
+    "HINT_USED": "sfx.hintUsed",
+    "SCENE_START": "voice.sceneStart",
+    "MID_SCENE": "voice.midScene",
+    "SCENE_COMPLETE": "voice.sceneComplete"
+  }
+}
