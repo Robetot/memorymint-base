@@ -1,0 +1,33 @@
+{
+  "_comment": "Difficulty settings - placeholder for ChatGPT",
+  "difficulties": {
+    "easy": {
+      "objectCount": 5,
+      "timerEnabled": false,
+      "timerSeconds": null,
+      "hintCount": 3,
+      "hitboxScale": 1.3,
+      "wrongTapPenalty": 0
+    },
+    "medium": {
+      "objectCount": 10,
+      "timerEnabled": true,
+      "timerSeconds": 180,
+      "hintCount": 2,
+      "hitboxScale": 1.2,
+      "wrongTapPenalty": 0
+    },
+    "hard": {
+      "objectCount": 20,
+      "timerEnabled": true,
+      "timerSeconds": 120,
+      "hintCount": 1,
+      "hitboxScale": 1.1,
+      "wrongTapPenalty": 5
+    }
+  },
+  "hitbox": {
+    "minimumTapSize": 48,
+    "usePolygonHitboxes": true
+  }
+}
