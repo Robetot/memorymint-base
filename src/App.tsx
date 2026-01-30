@@ -8,6 +8,7 @@ import { FarcasterProvider } from "@/contexts/FarcasterContext";
 import { BaseAppProvider } from "@/contexts/BaseAppContext";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import WeeklyChallenge from "./pages/WeeklyChallenge";
 
 // Contract state check helper (manual): run `window.checkAdminConfig()` in console when needed.
 import '@/utils/contractStateCheck';
@@ -39,6 +40,7 @@ const App = () => (
             <BrowserRouter>
               <Routes>
                 <Route path="/" element={<Index />} />
+                <Route path="/weekly" element={<WeeklyChallenge />} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
