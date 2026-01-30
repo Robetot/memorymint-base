@@ -22,7 +22,7 @@ const StatsScreen = lazy(() => import('@/components/game/StatsScreen').then(m =>
 const AchievementsPanel = lazy(() => import('@/components/game/AchievementsPanel').then(m => ({ default: m.AchievementsPanel })));
 const AchievementUnlockPopup = lazy(() => import('@/components/game/AchievementUnlockPopup').then(m => ({ default: m.AchievementUnlockPopup })));
 const AdminPanel = lazy(() => import('@/components/game/AdminPanel').then(m => ({ default: m.AdminPanel })));
-const Week01Game = lazy(() => import('@/components/weekly/Week01Game'));
+const HopaGameWrapper = lazy(() => import('@/components/weekly/HopaGameWrapper'));
 
 type GameView = 'welcome' | 'wallet' | 'levels' | 'game' | 'leaderboard' | 'ai-art' | 'settings' | 'stats' | 'achievements' | 'admin' | 'memory-game' | 'weekly';
 
@@ -287,7 +287,7 @@ const Index = () => {
       case 'weekly':
         return (
           <Suspense fallback={null}>
-            <Week01Game onBack={handleBackToMenu} />
+            <HopaGameWrapper onBack={handleBackToMenu} />
           </Suspense>
         );
       default:
