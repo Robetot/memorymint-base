@@ -176,7 +176,13 @@ class HopaScene extends Phaser.Scene {
 
     create() {
         this.isTransitioning = false;
-        this.add.image(640, 360, this.bgKey).setDisplaySize(1280, 720);
+        
+        // Background image
+        const bg = this.add.image(640, 360, this.bgKey).setDisplaySize(1280, 720);
+        
+        // Make background interactive for wrong tap detection
+        bg.setInteractive({ useHandCursor: false });
+        bg.on("pointerdown", () => this.handleWrongTap());
 
         this.difficulty = this.registry.get("difficulty");
         this.soundEnabled = this.registry.get("soundEnabled");
@@ -198,6 +204,41 @@ class HopaScene extends Phaser.Scene {
         this.placeObjects();
         this.createUI();
         this.startTimer();
+    }
+
+    // Handle wrong tap on empty space
+    handleWrongTap() {
+        if (this.isTransitioning) return;
+        
+        if (this.soundEnabled) {
+            this.sound.play("SFX_Wrong_Tap");
+        }
+        
+        // Hard mode penalty: -5 seconds
+        if (this.difficulty === "Hard" && this.timeLeft > 0) {
+            this.timeLeft = Math.max(0, this.timeLeft - 5);
+            this.timerText.setText(this.formatTime(this.timeLeft));
+            
+            // Flash timer red to indicate penalty
+            this.tweens.add({
+                targets: this.timerText,
+                scale: 1.3,
+                duration: 100,
+                yoyo: true,
+                onStart: () => this.timerText.setColor("#ff0000"),
+                onComplete: () => {
+                    if (this.timeLeft <= 30) {
+                        this.timerText.setColor("#ef4444");
+                    } else {
+                        this.timerText.setColor("#ffffff");
+                    }
+                }
+            });
+            
+            if (this.timeLeft <= 0) {
+                this.gameOver(false);
+            }
+        }
     }
 
     // Play narrative audio - single instance, stops any previous
