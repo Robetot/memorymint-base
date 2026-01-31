@@ -143,6 +143,8 @@ class DifficultySelectScene extends Phaser.Scene {
             if (this.registry.get("soundEnabled")) {
                 this.sound.play("SFX_UI_Tap");
             }
+            // Reset narrative tracking for new game session
+            HopaScene.resetNarrativeTracking();
             this.scene.start("BarracksScene");
         });
     }
@@ -166,6 +168,11 @@ class HopaScene extends Phaser.Scene {
     protected ambientMusic?: Phaser.Sound.BaseSound;
     protected narrativeAudio?: Phaser.Sound.BaseSound;
     protected isTransitioning: boolean = false;
+    protected isNarrativePlaying: boolean = false;
+    protected narrativeIndicator?: Phaser.GameObjects.Container;
+    
+    // Static tracking for played narratives across scenes
+    protected static playedNarratives: Set<string> = new Set();
 
     constructor(key: string, bgKey: string, ambientKey: string, objects: string[]) {
         super(key);
@@ -173,9 +180,30 @@ class HopaScene extends Phaser.Scene {
         this.ambientKey = ambientKey;
         this.objects = objects;
     }
+    
+    // Get unique key for narrative tracking (scene + narrative type)
+    protected getNarrativeKey(narrativeType: string): string {
+        return `${this.scene.key}_${narrativeType}`;
+    }
+    
+    // Check if narrative was already played
+    protected hasPlayedNarrative(narrativeType: string): boolean {
+        return HopaScene.playedNarratives.has(this.getNarrativeKey(narrativeType));
+    }
+    
+    // Mark narrative as played
+    protected markNarrativePlayed(narrativeType: string): void {
+        HopaScene.playedNarratives.add(this.getNarrativeKey(narrativeType));
+    }
+    
+    // Reset all narrative tracking (for new game session)
+    public static resetNarrativeTracking(): void {
+        HopaScene.playedNarratives.clear();
+    }
 
     create() {
         this.isTransitioning = false;
+        this.isNarrativePlaying = false;
         
         // Background image
         const bg = this.add.image(640, 360, this.bgKey).setDisplaySize(1280, 720);
@@ -190,8 +218,8 @@ class HopaScene extends Phaser.Scene {
         if (this.soundEnabled) {
             this.sound.play("SFX_Scene_Load");
             this.time.delayedCall(500, () => {
-                if (this.soundEnabled && !this.isTransitioning) {
-                    this.playNarrative("VO_Scene_Start");
+                if (this.soundEnabled && !this.isTransitioning && !this.hasPlayedNarrative("VO_Scene_Start")) {
+                    this.playNarrative("VO_Scene_Start", undefined, "VO_Scene_Start");
                 }
             });
             
@@ -205,10 +233,48 @@ class HopaScene extends Phaser.Scene {
         this.createUI();
         this.startTimer();
     }
+    
+    // Create narrative indicator UI
+    protected showNarrativeIndicator() {
+        if (this.narrativeIndicator) return;
+        
+        this.narrativeIndicator = this.add.container(640, 680);
+        
+        const bg = this.add.rectangle(0, 0, 160, 36, 0x000000, 0.7)
+            .setStrokeStyle(2, 0xffd700);
+        
+        const text = this.add.text(0, 0, "🎙️ Narrating...", {
+            font: "bold 16px Arial",
+            color: "#ffd700"
+        }).setOrigin(0.5);
+        
+        this.narrativeIndicator.add([bg, text]);
+        this.narrativeIndicator.setDepth(1000);
+        
+        // Pulse animation
+        this.tweens.add({
+            targets: this.narrativeIndicator,
+            alpha: 0.7,
+            duration: 600,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.easeInOut"
+        });
+    }
+    
+    // Hide narrative indicator
+    protected hideNarrativeIndicator() {
+        if (this.narrativeIndicator) {
+            this.tweens.killTweensOf(this.narrativeIndicator);
+            this.narrativeIndicator.destroy();
+            this.narrativeIndicator = undefined;
+        }
+    }
 
     // Handle wrong tap on empty space
     handleWrongTap() {
-        if (this.isTransitioning) return;
+        // Block during narrative or transition
+        if (this.isTransitioning || this.isNarrativePlaying) return;
         
         if (this.soundEnabled) {
             this.sound.play("SFX_Wrong_Tap");
@@ -241,38 +307,50 @@ class HopaScene extends Phaser.Scene {
         }
     }
 
-    // Play narrative audio - single instance, stops any previous
-    playNarrative(key: string, onComplete?: () => void) {
+    // Play narrative audio - single instance, blocks gameplay, prevents duplicates
+    playNarrative(key: string, onComplete?: () => void, trackingKey?: string) {
+        // Prevent duplicate playback if tracking key provided
+        if (trackingKey && this.hasPlayedNarrative(trackingKey)) {
+            if (onComplete) onComplete();
+            return;
+        }
+        
         this.stopNarrative();
         
         if (!this.soundEnabled) {
+            if (trackingKey) this.markNarrativePlayed(trackingKey);
             if (onComplete) onComplete();
             return;
         }
 
+        // Set narrative playing state and show indicator
+        this.isNarrativePlaying = true;
+        this.showNarrativeIndicator();
+        
         this.narrativeAudio = this.sound.add(key, { loop: false, volume: 1.0 });
         
-        if (onComplete) {
-            this.narrativeAudio.once('complete', () => {
-                this.narrativeAudio = undefined;
-                onComplete();
-            });
-        } else {
-            this.narrativeAudio.once('complete', () => {
-                this.narrativeAudio = undefined;
-            });
-        }
+        const handleComplete = () => {
+            this.isNarrativePlaying = false;
+            this.hideNarrativeIndicator();
+            this.narrativeAudio = undefined;
+            if (trackingKey) this.markNarrativePlayed(trackingKey);
+            if (onComplete) onComplete();
+        };
         
+        this.narrativeAudio.once('complete', handleComplete);
         this.narrativeAudio.play();
     }
 
-    // Stop and cleanup narrative audio
+    // Stop and cleanup narrative audio - always restore input state
     stopNarrative() {
         if (this.narrativeAudio) {
             this.narrativeAudio.stop();
             this.narrativeAudio.destroy();
             this.narrativeAudio = undefined;
         }
+        // Always restore input state on stop
+        this.isNarrativePlaying = false;
+        this.hideNarrativeIndicator();
     }
 
     stopAmbient() {
@@ -422,6 +500,9 @@ class HopaScene extends Phaser.Scene {
     }
 
     pickObject(sprite: Phaser.GameObjects.Image) {
+        // Block during narrative or transition
+        if (this.isNarrativePlaying || this.isTransitioning) return;
+        
         sprite.disableInteractive();
 
         // Animate and hide
@@ -441,9 +522,9 @@ class HopaScene extends Phaser.Scene {
         this.found++;
         this.counter.setText("Found: " + this.found + " / " + this.objects.length);
 
-        // Check for mid-scene voice
-        if (this.found === Math.floor(this.objects.length / 2) && this.soundEnabled) {
-            this.playNarrative("VO_Mid_Scene");
+        // Check for mid-scene voice (only play once per scene)
+        if (this.found === Math.floor(this.objects.length / 2) && this.soundEnabled && !this.hasPlayedNarrative("VO_Mid_Scene")) {
+            this.playNarrative("VO_Mid_Scene", undefined, "VO_Mid_Scene");
         }
 
         if (this.found === this.objects.length) {
@@ -456,7 +537,7 @@ class HopaScene extends Phaser.Scene {
                 this.playNarrative("VO_Scene_Complete", () => {
                     // Only transition after narrative completes
                     this.nextScene();
-                });
+                }, "VO_Scene_Complete");
             });
             
             // Fallback if sound disabled
@@ -467,6 +548,8 @@ class HopaScene extends Phaser.Scene {
     }
 
     useHint() {
+        // Block during narrative or transition
+        if (this.isNarrativePlaying || this.isTransitioning) return;
         if (this.hints <= 0) return;
 
         const remaining = this.sprites.filter(s => s.visible);
