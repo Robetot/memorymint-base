@@ -67,6 +67,11 @@ class BootScene extends Phaser.Scene {
         ["VO_Scene_Start", "VO_Mid_Scene", "VO_Scene_Complete"].forEach(a => {
             this.load.audio(a, ["/assets/audio/voice/" + a + ".mp3"]);
         });
+
+        // Load ambient music
+        ["AMB_Barracks", "AMB_Market", "AMB_Forum"].forEach(a => {
+            this.load.audio(a, ["/weekly/roman/sounds/" + a + ".mp3"]);
+        });
     }
 
     create() {
@@ -145,6 +150,7 @@ class DifficultySelectScene extends Phaser.Scene {
 
 class HopaScene extends Phaser.Scene {
     protected bgKey: string;
+    protected ambientKey: string;
     protected objects: string[];
     protected difficulty!: string;
     protected soundEnabled!: boolean;
@@ -157,10 +163,12 @@ class HopaScene extends Phaser.Scene {
     protected timerText!: Phaser.GameObjects.Text;
     protected hintsText!: Phaser.GameObjects.Text;
     protected timerEvent?: Phaser.Time.TimerEvent;
+    protected ambientMusic?: Phaser.Sound.BaseSound;
 
-    constructor(key: string, bgKey: string, objects: string[]) {
+    constructor(key: string, bgKey: string, ambientKey: string, objects: string[]) {
         super(key);
         this.bgKey = bgKey;
+        this.ambientKey = ambientKey;
         this.objects = objects;
     }
 
@@ -175,12 +183,24 @@ class HopaScene extends Phaser.Scene {
             this.time.delayedCall(500, () => {
                 if (this.soundEnabled) this.sound.play("VO_Scene_Start");
             });
+            
+            // Start ambient music with looping
+            this.ambientMusic = this.sound.add(this.ambientKey, { loop: true, volume: 0.4 });
+            this.ambientMusic.play();
         }
 
         this.applyDifficulty();
         this.placeObjects();
         this.createUI();
         this.startTimer();
+    }
+
+    stopAmbient() {
+        if (this.ambientMusic) {
+            this.ambientMusic.stop();
+            this.ambientMusic.destroy();
+            this.ambientMusic = undefined;
+        }
     }
 
     applyDifficulty() {
@@ -283,6 +303,7 @@ class HopaScene extends Phaser.Scene {
 
         backBtn.on("pointerdown", () => {
             if (this.timerEvent) this.timerEvent.destroy();
+            this.stopAmbient();
             this.scene.start("DifficultySelectScene");
         });
     }
@@ -341,6 +362,7 @@ class HopaScene extends Phaser.Scene {
 
         if (this.found === this.objects.length) {
             if (this.timerEvent) this.timerEvent.destroy();
+            this.stopAmbient();
             if (this.soundEnabled) {
                 this.time.delayedCall(500, () => this.sound.play("VO_Scene_Complete"));
             }
@@ -385,6 +407,7 @@ class HopaScene extends Phaser.Scene {
 
     gameOver(won: boolean) {
         if (this.timerEvent) this.timerEvent.destroy();
+        this.stopAmbient();
 
         const overlay = this.add.rectangle(640, 360, 1280, 720, 0x000000, 0.8);
         
@@ -416,6 +439,7 @@ class BarracksScene extends HopaScene {
         super(
             "BarracksScene",
             "barracks",
+            "AMB_Barracks",
             ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring"]
         );
     }
@@ -430,6 +454,7 @@ class MarketScene extends HopaScene {
         super(
             "MarketScene",
             "market",
+            "AMB_Market",
             ["dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask",
              "mosaic_tile", "ceramic_vase", "centurion_helmet", "torch", "aquila_standard"]
         );
@@ -445,6 +470,7 @@ class ForumScene extends HopaScene {
         super(
             "ForumScene",
             "forum",
+            "AMB_Forum",
             ["perfume_bottle", "open_scroll", "gladius_sword", "empire_map", "legionary_shield"]
         );
     }
