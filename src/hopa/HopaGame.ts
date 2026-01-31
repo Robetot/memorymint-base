@@ -164,6 +164,8 @@ class HopaScene extends Phaser.Scene {
     protected hintsText!: Phaser.GameObjects.Text;
     protected timerEvent?: Phaser.Time.TimerEvent;
     protected ambientMusic?: Phaser.Sound.BaseSound;
+    protected narrativeAudio?: Phaser.Sound.BaseSound;
+    protected isTransitioning: boolean = false;
 
     constructor(key: string, bgKey: string, ambientKey: string, objects: string[]) {
         super(key);
@@ -173,6 +175,7 @@ class HopaScene extends Phaser.Scene {
     }
 
     create() {
+        this.isTransitioning = false;
         this.add.image(640, 360, this.bgKey).setDisplaySize(1280, 720);
 
         this.difficulty = this.registry.get("difficulty");
@@ -181,7 +184,9 @@ class HopaScene extends Phaser.Scene {
         if (this.soundEnabled) {
             this.sound.play("SFX_Scene_Load");
             this.time.delayedCall(500, () => {
-                if (this.soundEnabled) this.sound.play("VO_Scene_Start");
+                if (this.soundEnabled && !this.isTransitioning) {
+                    this.playNarrative("VO_Scene_Start");
+                }
             });
             
             // Start ambient music with looping
@@ -195,12 +200,52 @@ class HopaScene extends Phaser.Scene {
         this.startTimer();
     }
 
+    // Play narrative audio - single instance, stops any previous
+    playNarrative(key: string, onComplete?: () => void) {
+        this.stopNarrative();
+        
+        if (!this.soundEnabled) {
+            if (onComplete) onComplete();
+            return;
+        }
+
+        this.narrativeAudio = this.sound.add(key, { loop: false, volume: 1.0 });
+        
+        if (onComplete) {
+            this.narrativeAudio.once('complete', () => {
+                this.narrativeAudio = undefined;
+                onComplete();
+            });
+        } else {
+            this.narrativeAudio.once('complete', () => {
+                this.narrativeAudio = undefined;
+            });
+        }
+        
+        this.narrativeAudio.play();
+    }
+
+    // Stop and cleanup narrative audio
+    stopNarrative() {
+        if (this.narrativeAudio) {
+            this.narrativeAudio.stop();
+            this.narrativeAudio.destroy();
+            this.narrativeAudio = undefined;
+        }
+    }
+
     stopAmbient() {
         if (this.ambientMusic) {
             this.ambientMusic.stop();
             this.ambientMusic.destroy();
             this.ambientMusic = undefined;
         }
+    }
+
+    // Full cleanup for force-termination
+    cleanupAllAudio() {
+        this.stopNarrative();
+        this.stopAmbient();
     }
 
     applyDifficulty() {
@@ -303,7 +348,7 @@ class HopaScene extends Phaser.Scene {
 
         backBtn.on("pointerdown", () => {
             if (this.timerEvent) this.timerEvent.destroy();
-            this.stopAmbient();
+            this.cleanupAllAudio();
             this.scene.start("DifficultySelectScene");
         });
     }
@@ -357,16 +402,26 @@ class HopaScene extends Phaser.Scene {
 
         // Check for mid-scene voice
         if (this.found === Math.floor(this.objects.length / 2) && this.soundEnabled) {
-            this.sound.play("VO_Mid_Scene");
+            this.playNarrative("VO_Mid_Scene");
         }
 
         if (this.found === this.objects.length) {
             if (this.timerEvent) this.timerEvent.destroy();
             this.stopAmbient();
-            if (this.soundEnabled) {
-                this.time.delayedCall(500, () => this.sound.play("VO_Scene_Complete"));
+            this.isTransitioning = true;
+            
+            // Gate level transition on narrative completion
+            this.time.delayedCall(500, () => {
+                this.playNarrative("VO_Scene_Complete", () => {
+                    // Only transition after narrative completes
+                    this.nextScene();
+                });
+            });
+            
+            // Fallback if sound disabled
+            if (!this.soundEnabled) {
+                this.time.delayedCall(1000, () => this.nextScene());
             }
-            this.time.delayedCall(2000, () => this.nextScene());
         }
     }
 
@@ -407,7 +462,8 @@ class HopaScene extends Phaser.Scene {
 
     gameOver(won: boolean) {
         if (this.timerEvent) this.timerEvent.destroy();
-        this.stopAmbient();
+        this.cleanupAllAudio();
+        this.isTransitioning = true;
 
         const overlay = this.add.rectangle(640, 360, 1280, 720, 0x000000, 0.8);
         
