@@ -1,7 +1,221 @@
 // Memory Mint Week 1 - Roman HOPA Adventure
-// Phaser 3 Implementation
+// Phaser 3 Implementation with World-Based Narrative Architecture
 
 import Phaser from 'phaser';
+
+// ==========================================
+// NARRATIVE CONTROLLER - Central Authority
+// ==========================================
+
+const NARRATIVE_STORAGE_KEY = 'memorymint_world_narratives';
+
+// World-based narrative IDs
+type WorldNarrativeId = 
+    | 'world_barracks_intro'
+    | 'world_barracks_mid'
+    | 'world_barracks_complete'
+    | 'world_market_intro'
+    | 'world_market_mid'
+    | 'world_market_complete'
+    | 'world_forum_intro'
+    | 'world_forum_mid'
+    | 'world_forum_complete';
+
+// Map world narrative IDs to audio keys
+const NARRATIVE_AUDIO_MAP: Record<WorldNarrativeId, string> = {
+    'world_barracks_intro': 'VO_Scene_Start',
+    'world_barracks_mid': 'VO_Mid_Scene',
+    'world_barracks_complete': 'VO_Scene_Complete',
+    'world_market_intro': 'VO_Scene_Start',
+    'world_market_mid': 'VO_Mid_Scene',
+    'world_market_complete': 'VO_Scene_Complete',
+    'world_forum_intro': 'VO_Scene_Start',
+    'world_forum_mid': 'VO_Mid_Scene',
+    'world_forum_complete': 'VO_Scene_Complete',
+};
+
+class NarrativeController {
+    private static instance: NarrativeController;
+    private playedNarratives: Set<string>;
+    private currentAudio: Phaser.Sound.BaseSound | null = null;
+    private currentScene: Phaser.Scene | null = null;
+    private _isPlaying: boolean = false;
+    private indicator: Phaser.GameObjects.Container | null = null;
+    
+    private constructor() {
+        this.playedNarratives = this.loadFromStorage();
+    }
+    
+    static getInstance(): NarrativeController {
+        if (!NarrativeController.instance) {
+            NarrativeController.instance = new NarrativeController();
+        }
+        return NarrativeController.instance;
+    }
+    
+    // Load played narratives from localStorage
+    private loadFromStorage(): Set<string> {
+        try {
+            const stored = localStorage.getItem(NARRATIVE_STORAGE_KEY);
+            if (stored) {
+                return new Set(JSON.parse(stored));
+            }
+        } catch (e) {
+            console.warn('Failed to load narrative state:', e);
+        }
+        return new Set();
+    }
+    
+    // Save played narratives to localStorage
+    private saveToStorage(): void {
+        try {
+            localStorage.setItem(
+                NARRATIVE_STORAGE_KEY, 
+                JSON.stringify([...this.playedNarratives])
+            );
+        } catch (e) {
+            console.warn('Failed to save narrative state:', e);
+        }
+    }
+    
+    // Check if narrative has already been played
+    hasPlayed(narrativeId: WorldNarrativeId): boolean {
+        return this.playedNarratives.has(narrativeId);
+    }
+    
+    // Check if currently playing
+    get isPlaying(): boolean {
+        return this._isPlaying;
+    }
+    
+    // Play a world narrative - single instance, blocks gameplay
+    play(
+        narrativeId: WorldNarrativeId,
+        scene: Phaser.Scene,
+        onComplete?: () => void
+    ): void {
+        // RULE: Never replay if already played
+        if (this.hasPlayed(narrativeId)) {
+            console.log(`[Narrative] Skipped ${narrativeId} - already played`);
+            if (onComplete) onComplete();
+            return;
+        }
+        
+        // RULE: Never overlap - stop existing first
+        this.stop();
+        
+        const soundEnabled = scene.registry.get('soundEnabled');
+        
+        // If sound disabled, mark as played and continue
+        if (!soundEnabled) {
+            this.markAsPlayed(narrativeId);
+            if (onComplete) onComplete();
+            return;
+        }
+        
+        const audioKey = NARRATIVE_AUDIO_MAP[narrativeId];
+        if (!audioKey) {
+            console.warn(`[Narrative] Unknown narrative ID: ${narrativeId}`);
+            if (onComplete) onComplete();
+            return;
+        }
+        
+        // Set state
+        this._isPlaying = true;
+        this.currentScene = scene;
+        
+        // Show indicator
+        this.showIndicator(scene);
+        
+        // Create and play audio
+        this.currentAudio = scene.sound.add(audioKey, { loop: false, volume: 1.0 });
+        
+        const handleComplete = () => {
+            this.markAsPlayed(narrativeId);
+            this._isPlaying = false;
+            this.hideIndicator();
+            this.currentAudio = null;
+            this.currentScene = null;
+            console.log(`[Narrative] Completed ${narrativeId}`);
+            if (onComplete) onComplete();
+        };
+        
+        this.currentAudio.once('complete', handleComplete);
+        this.currentAudio.play();
+        console.log(`[Narrative] Playing ${narrativeId}`);
+    }
+    
+    // Stop current narrative (always restores input)
+    stop(): void {
+        if (this.currentAudio) {
+            this.currentAudio.stop();
+            this.currentAudio.destroy();
+            this.currentAudio = null;
+        }
+        this._isPlaying = false;
+        this.hideIndicator();
+        this.currentScene = null;
+    }
+    
+    // Mark narrative as played and persist
+    private markAsPlayed(narrativeId: WorldNarrativeId): void {
+        this.playedNarratives.add(narrativeId);
+        this.saveToStorage();
+    }
+    
+    // Show "Narrating..." indicator
+    private showIndicator(scene: Phaser.Scene): void {
+        if (this.indicator) return;
+        
+        this.indicator = scene.add.container(640, 680);
+        
+        const bg = scene.add.rectangle(0, 0, 160, 36, 0x000000, 0.7)
+            .setStrokeStyle(2, 0xffd700);
+        
+        const text = scene.add.text(0, 0, "🎙️ Narrating...", {
+            font: "bold 16px Arial",
+            color: "#ffd700"
+        }).setOrigin(0.5);
+        
+        this.indicator.add([bg, text]);
+        this.indicator.setDepth(1000);
+        
+        // Pulse animation
+        scene.tweens.add({
+            targets: this.indicator,
+            alpha: 0.7,
+            duration: 600,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.easeInOut"
+        });
+    }
+    
+    // Hide indicator
+    private hideIndicator(): void {
+        if (this.indicator && this.currentScene) {
+            this.currentScene.tweens.killTweensOf(this.indicator);
+            this.indicator.destroy();
+        }
+        this.indicator = null;
+    }
+    
+    // Reset all world narratives (for testing/debug only)
+    resetAllProgress(): void {
+        this.playedNarratives.clear();
+        this.saveToStorage();
+        console.log('[Narrative] All world progress reset');
+    }
+    
+    // Get current progress (for debug)
+    getProgress(): string[] {
+        return [...this.playedNarratives];
+    }
+}
+
+// ==========================================
+// BOOT SCENE
+// ==========================================
 
 class BootScene extends Phaser.Scene {
     constructor() {
@@ -81,6 +295,10 @@ class BootScene extends Phaser.Scene {
     }
 }
 
+// ==========================================
+// DIFFICULTY SELECT SCENE
+// ==========================================
+
 class DifficultySelectScene extends Phaser.Scene {
     constructor() {
         super("DifficultySelectScene");
@@ -143,16 +361,21 @@ class DifficultySelectScene extends Phaser.Scene {
             if (this.registry.get("soundEnabled")) {
                 this.sound.play("SFX_UI_Tap");
             }
-            // Reset narrative tracking for new game session
-            HopaScene.resetNarrativeTracking();
+            // NOTE: World narratives persist - no reset here!
+            // Player changing difficulty does NOT reset narrative progress
             this.scene.start("BarracksScene");
         });
     }
 }
 
+// ==========================================
+// BASE HOPA SCENE
+// ==========================================
+
 class HopaScene extends Phaser.Scene {
     protected bgKey: string;
     protected ambientKey: string;
+    protected worldId: 'barracks' | 'market' | 'forum';
     protected objects: string[];
     protected difficulty!: string;
     protected soundEnabled!: boolean;
@@ -166,44 +389,44 @@ class HopaScene extends Phaser.Scene {
     protected hintsText!: Phaser.GameObjects.Text;
     protected timerEvent?: Phaser.Time.TimerEvent;
     protected ambientMusic?: Phaser.Sound.BaseSound;
-    protected narrativeAudio?: Phaser.Sound.BaseSound;
     protected isTransitioning: boolean = false;
-    protected isNarrativePlaying: boolean = false;
-    protected narrativeIndicator?: Phaser.GameObjects.Container;
     
-    // Static tracking for played narratives across scenes
-    protected static playedNarratives: Set<string> = new Set();
+    // Get the central narrative controller
+    protected get narrative(): NarrativeController {
+        return NarrativeController.getInstance();
+    }
 
-    constructor(key: string, bgKey: string, ambientKey: string, objects: string[]) {
+    constructor(
+        key: string, 
+        bgKey: string, 
+        ambientKey: string, 
+        worldId: 'barracks' | 'market' | 'forum',
+        objects: string[]
+    ) {
         super(key);
         this.bgKey = bgKey;
         this.ambientKey = ambientKey;
+        this.worldId = worldId;
         this.objects = objects;
     }
     
-    // Get unique key for narrative tracking (scene + narrative type)
-    protected getNarrativeKey(narrativeType: string): string {
-        return `${this.scene.key}_${narrativeType}`;
+    // Get world narrative ID for intro
+    protected getWorldIntroId(): WorldNarrativeId {
+        return `world_${this.worldId}_intro` as WorldNarrativeId;
     }
     
-    // Check if narrative was already played
-    protected hasPlayedNarrative(narrativeType: string): boolean {
-        return HopaScene.playedNarratives.has(this.getNarrativeKey(narrativeType));
+    // Get world narrative ID for mid-scene
+    protected getWorldMidId(): WorldNarrativeId {
+        return `world_${this.worldId}_mid` as WorldNarrativeId;
     }
     
-    // Mark narrative as played
-    protected markNarrativePlayed(narrativeType: string): void {
-        HopaScene.playedNarratives.add(this.getNarrativeKey(narrativeType));
-    }
-    
-    // Reset all narrative tracking (for new game session)
-    public static resetNarrativeTracking(): void {
-        HopaScene.playedNarratives.clear();
+    // Get world narrative ID for completion
+    protected getWorldCompleteId(): WorldNarrativeId {
+        return `world_${this.worldId}_complete` as WorldNarrativeId;
     }
 
     create() {
         this.isTransitioning = false;
-        this.isNarrativePlaying = false;
         
         // Background image
         const bg = this.add.image(640, 360, this.bgKey).setDisplaySize(1280, 720);
@@ -217,9 +440,11 @@ class HopaScene extends Phaser.Scene {
 
         if (this.soundEnabled) {
             this.sound.play("SFX_Scene_Load");
+            
+            // Play world intro narrative (only if never played before)
             this.time.delayedCall(500, () => {
-                if (this.soundEnabled && !this.isTransitioning && !this.hasPlayedNarrative("VO_Scene_Start")) {
-                    this.playNarrative("VO_Scene_Start", undefined, "VO_Scene_Start");
+                if (!this.isTransitioning) {
+                    this.narrative.play(this.getWorldIntroId(), this);
                 }
             });
             
@@ -233,48 +458,11 @@ class HopaScene extends Phaser.Scene {
         this.createUI();
         this.startTimer();
     }
-    
-    // Create narrative indicator UI
-    protected showNarrativeIndicator() {
-        if (this.narrativeIndicator) return;
-        
-        this.narrativeIndicator = this.add.container(640, 680);
-        
-        const bg = this.add.rectangle(0, 0, 160, 36, 0x000000, 0.7)
-            .setStrokeStyle(2, 0xffd700);
-        
-        const text = this.add.text(0, 0, "🎙️ Narrating...", {
-            font: "bold 16px Arial",
-            color: "#ffd700"
-        }).setOrigin(0.5);
-        
-        this.narrativeIndicator.add([bg, text]);
-        this.narrativeIndicator.setDepth(1000);
-        
-        // Pulse animation
-        this.tweens.add({
-            targets: this.narrativeIndicator,
-            alpha: 0.7,
-            duration: 600,
-            yoyo: true,
-            repeat: -1,
-            ease: "Sine.easeInOut"
-        });
-    }
-    
-    // Hide narrative indicator
-    protected hideNarrativeIndicator() {
-        if (this.narrativeIndicator) {
-            this.tweens.killTweensOf(this.narrativeIndicator);
-            this.narrativeIndicator.destroy();
-            this.narrativeIndicator = undefined;
-        }
-    }
 
     // Handle wrong tap on empty space
     handleWrongTap() {
         // Block during narrative or transition
-        if (this.isTransitioning || this.isNarrativePlaying) return;
+        if (this.isTransitioning || this.narrative.isPlaying) return;
         
         if (this.soundEnabled) {
             this.sound.play("SFX_Wrong_Tap");
@@ -307,52 +495,6 @@ class HopaScene extends Phaser.Scene {
         }
     }
 
-    // Play narrative audio - single instance, blocks gameplay, prevents duplicates
-    playNarrative(key: string, onComplete?: () => void, trackingKey?: string) {
-        // Prevent duplicate playback if tracking key provided
-        if (trackingKey && this.hasPlayedNarrative(trackingKey)) {
-            if (onComplete) onComplete();
-            return;
-        }
-        
-        this.stopNarrative();
-        
-        if (!this.soundEnabled) {
-            if (trackingKey) this.markNarrativePlayed(trackingKey);
-            if (onComplete) onComplete();
-            return;
-        }
-
-        // Set narrative playing state and show indicator
-        this.isNarrativePlaying = true;
-        this.showNarrativeIndicator();
-        
-        this.narrativeAudio = this.sound.add(key, { loop: false, volume: 1.0 });
-        
-        const handleComplete = () => {
-            this.isNarrativePlaying = false;
-            this.hideNarrativeIndicator();
-            this.narrativeAudio = undefined;
-            if (trackingKey) this.markNarrativePlayed(trackingKey);
-            if (onComplete) onComplete();
-        };
-        
-        this.narrativeAudio.once('complete', handleComplete);
-        this.narrativeAudio.play();
-    }
-
-    // Stop and cleanup narrative audio - always restore input state
-    stopNarrative() {
-        if (this.narrativeAudio) {
-            this.narrativeAudio.stop();
-            this.narrativeAudio.destroy();
-            this.narrativeAudio = undefined;
-        }
-        // Always restore input state on stop
-        this.isNarrativePlaying = false;
-        this.hideNarrativeIndicator();
-    }
-
     stopAmbient() {
         if (this.ambientMusic) {
             this.ambientMusic.stop();
@@ -363,13 +505,11 @@ class HopaScene extends Phaser.Scene {
 
     // Full cleanup for force-termination
     cleanupAllAudio() {
-        this.stopNarrative();
+        this.narrative.stop();
         this.stopAmbient();
     }
 
     applyDifficulty() {
-        const objectCount = this.objects.length;
-        
         if (this.difficulty === "Easy") {
             this.timeLeft = 0; // No timer
             this.hints = 3;
@@ -501,7 +641,7 @@ class HopaScene extends Phaser.Scene {
 
     pickObject(sprite: Phaser.GameObjects.Image) {
         // Block during narrative or transition
-        if (this.isNarrativePlaying || this.isTransitioning) return;
+        if (this.narrative.isPlaying || this.isTransitioning) return;
         
         sprite.disableInteractive();
 
@@ -522,9 +662,9 @@ class HopaScene extends Phaser.Scene {
         this.found++;
         this.counter.setText("Found: " + this.found + " / " + this.objects.length);
 
-        // Check for mid-scene voice (only play once per scene)
-        if (this.found === Math.floor(this.objects.length / 2) && this.soundEnabled && !this.hasPlayedNarrative("VO_Mid_Scene")) {
-            this.playNarrative("VO_Mid_Scene", undefined, "VO_Mid_Scene");
+        // Check for mid-scene narrative (only play once per WORLD, ever)
+        if (this.found === Math.floor(this.objects.length / 2) && this.soundEnabled) {
+            this.narrative.play(this.getWorldMidId(), this);
         }
 
         if (this.found === this.objects.length) {
@@ -534,10 +674,10 @@ class HopaScene extends Phaser.Scene {
             
             // Gate level transition on narrative completion
             this.time.delayedCall(500, () => {
-                this.playNarrative("VO_Scene_Complete", () => {
+                this.narrative.play(this.getWorldCompleteId(), this, () => {
                     // Only transition after narrative completes
                     this.nextScene();
-                }, "VO_Scene_Complete");
+                });
             });
             
             // Fallback if sound disabled
@@ -549,7 +689,7 @@ class HopaScene extends Phaser.Scene {
 
     useHint() {
         // Block during narrative or transition
-        if (this.isNarrativePlaying || this.isTransitioning) return;
+        if (this.narrative.isPlaying || this.isTransitioning) return;
         if (this.hints <= 0) return;
 
         const remaining = this.sprites.filter(s => s.visible);
@@ -614,12 +754,17 @@ class HopaScene extends Phaser.Scene {
     }
 }
 
+// ==========================================
+// WORLD SCENES
+// ==========================================
+
 class BarracksScene extends HopaScene {
     constructor() {
         super(
             "BarracksScene",
             "barracks",
             "AMB_Barracks",
+            "barracks",
             ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring"]
         );
     }
@@ -635,6 +780,7 @@ class MarketScene extends HopaScene {
             "MarketScene",
             "market",
             "AMB_Market",
+            "market",
             ["dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask",
              "mosaic_tile", "ceramic_vase", "centurion_helmet", "torch", "aquila_standard"]
         );
@@ -651,6 +797,7 @@ class ForumScene extends HopaScene {
             "ForumScene",
             "forum",
             "AMB_Forum",
+            "forum",
             ["perfume_bottle", "open_scroll", "gladius_sword", "empire_map", "legionary_shield"]
         );
     }
@@ -683,6 +830,10 @@ class ForumScene extends HopaScene {
     }
 }
 
+// ==========================================
+// GAME FACTORY
+// ==========================================
+
 export function createHopaGame(parent: HTMLElement): Phaser.Game {
     const config: Phaser.Types.Core.GameConfig = {
         type: Phaser.AUTO,
@@ -705,3 +856,6 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
 
     return new Phaser.Game(config);
 }
+
+// Export controller for debug access
+export { NarrativeController };
