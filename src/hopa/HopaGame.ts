@@ -511,6 +511,11 @@ class HopaScene extends Phaser.Scene {
             this.sound.play("SFX_Wrong_Tap");
         }
         
+        // Haptic feedback - double buzz pattern for wrong tap
+        if (navigator.vibrate) {
+            navigator.vibrate([30, 20, 30]);
+        }
+        
         // Hard mode penalty: -5 seconds
         if (this.difficulty === "Hard" && this.timeLeft > 0) {
             this.timeLeft = Math.max(0, this.timeLeft - 5);
@@ -697,6 +702,11 @@ class HopaScene extends Phaser.Scene {
         // Block during narrative or transition
         if (this.narrative.isPlaying || this.isTransitioning) return;
         
+        // Haptic feedback - subtle tap on find
+        if (navigator.vibrate) {
+            navigator.vibrate(10);
+        }
+        
         sprite.disableInteractive();
 
         // Animate and hide
@@ -782,6 +792,17 @@ class HopaScene extends Phaser.Scene {
         if (this.timerEvent) this.timerEvent.destroy();
         this.cleanupAllAudio();
         this.isTransitioning = true;
+        
+        // Haptic feedback based on outcome
+        if (navigator.vibrate) {
+            if (won) {
+                // Victory pattern - celebratory
+                navigator.vibrate([20, 10, 20, 10, 50]);
+            } else {
+                // Failure pattern - longer buzz
+                navigator.vibrate([100, 50, 100]);
+            }
+        }
 
         const overlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.85);
         
@@ -905,10 +926,51 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
             autoCenter: Phaser.Scale.CENTER_BOTH,
             width: GAME_WIDTH,
             height: GAME_HEIGHT
+        },
+        input: {
+            activePointers: 3, // Multi-touch support
+            touch: true
+        },
+        fps: {
+            target: 60,
+            smoothStep: true // Prevents stutter on frame drops
+        },
+        render: {
+            antialias: true,
+            roundPixels: true, // Crisper rendering
+            powerPreference: 'low-power' // Battery optimization
         }
     };
 
-    return new Phaser.Game(config);
+    const game = new Phaser.Game(config);
+    
+    // Pause game when backgrounded (battery + audio)
+    game.events.on('blur', () => {
+        game.scene.scenes.forEach(scene => {
+            if (scene.scene.isActive()) {
+                scene.scene.pause();
+                scene.sound?.pauseAll();
+            }
+        });
+    });
+    
+    game.events.on('focus', () => {
+        game.scene.scenes.forEach(scene => {
+            if (scene.scene.isPaused()) {
+                scene.scene.resume();
+                scene.sound?.resumeAll();
+            }
+        });
+    });
+    
+    // Best-effort orientation lock (Android respects, iOS ignores)
+    if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('portrait').catch(() => {
+            console.log('Orientation lock not supported');
+        });
+    }
+    
+    return game;
 }
 
 // Export controller for debug access
