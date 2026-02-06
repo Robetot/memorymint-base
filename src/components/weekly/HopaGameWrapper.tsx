@@ -34,12 +34,9 @@ const HopaGameWrapper: React.FC<HopaGameWrapperProps> = ({ onBack }) => {
         left: 0,
         margin: 0,
         padding: 0,
-        paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: 'env(safe-area-inset-bottom)',
-        paddingLeft: 'env(safe-area-inset-left)',
-        paddingRight: 'env(safe-area-inset-right)',
         backgroundColor: '#1a1a2e',
         overflow: 'hidden',
+        touchAction: 'none',
       }}
     />
   );

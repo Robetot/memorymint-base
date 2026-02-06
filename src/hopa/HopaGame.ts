@@ -1,7 +1,29 @@
 // Memory Mint Week 1 - Roman HOPA Adventure
 // Phaser 3 Implementation with World-Based Narrative Architecture
+// Virtual Resolution: 1080x1920 (Portrait Mobile)
 
 import Phaser from 'phaser';
+
+// ==========================================
+// VIRTUAL RESOLUTION CONSTANTS
+// ==========================================
+
+const GAME_WIDTH = 1080;
+const GAME_HEIGHT = 1920;
+
+// Safe zone (80-85% of screen) - avoid edges for notches/home indicators
+const SAFE_MARGIN_X = 80;  // ~7.5% from each side
+const SAFE_MARGIN_TOP = 160;  // Extra margin for notch/dynamic island
+const SAFE_MARGIN_BOTTOM = 120;  // Margin for home indicator
+
+const SAFE_LEFT = SAFE_MARGIN_X;
+const SAFE_RIGHT = GAME_WIDTH - SAFE_MARGIN_X;
+const SAFE_TOP = SAFE_MARGIN_TOP;
+const SAFE_BOTTOM = GAME_HEIGHT - SAFE_MARGIN_BOTTOM;
+const SAFE_WIDTH = SAFE_RIGHT - SAFE_LEFT;
+const SAFE_HEIGHT = SAFE_BOTTOM - SAFE_TOP;
+const SAFE_CENTER_X = GAME_WIDTH / 2;
+const SAFE_CENTER_Y = GAME_HEIGHT / 2;
 
 // ==========================================
 // NARRATIVE CONTROLLER - Central Authority
@@ -163,17 +185,18 @@ class NarrativeController {
         this.saveToStorage();
     }
     
-    // Show "Narrating..." indicator
+    // Show "Narrating..." indicator (portrait position)
     private showIndicator(scene: Phaser.Scene): void {
         if (this.indicator) return;
         
-        this.indicator = scene.add.container(640, 680);
+        // Position in safe zone near bottom
+        this.indicator = scene.add.container(SAFE_CENTER_X, SAFE_BOTTOM - 100);
         
-        const bg = scene.add.rectangle(0, 0, 160, 36, 0x000000, 0.7)
+        const bg = scene.add.rectangle(0, 0, 200, 44, 0x000000, 0.7)
             .setStrokeStyle(2, 0xffd700);
         
         const text = scene.add.text(0, 0, "🎙️ Narrating...", {
-            font: "bold 16px Arial",
+            font: "bold 20px Arial",
             color: "#ffd700"
         }).setOrigin(0.5);
         
@@ -223,17 +246,18 @@ class BootScene extends Phaser.Scene {
     }
 
     preload() {
-        const width = this.cameras.main.width;
-        const height = this.cameras.main.height;
+        // Use virtual resolution center
+        const cx = SAFE_CENTER_X;
+        const cy = SAFE_CENTER_Y;
 
         const progressBox = this.add.graphics();
         progressBox.fillStyle(0x222222, 0.8);
-        progressBox.fillRoundedRect(width / 2 - 160, height / 2 - 25, 320, 50, 10);
+        progressBox.fillRoundedRect(cx - 200, cy - 30, 400, 60, 12);
 
         const progressBar = this.add.graphics();
 
-        const percentText = this.add.text(width / 2, height / 2, "0%", {
-            font: "18px Arial",
+        const percentText = this.add.text(cx, cy, "0%", {
+            font: "24px Arial",
             color: "#ffffff"
         }).setOrigin(0.5);
 
@@ -241,7 +265,7 @@ class BootScene extends Phaser.Scene {
             percentText.setText(Math.floor(value * 100) + "%");
             progressBar.clear();
             progressBar.fillStyle(0xffffff, 1);
-            progressBar.fillRoundedRect(width / 2 - 150, height / 2 - 15, 300 * value, 30, 5);
+            progressBar.fillRoundedRect(cx - 190, cy - 20, 380 * value, 40, 8);
         });
 
         this.load.on("complete", () => {
@@ -296,7 +320,7 @@ class BootScene extends Phaser.Scene {
 }
 
 // ==========================================
-// DIFFICULTY SELECT SCENE
+// DIFFICULTY SELECT SCENE (Portrait Layout)
 // ==========================================
 
 class DifficultySelectScene extends Phaser.Scene {
@@ -305,44 +329,49 @@ class DifficultySelectScene extends Phaser.Scene {
     }
 
     create() {
-        const w = 1280;
-        const h = 720;
+        // Full background
+        this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
 
-        // Background
-        this.add.rectangle(w / 2, h / 2, w, h, 0x1a1a2e);
-
-        // Title
-        this.add.text(w / 2, 120, "MEMORY MINT", {
+        // Title - positioned in safe zone
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 100, "MEMORY MINT", {
             font: "bold 72px Arial",
             color: "#ffd700"
         }).setOrigin(0.5);
 
-        this.add.text(w / 2, 200, "Week 1 - Roman Adventure", {
-            font: "36px Arial",
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 200, "Week 1 - Roman Adventure", {
+            font: "40px Arial",
             color: "#ffffff"
         }).setOrigin(0.5);
 
-        this.add.text(w / 2, 280, "Select Difficulty", {
-            font: "28px Arial",
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 280, "Select Difficulty", {
+            font: "32px Arial",
             color: "#aaaaaa"
         }).setOrigin(0.5);
 
-        this.createButton(w / 2, 380, "Easy", "5 objects | No timer | 3 hints", 0x4ade80);
-        this.createButton(w / 2, 480, "Medium", "10 objects | 3 min timer | 2 hints", 0xfbbf24);
-        this.createButton(w / 2, 580, "Hard", "15 objects | 2 min timer | 1 hint", 0xef4444);
+        // Buttons spaced vertically in portrait layout
+        const buttonY = SAFE_CENTER_Y - 50;
+        this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | No timer | 3 hints", 0x4ade80);
+        this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "10 objects | 3 min timer | 2 hints", 0xfbbf24);
+        this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "15 objects | 2 min timer | 1 hint", 0xef4444);
+        
+        // Instructions at bottom of safe zone
+        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, "Find all hidden objects in each scene!", {
+            font: "24px Arial",
+            color: "#666666"
+        }).setOrigin(0.5);
     }
 
     createButton(x: number, y: number, label: string, desc: string, color: number) {
-        const bg = this.add.rectangle(x, y, 420, 70, 0x000000, 0.5)
+        const bg = this.add.rectangle(x, y, 500, 100, 0x000000, 0.5)
             .setStrokeStyle(3, color);
         
-        const txt = this.add.text(x, y - 10, label, {
-            font: "bold 28px Arial",
+        const txt = this.add.text(x, y - 12, label, {
+            font: "bold 36px Arial",
             color: "#ffffff"
         }).setOrigin(0.5);
 
-        this.add.text(x, y + 18, desc, {
-            font: "14px Arial",
+        this.add.text(x, y + 26, desc, {
+            font: "18px Arial",
             color: "#aaaaaa"
         }).setOrigin(0.5);
 
@@ -362,14 +391,13 @@ class DifficultySelectScene extends Phaser.Scene {
                 this.sound.play("SFX_UI_Tap");
             }
             // NOTE: World narratives persist - no reset here!
-            // Player changing difficulty does NOT reset narrative progress
             this.scene.start("BarracksScene");
         });
     }
 }
 
 // ==========================================
-// BASE HOPA SCENE
+// BASE HOPA SCENE (Portrait Layout)
 // ==========================================
 
 class HopaScene extends Phaser.Scene {
@@ -428,8 +456,23 @@ class HopaScene extends Phaser.Scene {
     create() {
         this.isTransitioning = false;
         
-        // Background image
-        const bg = this.add.image(640, 360, this.bgKey).setDisplaySize(1280, 720);
+        // Background image - cover the game area (16:9 source scaled to fill)
+        // Portrait: show center portion of landscape background
+        const bg = this.add.image(SAFE_CENTER_X, SAFE_CENTER_Y, this.bgKey);
+        
+        // Scale background to cover the play area (maintain aspect, fill height)
+        const bgRatio = 1280 / 720; // Original background aspect ratio (16:9)
+        const gameRatio = GAME_WIDTH / GAME_HEIGHT;
+        
+        if (gameRatio < bgRatio) {
+            // Portrait mode: scale to height, crop sides
+            const scale = GAME_HEIGHT / 720;
+            bg.setScale(scale);
+        } else {
+            // Scale to width
+            const scale = GAME_WIDTH / 1280;
+            bg.setScale(scale);
+        }
         
         // Make background interactive for wrong tap detection
         bg.setInteractive({ useHandCursor: false });
@@ -513,15 +556,15 @@ class HopaScene extends Phaser.Scene {
         if (this.difficulty === "Easy") {
             this.timeLeft = 0; // No timer
             this.hints = 3;
-            this.objectScale = 0.12;
+            this.objectScale = 0.18; // Larger for portrait view
         } else if (this.difficulty === "Medium") {
             this.timeLeft = 180;
             this.hints = 2;
-            this.objectScale = 0.10;
+            this.objectScale = 0.15;
         } else {
             this.timeLeft = 120;
             this.hints = 1;
-            this.objectScale = 0.08;
+            this.objectScale = 0.12;
         }
     }
 
@@ -529,14 +572,20 @@ class HopaScene extends Phaser.Scene {
         this.found = 0;
         this.sprites = [];
         const placed: { x: number; y: number }[] = [];
-        const minDist = 100;
+        const minDist = 120; // Minimum distance between objects
+
+        // Object placement zone (within safe area, below UI bar)
+        const placeTop = SAFE_TOP + 120;
+        const placeBottom = SAFE_BOTTOM - 200;
+        const placeLeft = SAFE_LEFT + 40;
+        const placeRight = SAFE_RIGHT - 40;
 
         this.objects.forEach(key => {
             let x: number, y: number, valid = false, tries = 0;
             
             while (!valid && tries < 200) {
-                x = Phaser.Math.Between(120, 1160);
-                y = Phaser.Math.Between(120, 600);
+                x = Phaser.Math.Between(placeLeft, placeRight);
+                y = Phaser.Math.Between(placeTop, placeBottom);
                 valid = !placed.some(p => Phaser.Math.Distance.Between(p.x, p.y, x!, y!) < minDist);
                 tries++;
             }
@@ -562,46 +611,51 @@ class HopaScene extends Phaser.Scene {
     }
 
     createUI() {
-        // Dark UI bar at top
-        this.add.rectangle(640, 30, 1280, 60, 0x000000, 0.7);
+        // Dark UI bar at top (within safe zone)
+        this.add.rectangle(SAFE_CENTER_X, SAFE_TOP + 40, SAFE_WIDTH, 80, 0x000000, 0.7)
+            .setStrokeStyle(2, 0x333333);
 
-        // Found counter
-        this.counter = this.add.text(20, 20, "Found: 0 / " + this.objects.length, {
-            font: "bold 24px Arial",
+        // Found counter (left side)
+        this.counter = this.add.text(SAFE_LEFT + 20, SAFE_TOP + 40, "Found: 0 / " + this.objects.length, {
+            font: "bold 28px Arial",
             color: "#ffffff"
-        });
+        }).setOrigin(0, 0.5);
 
-        // Timer (if applicable)
+        // Timer (center, if applicable)
         if (this.timeLeft > 0) {
-            this.timerText = this.add.text(640, 20, this.formatTime(this.timeLeft), {
-                font: "bold 28px Arial",
+            this.timerText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 40, this.formatTime(this.timeLeft), {
+                font: "bold 32px Arial",
                 color: "#ffffff"
-            }).setOrigin(0.5, 0);
+            }).setOrigin(0.5);
         }
 
-        // Hints
-        this.hintsText = this.add.text(1260, 20, "Hints: " + this.hints, {
-            font: "bold 24px Arial",
+        // Hints (right side)
+        this.hintsText = this.add.text(SAFE_RIGHT - 20, SAFE_TOP + 40, "Hints: " + this.hints, {
+            font: "bold 28px Arial",
             color: "#4ade80"
-        }).setOrigin(1, 0);
+        }).setOrigin(1, 0.5);
 
-        // Hint button
-        const hintBtn = this.add.rectangle(1200, 680, 120, 40, 0x4ade80, 0.8)
+        // Bottom button bar
+        this.add.rectangle(SAFE_CENTER_X, SAFE_BOTTOM - 50, SAFE_WIDTH, 100, 0x000000, 0.7)
+            .setStrokeStyle(2, 0x333333);
+
+        // Hint button (right)
+        const hintBtn = this.add.rectangle(SAFE_RIGHT - 100, SAFE_BOTTOM - 50, 160, 60, 0x4ade80, 0.9)
             .setInteractive({ useHandCursor: true });
         
-        this.add.text(1200, 680, "Use Hint", {
-            font: "16px Arial",
+        this.add.text(SAFE_RIGHT - 100, SAFE_BOTTOM - 50, "Use Hint", {
+            font: "bold 22px Arial",
             color: "#000000"
         }).setOrigin(0.5);
 
         hintBtn.on("pointerdown", () => this.useHint());
 
-        // Back button
-        const backBtn = this.add.rectangle(80, 680, 120, 40, 0xef4444, 0.8)
+        // Exit button (left)
+        const backBtn = this.add.rectangle(SAFE_LEFT + 100, SAFE_BOTTOM - 50, 160, 60, 0xef4444, 0.9)
             .setInteractive({ useHandCursor: true });
         
-        this.add.text(80, 680, "Exit", {
-            font: "16px Arial",
+        this.add.text(SAFE_LEFT + 100, SAFE_BOTTOM - 50, "Exit", {
+            font: "bold 22px Arial",
             color: "#ffffff"
         }).setOrigin(0.5);
 
@@ -714,7 +768,7 @@ class HopaScene extends Phaser.Scene {
         });
 
         // Add glow circle
-        const glow = this.add.circle(target.x, target.y, 60, 0xffd700, 0.5);
+        const glow = this.add.circle(target.x, target.y, 80, 0xffd700, 0.5);
         this.tweens.add({
             targets: glow,
             alpha: 0,
@@ -729,18 +783,18 @@ class HopaScene extends Phaser.Scene {
         this.cleanupAllAudio();
         this.isTransitioning = true;
 
-        const overlay = this.add.rectangle(640, 360, 1280, 720, 0x000000, 0.8);
+        const overlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.85);
         
-        this.add.text(640, 300, won ? "Scene Complete!" : "Time's Up!", {
-            font: "bold 48px Arial",
+        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y - 100, won ? "Scene Complete!" : "Time's Up!", {
+            font: "bold 56px Arial",
             color: won ? "#4ade80" : "#ef4444"
         }).setOrigin(0.5);
 
-        const retryBtn = this.add.rectangle(640, 400, 200, 50, 0xfbbf24)
+        const retryBtn = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y + 50, 280, 70, 0xfbbf24)
             .setInteractive({ useHandCursor: true });
         
-        this.add.text(640, 400, "Try Again", {
-            font: "bold 24px Arial",
+        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y + 50, "Try Again", {
+            font: "bold 32px Arial",
             color: "#000000"
         }).setOrigin(0.5);
 
@@ -804,23 +858,23 @@ class ForumScene extends HopaScene {
 
     nextScene() {
         // Show victory screen then return to difficulty select
-        const overlay = this.add.rectangle(640, 360, 1280, 720, 0x000000, 0.9);
+        const overlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.9);
         
-        this.add.text(640, 250, "Congratulations!", {
+        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y - 150, "Congratulations!", {
             font: "bold 64px Arial",
             color: "#ffd700"
         }).setOrigin(0.5);
 
-        this.add.text(640, 340, "You completed all scenes!", {
-            font: "32px Arial",
+        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y - 50, "You completed all scenes!", {
+            font: "36px Arial",
             color: "#ffffff"
         }).setOrigin(0.5);
 
-        const menuBtn = this.add.rectangle(640, 450, 250, 60, 0x4ade80)
+        const menuBtn = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y + 80, 300, 80, 0x4ade80)
             .setInteractive({ useHandCursor: true });
         
-        this.add.text(640, 450, "Play Again", {
-            font: "bold 28px Arial",
+        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y + 80, "Play Again", {
+            font: "bold 32px Arial",
             color: "#000000"
         }).setOrigin(0.5);
 
@@ -837,8 +891,6 @@ class ForumScene extends HopaScene {
 export function createHopaGame(parent: HTMLElement): Phaser.Game {
     const config: Phaser.Types.Core.GameConfig = {
         type: Phaser.AUTO,
-        width: 1280,
-        height: 720,
         parent: parent,
         backgroundColor: "#1a1a2e",
         scene: [
@@ -849,10 +901,10 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
             ForumScene
         ],
         scale: {
-            mode: Phaser.Scale.RESIZE,
+            mode: Phaser.Scale.FIT,
             autoCenter: Phaser.Scale.CENTER_BOTH,
-            min: { width: 320, height: 568 },
-            max: { width: 1920, height: 2400 }
+            width: GAME_WIDTH,
+            height: GAME_HEIGHT
         }
     };
 
