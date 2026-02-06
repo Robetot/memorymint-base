@@ -849,8 +849,10 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
             ForumScene
         ],
         scale: {
-            mode: Phaser.Scale.FIT,
-            autoCenter: Phaser.Scale.CENTER_BOTH
+            mode: Phaser.Scale.RESIZE,
+            autoCenter: Phaser.Scale.CENTER_BOTH,
+            min: { width: 320, height: 568 },
+            max: { width: 1920, height: 2400 }
         }
     };
 
