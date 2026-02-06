@@ -48,23 +48,18 @@ const HopaGameWrapper: React.FC<HopaGameWrapperProps> = ({ onBack }) => {
     if (gameContainerRef.current && !gameRef.current) {
       gameRef.current = createHopaGame(gameContainerRef.current);
       
-      // Hide game loader once ready
-      gameRef.current.events.once('ready', () => {
+      // Remove loader after game initialization
+      // Phaser's preload scenes will handle their own loading bars
+      const removeLoader = () => {
         const loader = document.getElementById('game-loader');
         if (loader) {
           loader.style.opacity = '0';
           setTimeout(() => loader.remove(), 500);
         }
-      });
-      
-      // Fallback: hide loader after 3 seconds max
-      setTimeout(() => {
-        const loader = document.getElementById('game-loader');
-        if (loader) {
-          loader.style.opacity = '0';
-          setTimeout(() => loader.remove(), 500);
-        }
-      }, 3000);
+      };
+
+      // Small delay to ensure canvas is mounted and visible
+      setTimeout(removeLoader, 150);
     }
 
     return () => {
