@@ -59,6 +59,7 @@ interface LeaderboardEntry {
     name: string;
     score: number;
     difficulty: string;
+    week: number;
     date: string;
 }
 
@@ -73,9 +74,13 @@ function addToLeaderboard(entry: LeaderboardEntry): LeaderboardEntry[] {
     const lb = getLeaderboard();
     lb.push(entry);
     lb.sort((a, b) => b.score - a.score);
-    const trimmed = lb.slice(0, MAX_LEADERBOARD);
+    const trimmed = lb.slice(0, MAX_LEADERBOARD * 2); // keep more for cross-week
     localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(trimmed));
     return trimmed;
+}
+
+function getLeaderboardByWeek(week: number): LeaderboardEntry[] {
+    return getLeaderboard().filter(e => e.week === week).sort((a, b) => b.score - a.score).slice(0, MAX_LEADERBOARD);
 }
 
 // ==========================================
