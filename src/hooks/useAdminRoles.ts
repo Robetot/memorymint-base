@@ -36,7 +36,7 @@ export interface UseAdminRolesReturn {
   hasRole: (role: AdminRole) => boolean;
   canManageRoles: boolean;
   
-  // Role management (owner-only)
+  // Role management (owner-only, via edge function)
   grantRole: (walletAddress: string, role: AdminRole, notes?: string) => Promise<boolean>;
   revokeRole: (walletAddress: string, role: AdminRole) => Promise<boolean>;
   
@@ -63,7 +63,6 @@ export function useAdminRoles(walletAddress?: string): UseAdminRolesReturn {
     setError(null);
 
     try {
-      // Fetch current wallet's roles
       const { data, error: fetchError } = await supabase
         .from('admin_roles')
         .select('*')
@@ -74,7 +73,6 @@ export function useAdminRoles(walletAddress?: string): UseAdminRolesReturn {
 
       const walletRoles = (data || [])
         .filter((r: AdminRoleRecord) => {
-          // Check expiration
           if (r.expires_at && new Date(r.expires_at) < new Date()) return false;
           return true;
         })
@@ -84,7 +82,9 @@ export function useAdminRoles(walletAddress?: string): UseAdminRolesReturn {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to fetch roles';
       setError(msg);
-      console.error('[useAdminRoles] Error:', e);
+      if (import.meta.env.DEV) {
+        console.error('[useAdminRoles] Error:', e);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -102,7 +102,9 @@ export function useAdminRoles(walletAddress?: string): UseAdminRolesReturn {
       if (fetchError) throw fetchError;
       setAllRoles((data || []) as AdminRoleRecord[]);
     } catch (e) {
-      console.error('[useAdminRoles] Failed to fetch all roles:', e);
+      if (import.meta.env.DEV) {
+        console.error('[useAdminRoles] Failed to fetch all roles:', e);
+      }
     }
   }, []);
 
@@ -123,7 +125,7 @@ export function useAdminRoles(walletAddress?: string): UseAdminRolesReturn {
   const hasAnyRole = roles.length > 0;
   const canManageRoles = isOwner;
 
-  // Grant role (owner-only)
+  // Grant role via secure edge function (owner-only)
   const grantRole = useCallback(async (
     targetWallet: string,
     role: AdminRole,
@@ -135,31 +137,31 @@ export function useAdminRoles(walletAddress?: string): UseAdminRolesReturn {
     }
 
     try {
-      const { error: insertError } = await supabase
-        .from('admin_roles')
-        .upsert({
-          wallet_address: targetWallet.toLowerCase(),
+      const { data, error: invokeError } = await supabase.functions.invoke('manage-admin-roles', {
+        body: {
+          action: 'grant',
+          wallet_address: targetWallet,
           role,
-          granted_by: walletAddress.toLowerCase(),
-          notes: notes || null,
-          is_active: true,
-        }, {
-          onConflict: 'wallet_address,role',
-        });
+          notes,
+        },
+      });
 
-      if (insertError) throw insertError;
+      if (invokeError) throw invokeError;
+      if (data?.error) throw new Error(data.error);
 
       await fetchAllRoles();
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to grant role';
       setError(msg);
-      console.error('[useAdminRoles] Grant role error:', e);
+      if (import.meta.env.DEV) {
+        console.error('[useAdminRoles] Grant role error:', e);
+      }
       return false;
     }
   }, [walletAddress, isOwner, fetchAllRoles]);
 
-  // Revoke role (owner-only)
+  // Revoke role via secure edge function (owner-only)
   const revokeRole = useCallback(async (
     targetWallet: string,
     role: AdminRole
@@ -169,20 +171,17 @@ export function useAdminRoles(walletAddress?: string): UseAdminRolesReturn {
       return false;
     }
 
-    // Prevent owner from revoking their own owner role
-    if (targetWallet.toLowerCase() === walletAddress.toLowerCase() && role === 'owner') {
-      setError('Cannot revoke your own owner role');
-      return false;
-    }
-
     try {
-      const { error: updateError } = await supabase
-        .from('admin_roles')
-        .update({ is_active: false })
-        .ilike('wallet_address', targetWallet)
-        .eq('role', role);
+      const { data, error: invokeError } = await supabase.functions.invoke('manage-admin-roles', {
+        body: {
+          action: 'revoke',
+          wallet_address: targetWallet,
+          role,
+        },
+      });
 
-      if (updateError) throw updateError;
+      if (invokeError) throw invokeError;
+      if (data?.error) throw new Error(data.error);
 
       await fetchAllRoles();
       if (targetWallet.toLowerCase() === walletAddress.toLowerCase()) {
@@ -192,7 +191,9 @@ export function useAdminRoles(walletAddress?: string): UseAdminRolesReturn {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to revoke role';
       setError(msg);
-      console.error('[useAdminRoles] Revoke role error:', e);
+      if (import.meta.env.DEV) {
+        console.error('[useAdminRoles] Revoke role error:', e);
+      }
       return false;
     }
   }, [walletAddress, isOwner, fetchRoles, fetchAllRoles]);
