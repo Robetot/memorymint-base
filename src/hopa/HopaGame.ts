@@ -993,8 +993,9 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
         });
     });
     
-    // Best-effort orientation lock (Android respects, iOS ignores)
-    if (screen.orientation && screen.orientation.lock) {
+    // Orientation lock only on mobile devices
+    const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobileDevice && screen.orientation && screen.orientation.lock) {
         screen.orientation.lock('portrait').catch(() => {
             console.log('Orientation lock not supported');
         });
