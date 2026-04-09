@@ -1592,12 +1592,7 @@ class VikingLonghouseScene extends HopaScene {
     }
 
     nextScene() {
-        // Store final score
-        const prevTotal = this.registry.get("totalScore") || 0;
-        this.registry.set("totalScore", prevTotal + this.score);
-        const prevCombo = this.registry.get("totalCombo") || 0;
-        if (this.maxCombo > prevCombo) this.registry.set("totalCombo", this.maxCombo);
-        
+        // totalScore already accumulated by parent pickObject
         if (this.lightningTimer) this.lightningTimer.destroy();
         showVictoryScreen(this, 2);
     }
