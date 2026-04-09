@@ -1725,6 +1725,481 @@ class VikingLonghouseScene extends HopaScene {
 }
 
 // ==========================================
+// WEEK 3 — PHARAOH'S CURSE SCENE
+// ==========================================
+
+class EgyptianTombScene extends HopaScene {
+    private curseTimer?: Phaser.Time.TimerEvent;
+    private flickerTimer?: Phaser.Time.TimerEvent;
+    private magnifierUsed: boolean = false;
+    private magnifierBtn?: Phaser.GameObjects.Rectangle;
+    private magnifierLabel?: Phaser.GameObjects.Text;
+    private tombAmbientNodes: { gainNode?: GainNode; sources: AudioBufferSourceNode[] } = { sources: [] };
+    private fogRT?: Phaser.GameObjects.RenderTexture;
+    private currentFogOpacity: number = 0.85;
+
+    constructor() {
+        super("EgyptianTombScene", "tomb", "AMB_Barracks", "barracks",
+            ["scarab_amulet", "golden_ankh", "papyrus_scroll", "jeweled_dagger", "eye_of_horus"]);
+    }
+
+    applyDifficulty() {
+        const isLandscape = GAME_WIDTH > GAME_HEIGHT;
+        const scaleFactor = isLandscape ? 0.55 : 1.0;
+        const week3Reduction = 0.5; // 50% smaller than Week 1
+
+        if (this.difficulty === "Easy") {
+            this.maxTime = 120; // 2:00
+            this.timeLeft = 120;
+            this.hints = 1;
+            this.objectScale = 0.12 * scaleFactor * week3Reduction;
+            this.fogEnabled = true;
+            this.decoyCount = 2;
+        } else if (this.difficulty === "Medium") {
+            this.maxTime = 90; // 1:30
+            this.timeLeft = 90;
+            this.hints = 0;
+            this.objectScale = 0.09 * scaleFactor * week3Reduction;
+            this.fogEnabled = true;
+            this.decoyCount = 4;
+        } else {
+            this.maxTime = 60; // 1:00
+            this.timeLeft = 60;
+            this.hints = 0;
+            this.objectScale = 0.07 * scaleFactor * week3Reduction;
+            this.fogEnabled = true;
+            this.decoyCount = 4;
+        }
+    }
+
+    create() {
+        this.magnifierUsed = false;
+        this.currentFogOpacity = 0.85;
+        super.create();
+        this.startCurseMechanic();
+        this.startTorchlightFlicker();
+        this.stopAmbient();
+        if (this.soundEnabled) this.startTombAmbient();
+        this.createMagnifierButton();
+    }
+
+    // Hint costs 20s in Week 3
+    useHint() {
+        if (this.narrative.isPlaying || this.isTransitioning) return;
+        if (this.hints <= 0) return;
+
+        const remaining = this.sprites.filter(s => s.visible);
+        if (remaining.length === 0) return;
+
+        this.hints--;
+        this.hintsText.setText("💡 " + this.hints);
+
+        if (this.timeLeft > 0) {
+            this.timeLeft = Math.max(1, this.timeLeft - 20);
+            this.timerText.setText(this.formatTime(this.timeLeft));
+            const penaltyText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 150, "-20s Hint Used!", {
+                font: "bold 24px Arial", color: "#fbbf24"
+            }).setOrigin(0.5).setDepth(50);
+            this.tweens.add({
+                targets: penaltyText, alpha: 0, y: penaltyText.y - 40, duration: 1500,
+                onComplete: () => penaltyText.destroy()
+            });
+        }
+
+        this.combo = 0;
+        this.updateComboDisplay();
+        if (this.soundEnabled) this.sound.play("SFX_Hint_Used");
+
+        const target = Phaser.Utils.Array.GetRandom(remaining);
+        const origTint = target.tintTopLeft;
+        target.clearTint();
+        target.setAlpha(1);
+        this.tweens.add({
+            targets: target, scale: this.objectScale * 1.5, yoyo: true, duration: 300, repeat: 3,
+            ease: "Sine.easeInOut",
+            onComplete: () => { target.setTint(origTint); target.setAlpha(0.6); }
+        });
+        const glow = this.add.circle(target.x, target.y, 80, 0xffd700, 0.5).setDepth(15);
+        this.tweens.add({
+            targets: glow, alpha: 0, scale: 1.5, duration: 1500,
+            onComplete: () => glow.destroy()
+        });
+    }
+
+    // Override fog — darker + flickering
+    setupFogOfWar() {
+        this.fogRT = this.add.renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT).setDepth(10);
+
+        this.events.on('update', () => {
+            if (!this.fogRT) return;
+            this.fogRT.clear();
+            this.fogRT.fill(0x000000, this.currentFogOpacity);
+
+            const pointer = this.input.activePointer;
+            const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+            const revealRadius = this.difficulty === "Hard" ? 70 : this.difficulty === "Medium" ? 90 : 110;
+            this.fogRT.erase(this.createRevealCircle(revealRadius), worldPoint.x - revealRadius, worldPoint.y - revealRadius);
+
+            this.sprites.forEach(s => {
+                if (!s.visible) {
+                    this.fogRT!.erase(this.createRevealCircle(35), s.x - 35, s.y - 35);
+                }
+            });
+        });
+    }
+
+    // Torchlight flicker: dims fog randomly every ~10s
+    startTorchlightFlicker() {
+        const doFlicker = () => {
+            if (this.isTransitioning) return;
+            // Briefly increase fog opacity (dim the lights)
+            const origOpacity = 0.85;
+            this.currentFogOpacity = 0.95;
+            
+            const flickerText = this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y, "🕯️ Torches flicker...", {
+                font: "bold 24px Arial", color: "#886622"
+            }).setOrigin(0.5).setDepth(50).setAlpha(0);
+            this.tweens.add({
+                targets: flickerText, alpha: 0.8, duration: 400, yoyo: true,
+                onComplete: () => flickerText.destroy()
+            });
+
+            this.time.delayedCall(2000, () => {
+                this.currentFogOpacity = origOpacity;
+            });
+        };
+
+        const scheduleFlicker = () => {
+            this.flickerTimer = this.time.delayedCall(Phaser.Math.Between(8000, 12000), () => {
+                if (this.isTransitioning) return;
+                doFlicker();
+                scheduleFlicker();
+            });
+        };
+        scheduleFlicker();
+    }
+
+    // Curse: every 40s, shuffle 2 object positions
+    startCurseMechanic() {
+        const doCurse = () => {
+            if (this.isTransitioning) return;
+
+            const remaining = this.sprites.filter(s => s.visible);
+            if (remaining.length < 2) return;
+
+            // Pick 2 random visible objects and swap positions
+            const shuffled = Phaser.Utils.Array.Shuffle([...remaining]);
+            const a = shuffled[0];
+            const b = shuffled[1];
+            const ax = a.x, ay = a.y;
+            const bx = b.x, by = b.y;
+
+            // Curse warning
+            const curseOverlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x440000, 0).setDepth(100);
+            const curseText = this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y, "💀 CURSE ACTIVATES! 💀", {
+                font: "bold 44px Arial", color: "#ff4444"
+            }).setOrigin(0.5).setDepth(101).setAlpha(0);
+
+            this.tweens.add({ targets: curseOverlay, alpha: 0.4, duration: 300, yoyo: true });
+            this.tweens.add({
+                targets: curseText, alpha: 1, scale: 1.2, duration: 400, yoyo: true,
+                hold: 600,
+                onComplete: () => curseText.destroy()
+            });
+
+            // Shake camera
+            this.cameras.main.shake(500, 0.01);
+            if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+
+            // Animate the swap
+            this.time.delayedCall(800, () => {
+                curseOverlay.destroy();
+                this.tweens.add({ targets: a, x: bx, y: by, duration: 500, ease: "Power2" });
+                this.tweens.add({ targets: b, x: ax, y: ay, duration: 500, ease: "Power2" });
+            });
+        };
+
+        const scheduleCurse = () => {
+            this.curseTimer = this.time.delayedCall(40000, () => {
+                if (this.isTransitioning) return;
+                doCurse();
+                scheduleCurse();
+            });
+        };
+        scheduleCurse();
+    }
+
+    // Magnifier tool: one-time zoom into an area
+    createMagnifierButton() {
+        const btnX = SAFE_CENTER_X;
+        const btnY = SAFE_BOTTOM - 50;
+        this.magnifierBtn = this.add.rectangle(btnX, btnY, 160, 60, 0xd4a017, 0.9)
+            .setInteractive({ useHandCursor: true }).setDepth(20);
+        this.magnifierLabel = this.add.text(btnX, btnY, "🔍 Magnify", {
+            font: "bold 20px Arial", color: "#000000"
+        }).setOrigin(0.5).setDepth(20);
+        this.magnifierBtn.on("pointerdown", () => this.useMagnifier());
+    }
+
+    useMagnifier() {
+        if (this.magnifierUsed || this.isTransitioning || this.narrative.isPlaying) return;
+        this.magnifierUsed = true;
+
+        if (this.magnifierBtn) { this.magnifierBtn.setAlpha(0.3); this.magnifierBtn.disableInteractive(); }
+        if (this.magnifierLabel) this.magnifierLabel.setText("🔍 Used");
+
+        // Zoom camera to pointer location for 3 seconds
+        const pointer = this.input.activePointer;
+        const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+
+        // Temporarily increase reveal radius by making fog very transparent
+        const origOpacity = this.currentFogOpacity;
+        this.currentFogOpacity = 0.3;
+
+        // Visual indicator
+        const magCircle = this.add.circle(worldPoint.x, worldPoint.y, 200, 0xffd700, 0.15)
+            .setDepth(50).setStrokeStyle(3, 0xffd700);
+        this.tweens.add({
+            targets: magCircle, scale: 1.5, alpha: 0, duration: 3000,
+            onComplete: () => magCircle.destroy()
+        });
+
+        const magText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 150, "🔍 Magnifier Active — 3s", {
+            font: "bold 28px Arial", color: "#ffd700"
+        }).setOrigin(0.5).setDepth(50);
+
+        this.time.delayedCall(3000, () => {
+            this.currentFogOpacity = origOpacity;
+            magText.destroy();
+        });
+
+        if (this.soundEnabled) this.sound.play("SFX_UI_Tap");
+    }
+
+    // Override placeObjects with Egyptian gold/sand tints
+    placeObjects() {
+        this.found = 0;
+        this.sprites = [];
+        const placed: { x: number; y: number }[] = [];
+        const minDist = 100;
+        const placeTop = SAFE_TOP + 120;
+        const placeBottom = SAFE_BOTTOM - 200;
+        const placeLeft = SAFE_LEFT + 40;
+        const placeRight = SAFE_RIGHT - 40;
+
+        // Sandy gold / stone tints
+        const blendTints = [0xb8860b, 0xa08050, 0x8b7355, 0x9c8c6e, 0x7a6a5a];
+
+        this.objects.forEach((key, idx) => {
+            let x = 0, y = 0, valid = false, tries = 0;
+            while (!valid && tries < 200) {
+                x = Phaser.Math.Between(placeLeft, placeRight);
+                y = Phaser.Math.Between(placeTop, placeBottom);
+                valid = !placed.some(p => Phaser.Math.Distance.Between(p.x, p.y, x, y) < minDist);
+                tries++;
+            }
+            placed.push({ x, y });
+
+            const sprite = this.add.image(x, y, key)
+                .setScale(this.objectScale)
+                .setInteractive({ useHandCursor: true })
+                .setDepth(5);
+
+            sprite.setTint(blendTints[idx % blendTints.length]);
+            sprite.setAlpha(0.6); // Very hidden
+            sprite.setAngle(Phaser.Math.Between(-20, 20));
+
+            sprite.on("pointerover", () => { sprite.setAlpha(0.75); });
+            sprite.on("pointerout", () => { sprite.setAlpha(0.6); });
+            sprite.on("pointerdown", () => this.pickObject(sprite));
+            this.sprites.push(sprite);
+        });
+    }
+
+    // Override decoys — Egyptian themed, red vignette + shake on click
+    placeDecoys() {
+        if (this.decoyCount === 0) return;
+        const decoyKeys = ["canopic_jar", "golden_cobra", "lotus_amulet", "clay_lamp"].slice(0, this.decoyCount);
+        const placeTop = SAFE_TOP + 120;
+        const placeBottom = SAFE_BOTTOM - 200;
+        const placeLeft = SAFE_LEFT + 40;
+        const placeRight = SAFE_RIGHT - 40;
+
+        decoyKeys.forEach(key => {
+            const x = Phaser.Math.Between(placeLeft, placeRight);
+            const y = Phaser.Math.Between(placeTop, placeBottom);
+            const sprite = this.add.image(x, y, key)
+                .setScale(this.objectScale * 0.85)
+                .setInteractive({ useHandCursor: true })
+                .setDepth(5)
+                .setAlpha(0.5)
+                .setAngle(Phaser.Math.Between(-25, 25));
+            sprite.setTint(0x8b6914);
+            sprite.on("pointerdown", () => this.hitTombDecoy(sprite));
+            this.decoySprites.push(sprite);
+        });
+    }
+
+    hitTombDecoy(sprite: Phaser.GameObjects.Image) {
+        if (this.isTransitioning || this.narrative.isPlaying) return;
+        sprite.disableInteractive();
+        if (this.soundEnabled) this.sound.play("SFX_Wrong_Tap");
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+
+        // Red vignette
+        const vignette = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0xff0000, 0).setDepth(90);
+        this.tweens.add({ targets: vignette, alpha: 0.35, duration: 200, yoyo: true, onComplete: () => vignette.destroy() });
+
+        // Screen shake
+        this.cameras.main.shake(400, 0.015);
+
+        // X mark
+        this.tweens.add({
+            targets: sprite, tint: 0xff0000, scale: this.objectScale * 1.3, duration: 200, yoyo: true,
+            onComplete: () => {
+                const xMark = this.add.text(sprite.x, sprite.y, "✗", { font: "bold 48px Arial", color: "#ff4444" }).setOrigin(0.5).setDepth(50);
+                this.tweens.add({ targets: [sprite, xMark], alpha: 0, duration: 500, onComplete: () => { sprite.destroy(); xMark.destroy(); } });
+            }
+        });
+
+        this.combo = 0;
+        this.updateComboDisplay();
+
+        if (this.timeLeft > 0) {
+            const penalty = 15;
+            this.timeLeft = Math.max(0, this.timeLeft - penalty);
+            this.timerText.setText(this.formatTime(this.timeLeft));
+            this.flashTimerRed();
+            const penaltyText = this.add.text(sprite.x, sprite.y - 60, `-${penalty}s CURSED!`, {
+                font: "bold 32px Arial", color: "#ff4444"
+            }).setOrigin(0.5).setDepth(50);
+            this.tweens.add({ targets: penaltyText, y: penaltyText.y - 80, alpha: 0, duration: 1200, onComplete: () => penaltyText.destroy() });
+            if (this.timeLeft <= 0) this.gameOver(false);
+        }
+        this.score = Math.max(0, this.score - 75);
+        this.scoreText.setText("Score: " + this.score);
+    }
+
+    // Override visual noise with tomb atmosphere
+    addVisualNoise() {
+        // Dust motes in lamp light
+        for (let i = 0; i < 20; i++) {
+            const dx = Phaser.Math.Between(0, GAME_WIDTH);
+            const dy = Phaser.Math.Between(SAFE_TOP, SAFE_BOTTOM);
+            const dust = this.add.circle(dx, dy, Phaser.Math.Between(1, 4), 0xdaa520, Phaser.Math.FloatBetween(0.05, 0.2)).setDepth(9);
+            this.tweens.add({
+                targets: dust,
+                x: dx + Phaser.Math.Between(-80, 80),
+                y: dy + Phaser.Math.Between(-150, -30),
+                alpha: 0,
+                duration: Phaser.Math.Between(5000, 10000),
+                repeat: -1,
+                onRepeat: () => { dust.setPosition(Phaser.Math.Between(0, GAME_WIDTH), SAFE_BOTTOM + 50); dust.setAlpha(Phaser.Math.FloatBetween(0.05, 0.2)); }
+            });
+        }
+
+        // Amber lamp glow spots
+        for (let i = 0; i < 3; i++) {
+            const lx = Phaser.Math.Between(SAFE_LEFT + 100, SAFE_RIGHT - 100);
+            const ly = Phaser.Math.Between(SAFE_TOP + 100, SAFE_CENTER_Y);
+            const glow = this.add.circle(lx, ly, Phaser.Math.Between(40, 80), 0xdaa520, 0.06).setDepth(2);
+            this.tweens.add({
+                targets: glow, alpha: 0.12, scaleX: 1.15, scaleY: 1.15,
+                duration: Phaser.Math.Between(1500, 3000), yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+            });
+        }
+
+        // Heavy shadow patches
+        for (let i = 0; i < 7; i++) {
+            const sx = Phaser.Math.Between(SAFE_LEFT, SAFE_RIGHT);
+            const sy = Phaser.Math.Between(SAFE_TOP + 80, SAFE_BOTTOM - 100);
+            const shadow = this.add.ellipse(sx, sy,
+                Phaser.Math.Between(200, 450), Phaser.Math.Between(150, 300),
+                0x000000, Phaser.Math.FloatBetween(0.25, 0.5)
+            ).setDepth(3);
+            this.tweens.add({
+                targets: shadow, x: sx + Phaser.Math.Between(-15, 15), alpha: shadow.alpha * 0.6,
+                duration: Phaser.Math.Between(5000, 9000), yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+            });
+        }
+    }
+
+    // Procedural tomb ambient: echoing drips + low rumble
+    startTombAmbient() {
+        try {
+            const ctx = (this.sound as any).context as AudioContext;
+            if (!ctx) return;
+            const masterGain = ctx.createGain();
+            masterGain.gain.value = 0.12;
+            masterGain.connect(ctx.destination);
+            this.tombAmbientNodes.gainNode = masterGain;
+
+            // Low rumble
+            const rumbleDuration = 8;
+            const rumbleBuffer = ctx.createBuffer(1, ctx.sampleRate * rumbleDuration, ctx.sampleRate);
+            const rumbleData = rumbleBuffer.getChannelData(0);
+            for (let i = 0; i < rumbleData.length; i++) {
+                rumbleData[i] = (Math.random() * 2 - 1) * 0.3;
+            }
+            const rumbleSource = ctx.createBufferSource();
+            rumbleSource.buffer = rumbleBuffer;
+            rumbleSource.loop = true;
+            const rumbleFilter = ctx.createBiquadFilter();
+            rumbleFilter.type = 'lowpass';
+            rumbleFilter.frequency.value = 150;
+            const rumbleGain = ctx.createGain();
+            rumbleGain.gain.value = 0.7;
+            rumbleSource.connect(rumbleFilter);
+            rumbleFilter.connect(rumbleGain);
+            rumbleGain.connect(masterGain);
+            rumbleSource.start();
+            this.tombAmbientNodes.sources.push(rumbleSource);
+
+            // Water drips — sparse clicks
+            const dripDuration = 10;
+            const dripBuffer = ctx.createBuffer(1, ctx.sampleRate * dripDuration, ctx.sampleRate);
+            const dripData = dripBuffer.getChannelData(0);
+            for (let i = 0; i < dripData.length; i++) {
+                dripData[i] = Math.random() > 0.998 ? (Math.random() * 2 - 1) * 0.6 : 0;
+            }
+            const dripSource = ctx.createBufferSource();
+            dripSource.buffer = dripBuffer;
+            dripSource.loop = true;
+            const dripFilter = ctx.createBiquadFilter();
+            dripFilter.type = 'bandpass';
+            dripFilter.frequency.value = 2000;
+            dripFilter.Q.value = 2;
+            const dripGain = ctx.createGain();
+            dripGain.gain.value = 0.5;
+            dripSource.connect(dripFilter);
+            dripFilter.connect(dripGain);
+            dripGain.connect(masterGain);
+            dripSource.start();
+            this.tombAmbientNodes.sources.push(dripSource);
+        } catch (e) {
+            console.warn('Tomb ambient audio failed:', e);
+        }
+    }
+
+    stopTombAmbient() {
+        this.tombAmbientNodes.sources.forEach(s => { try { s.stop(); } catch {} });
+        this.tombAmbientNodes.sources = [];
+        if (this.tombAmbientNodes.gainNode) { try { this.tombAmbientNodes.gainNode.disconnect(); } catch {} }
+    }
+
+    cleanupAllAudio() {
+        super.cleanupAllAudio();
+        this.stopTombAmbient();
+    }
+
+    nextScene() {
+        if (this.curseTimer) this.curseTimer.destroy();
+        if (this.flickerTimer) this.flickerTimer.destroy();
+        showVictoryScreen(this, 3);
+    }
+}
+
+// ==========================================
 // GAME FACTORY
 // ==========================================
 
