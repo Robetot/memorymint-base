@@ -1,5 +1,5 @@
-// Memory Mint Week 1 - Roman HOPA Adventure (Enhanced)
-// Phaser 3 Implementation with Harder Gameplay Mechanics
+// Memory Mint HOPA Adventure - Week 1 (Roman) & Week 2 (Viking Raid)
+// Phaser 3 Implementation with Progressive Difficulty
 // Features: Fog of war, decoys, combo multiplier, visual noise, leaderboard
 
 import Phaser from 'phaser';
