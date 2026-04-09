@@ -1,4 +1,4 @@
-// Memory Mint HOPA Adventure - Week 1 (Roman) & Week 2 (Viking Raid)
+// Memory Mint HOPA Adventure - Week 1 (Roman), Week 2 (Viking Raid), Week 3 (Pharaoh's Curse)
 // Phaser 3 Implementation with Progressive Difficulty
 // Features: Fog of war, decoys, combo multiplier, visual noise, leaderboard
 
@@ -235,6 +235,8 @@ class BootScene extends Phaser.Scene {
         });
         // Background - Week 2
         this.load.image("longhouse", "/assets/images/backgrounds/scene_longhouse.png");
+        // Background - Week 3
+        this.load.image("tomb", "/assets/images/backgrounds/scene_tomb.png");
 
         // 1x1 objects - Week 1
         ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring",
@@ -249,9 +251,15 @@ class BootScene extends Phaser.Scene {
             this.load.image(obj, "/assets/images/objects/1x1/" + obj + ".png");
         });
 
+        // 1x1 objects - Week 3 (Egyptian)
+        ["scarab_amulet", "golden_ankh", "eye_of_horus",
+         "canopic_jar", "golden_cobra", "lotus_amulet", "clay_lamp"].forEach(obj => {
+            this.load.image(obj, "/assets/images/objects/1x1/" + obj + ".png");
+        });
+
         // 2x3 objects
         ["ceramic_vase", "centurion_helmet", "torch", "aquila_standard", "perfume_bottle",
-         "war_axe"].forEach(obj => {
+         "war_axe", "papyrus_scroll", "jeweled_dagger"].forEach(obj => {
             this.load.image(obj, "/assets/images/objects/2x3/" + obj + ".png");
         });
 
