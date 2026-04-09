@@ -229,20 +229,29 @@ class BootScene extends Phaser.Scene {
         });
         this.load.on("complete", () => { progressBox.destroy(); progressBar.destroy(); percentText.destroy(); });
 
-        // Backgrounds
+        // Backgrounds - Week 1
         ["barracks", "market", "forum"].forEach(bg => {
             this.load.image(bg, "/assets/images/backgrounds/scene_" + bg + ".png");
         });
+        // Background - Week 2
+        this.load.image("longhouse", "/assets/images/backgrounds/scene_longhouse.png");
 
-        // 1x1 objects
+        // 1x1 objects - Week 1
         ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring",
          "dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask",
          "mosaic_tile"].forEach(obj => {
             this.load.image(obj, "/assets/images/objects/1x1/" + obj + ".png");
         });
 
+        // 1x1 objects - Week 2 (Viking)
+        ["viking_helmet", "runestone", "thors_hammer", "silver_armband",
+         "mead_horn", "bone_comb", "iron_brooch"].forEach(obj => {
+            this.load.image(obj, "/assets/images/objects/1x1/" + obj + ".png");
+        });
+
         // 2x3 objects
-        ["ceramic_vase", "centurion_helmet", "torch", "aquila_standard", "perfume_bottle"].forEach(obj => {
+        ["ceramic_vase", "centurion_helmet", "torch", "aquila_standard", "perfume_bottle",
+         "war_axe"].forEach(obj => {
             this.load.image(obj, "/assets/images/objects/2x3/" + obj + ".png");
         });
 
