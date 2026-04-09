@@ -20,12 +20,15 @@ const HopaGameWrapper: React.FC<HopaGameWrapperProps> = ({ onBack }) => {
     const rotateWarning = document.getElementById('rotate-warning');
     if (!rotateWarning) return;
     
-    // Check for landscape orientation
+    // Only show rotate warning on mobile/tablet devices, never on desktop
+    const isMobileDevice = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+      || ('ontouchstart' in window && window.innerWidth < 1024);
+    
     const isLandscape = window.innerWidth > window.innerHeight || 
       window.orientation === 90 || 
       window.orientation === -90;
     
-    if (isLandscape) {
+    if (isMobileDevice && isLandscape) {
       rotateWarning.classList.add('visible');
     } else {
       rotateWarning.classList.remove('visible');
