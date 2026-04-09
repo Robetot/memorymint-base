@@ -2213,7 +2213,7 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
         type: Phaser.AUTO,
         parent: parent,
         backgroundColor: "#1a1a2e",
-        scene: [BootScene, WeekSelectScene, DifficultySelectScene, BarracksScene, MarketScene, ForumScene, VikingLonghouseScene],
+        scene: [BootScene, WeekSelectScene, DifficultySelectScene, BarracksScene, MarketScene, ForumScene, VikingLonghouseScene, EgyptianTombScene],
         scale: {
             mode: Phaser.Scale.FIT,
             autoCenter: Phaser.Scale.CENTER_BOTH,
