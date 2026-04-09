@@ -304,58 +304,47 @@ class WeekSelectScene extends Phaser.Scene {
     create() {
         this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x0d0d1a);
 
-        this.add.text(SAFE_CENTER_X, SAFE_TOP + 80, "MEMORY MINT", {
-            font: "bold 72px Arial", color: "#ffd700"
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 60, "MEMORY MINT", {
+            font: "bold 64px Arial", color: "#ffd700"
         }).setOrigin(0.5);
 
-        this.add.text(SAFE_CENTER_X, SAFE_TOP + 170, "Select Adventure", {
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 140, "Select Adventure", {
             font: "36px Arial", color: "#aaaaaa"
         }).setOrigin(0.5);
 
+        const cardH = 130;
+        const gap = 20;
+        const startY = SAFE_CENTER_Y - cardH - gap;
+
         // Week 1 card
-        const w1y = SAFE_CENTER_Y - 80;
-        const w1bg = this.add.rectangle(SAFE_CENTER_X, w1y, 520, 160, 0x000000, 0.5)
-            .setStrokeStyle(3, 0xd4a574).setInteractive({ useHandCursor: true });
-        this.add.text(SAFE_CENTER_X, w1y - 30, "⚔️  Week 1 — Roman Adventure", {
-            font: "bold 30px Arial", color: "#d4a574"
-        }).setOrigin(0.5);
-        this.add.text(SAFE_CENTER_X, w1y + 20, "3 Scenes  •  Barracks → Market → Forum", {
-            font: "20px Arial", color: "#999999"
-        }).setOrigin(0.5);
-        const w1best = getLeaderboardByWeek(1);
-        if (w1best.length > 0) {
-            this.add.text(SAFE_CENTER_X, w1y + 52, `Best: ${w1best[0].score} pts`, {
-                font: "18px Arial", color: "#4ade80"
-            }).setOrigin(0.5);
-        }
-        w1bg.on("pointerover", () => w1bg.setFillStyle(0xd4a574, 0.15));
-        w1bg.on("pointerout", () => w1bg.setFillStyle(0x000000, 0.5));
-        w1bg.on("pointerdown", () => {
-            this.registry.set("week", 1);
-            if (this.registry.get("soundEnabled")) this.sound.play("SFX_UI_Tap");
-            this.scene.start("DifficultySelectScene");
-        });
+        this.createWeekCard(startY, 1, "⚔️  Week 1 — Roman Adventure", "3 Scenes  •  Barracks → Market → Forum", 0xd4a574);
 
         // Week 2 card
-        const w2y = SAFE_CENTER_Y + 120;
-        const w2bg = this.add.rectangle(SAFE_CENTER_X, w2y, 520, 160, 0x000000, 0.5)
-            .setStrokeStyle(3, 0x4488cc).setInteractive({ useHandCursor: true });
-        this.add.text(SAFE_CENTER_X, w2y - 30, "🛡️  Week 2 — Viking Raid", {
-            font: "bold 30px Arial", color: "#6699dd"
+        this.createWeekCard(startY + cardH + gap, 2, "🛡️  Week 2 — Viking Raid", "1 Scene  •  Longhouse  •  Lightning Storms", 0x4488cc);
+
+        // Week 3 card
+        this.createWeekCard(startY + (cardH + gap) * 2, 3, "🏺  Week 3 — Pharaoh's Curse", "1 Scene  •  Tomb  •  Curse Shuffle + Magnifier", 0xd4a017);
+    }
+
+    createWeekCard(y: number, weekNum: number, title: string, desc: string, color: number) {
+        const bg = this.add.rectangle(SAFE_CENTER_X, y, 540, 120, 0x000000, 0.5)
+            .setStrokeStyle(3, color).setInteractive({ useHandCursor: true });
+        this.add.text(SAFE_CENTER_X, y - 20, title, {
+            font: "bold 28px Arial", color: "#" + color.toString(16).padStart(6, "0")
         }).setOrigin(0.5);
-        this.add.text(SAFE_CENTER_X, w2y + 20, "1 Scene  •  Longhouse  •  Lightning Storms", {
-            font: "20px Arial", color: "#999999"
+        this.add.text(SAFE_CENTER_X, y + 18, desc, {
+            font: "18px Arial", color: "#999999"
         }).setOrigin(0.5);
-        const w2best = getLeaderboardByWeek(2);
-        if (w2best.length > 0) {
-            this.add.text(SAFE_CENTER_X, w2y + 52, `Best: ${w2best[0].score} pts`, {
-                font: "18px Arial", color: "#4ade80"
+        const best = getLeaderboardByWeek(weekNum);
+        if (best.length > 0) {
+            this.add.text(SAFE_CENTER_X, y + 44, `Best: ${best[0].score} pts`, {
+                font: "16px Arial", color: "#4ade80"
             }).setOrigin(0.5);
         }
-        w2bg.on("pointerover", () => w2bg.setFillStyle(0x4488cc, 0.15));
-        w2bg.on("pointerout", () => w2bg.setFillStyle(0x000000, 0.5));
-        w2bg.on("pointerdown", () => {
-            this.registry.set("week", 2);
+        bg.on("pointerover", () => bg.setFillStyle(color, 0.15));
+        bg.on("pointerout", () => bg.setFillStyle(0x000000, 0.5));
+        bg.on("pointerdown", () => {
+            this.registry.set("week", weekNum);
             if (this.registry.get("soundEnabled")) this.sound.play("SFX_UI_Tap");
             this.scene.start("DifficultySelectScene");
         });
