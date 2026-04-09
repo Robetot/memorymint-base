@@ -1,4 +1,4 @@
-// Memory Mint HOPA Adventure - Week 1 (Roman) & Week 2 (Viking Raid)
+// Memory Mint HOPA Adventure - Week 1 (Roman), Week 2 (Viking Raid), Week 3 (Pharaoh's Curse)
 // Phaser 3 Implementation with Progressive Difficulty
 // Features: Fog of war, decoys, combo multiplier, visual noise, leaderboard
 
@@ -235,6 +235,8 @@ class BootScene extends Phaser.Scene {
         });
         // Background - Week 2
         this.load.image("longhouse", "/assets/images/backgrounds/scene_longhouse.png");
+        // Background - Week 3
+        this.load.image("tomb", "/assets/images/backgrounds/scene_tomb.png");
 
         // 1x1 objects - Week 1
         ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring",
@@ -249,9 +251,15 @@ class BootScene extends Phaser.Scene {
             this.load.image(obj, "/assets/images/objects/1x1/" + obj + ".png");
         });
 
+        // 1x1 objects - Week 3 (Egyptian)
+        ["scarab_amulet", "golden_ankh", "eye_of_horus",
+         "canopic_jar", "golden_cobra", "lotus_amulet", "clay_lamp"].forEach(obj => {
+            this.load.image(obj, "/assets/images/objects/1x1/" + obj + ".png");
+        });
+
         // 2x3 objects
         ["ceramic_vase", "centurion_helmet", "torch", "aquila_standard", "perfume_bottle",
-         "war_axe"].forEach(obj => {
+         "war_axe", "papyrus_scroll", "jeweled_dagger"].forEach(obj => {
             this.load.image(obj, "/assets/images/objects/2x3/" + obj + ".png");
         });
 
@@ -296,58 +304,47 @@ class WeekSelectScene extends Phaser.Scene {
     create() {
         this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x0d0d1a);
 
-        this.add.text(SAFE_CENTER_X, SAFE_TOP + 80, "MEMORY MINT", {
-            font: "bold 72px Arial", color: "#ffd700"
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 60, "MEMORY MINT", {
+            font: "bold 64px Arial", color: "#ffd700"
         }).setOrigin(0.5);
 
-        this.add.text(SAFE_CENTER_X, SAFE_TOP + 170, "Select Adventure", {
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 140, "Select Adventure", {
             font: "36px Arial", color: "#aaaaaa"
         }).setOrigin(0.5);
 
+        const cardH = 130;
+        const gap = 20;
+        const startY = SAFE_CENTER_Y - cardH - gap;
+
         // Week 1 card
-        const w1y = SAFE_CENTER_Y - 80;
-        const w1bg = this.add.rectangle(SAFE_CENTER_X, w1y, 520, 160, 0x000000, 0.5)
-            .setStrokeStyle(3, 0xd4a574).setInteractive({ useHandCursor: true });
-        this.add.text(SAFE_CENTER_X, w1y - 30, "⚔️  Week 1 — Roman Adventure", {
-            font: "bold 30px Arial", color: "#d4a574"
-        }).setOrigin(0.5);
-        this.add.text(SAFE_CENTER_X, w1y + 20, "3 Scenes  •  Barracks → Market → Forum", {
-            font: "20px Arial", color: "#999999"
-        }).setOrigin(0.5);
-        const w1best = getLeaderboardByWeek(1);
-        if (w1best.length > 0) {
-            this.add.text(SAFE_CENTER_X, w1y + 52, `Best: ${w1best[0].score} pts`, {
-                font: "18px Arial", color: "#4ade80"
-            }).setOrigin(0.5);
-        }
-        w1bg.on("pointerover", () => w1bg.setFillStyle(0xd4a574, 0.15));
-        w1bg.on("pointerout", () => w1bg.setFillStyle(0x000000, 0.5));
-        w1bg.on("pointerdown", () => {
-            this.registry.set("week", 1);
-            if (this.registry.get("soundEnabled")) this.sound.play("SFX_UI_Tap");
-            this.scene.start("DifficultySelectScene");
-        });
+        this.createWeekCard(startY, 1, "⚔️  Week 1 — Roman Adventure", "3 Scenes  •  Barracks → Market → Forum", 0xd4a574);
 
         // Week 2 card
-        const w2y = SAFE_CENTER_Y + 120;
-        const w2bg = this.add.rectangle(SAFE_CENTER_X, w2y, 520, 160, 0x000000, 0.5)
-            .setStrokeStyle(3, 0x4488cc).setInteractive({ useHandCursor: true });
-        this.add.text(SAFE_CENTER_X, w2y - 30, "🛡️  Week 2 — Viking Raid", {
-            font: "bold 30px Arial", color: "#6699dd"
+        this.createWeekCard(startY + cardH + gap, 2, "🛡️  Week 2 — Viking Raid", "1 Scene  •  Longhouse  •  Lightning Storms", 0x4488cc);
+
+        // Week 3 card
+        this.createWeekCard(startY + (cardH + gap) * 2, 3, "🏺  Week 3 — Pharaoh's Curse", "1 Scene  •  Tomb  •  Curse Shuffle + Magnifier", 0xd4a017);
+    }
+
+    createWeekCard(y: number, weekNum: number, title: string, desc: string, color: number) {
+        const bg = this.add.rectangle(SAFE_CENTER_X, y, 540, 120, 0x000000, 0.5)
+            .setStrokeStyle(3, color).setInteractive({ useHandCursor: true });
+        this.add.text(SAFE_CENTER_X, y - 20, title, {
+            font: "bold 28px Arial", color: "#" + color.toString(16).padStart(6, "0")
         }).setOrigin(0.5);
-        this.add.text(SAFE_CENTER_X, w2y + 20, "1 Scene  •  Longhouse  •  Lightning Storms", {
-            font: "20px Arial", color: "#999999"
+        this.add.text(SAFE_CENTER_X, y + 18, desc, {
+            font: "18px Arial", color: "#999999"
         }).setOrigin(0.5);
-        const w2best = getLeaderboardByWeek(2);
-        if (w2best.length > 0) {
-            this.add.text(SAFE_CENTER_X, w2y + 52, `Best: ${w2best[0].score} pts`, {
-                font: "18px Arial", color: "#4ade80"
+        const best = getLeaderboardByWeek(weekNum);
+        if (best.length > 0) {
+            this.add.text(SAFE_CENTER_X, y + 44, `Best: ${best[0].score} pts`, {
+                font: "16px Arial", color: "#4ade80"
             }).setOrigin(0.5);
         }
-        w2bg.on("pointerover", () => w2bg.setFillStyle(0x4488cc, 0.15));
-        w2bg.on("pointerout", () => w2bg.setFillStyle(0x000000, 0.5));
-        w2bg.on("pointerdown", () => {
-            this.registry.set("week", 2);
+        bg.on("pointerover", () => bg.setFillStyle(color, 0.15));
+        bg.on("pointerout", () => bg.setFillStyle(0x000000, 0.5));
+        bg.on("pointerdown", () => {
+            this.registry.set("week", weekNum);
             if (this.registry.get("soundEnabled")) this.sound.play("SFX_UI_Tap");
             this.scene.start("DifficultySelectScene");
         });
@@ -363,28 +360,38 @@ class DifficultySelectScene extends Phaser.Scene {
 
     create() {
         const week = this.registry.get("week") || 1;
-        const isViking = week === 2;
         
-        this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, isViking ? 0x0a1020 : 0x1a1a2e);
+        const bgColors: Record<number, number> = { 1: 0x1a1a2e, 2: 0x0a1020, 3: 0x1a1408 };
+        this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, bgColors[week] || 0x1a1a2e);
 
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 100, "MEMORY MINT", {
             font: "bold 72px Arial", color: "#ffd700"
         }).setOrigin(0.5);
 
-        const subtitle = isViking ? "Week 2 — Viking Raid" : "Week 1 — Roman Adventure";
-        this.add.text(SAFE_CENTER_X, SAFE_TOP + 200, subtitle, {
-            font: "40px Arial", color: isViking ? "#6699dd" : "#ffffff"
+        const subtitles: Record<number, string> = {
+            1: "Week 1 — Roman Adventure",
+            2: "Week 2 — Viking Raid",
+            3: "Week 3 — Pharaoh's Curse"
+        };
+        const subtitleColors: Record<number, string> = { 1: "#ffffff", 2: "#6699dd", 3: "#d4a017" };
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 200, subtitles[week] || "", {
+            font: "40px Arial", color: subtitleColors[week] || "#ffffff"
         }).setOrigin(0.5);
 
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 280, "Select Difficulty", {
             font: "32px Arial", color: "#aaaaaa"
         }).setOrigin(0.5);
 
-        const firstScene = isViking ? "VikingLonghouseScene" : "BarracksScene";
+        const firstScenes: Record<number, string> = { 1: "BarracksScene", 2: "VikingLonghouseScene", 3: "EgyptianTombScene" };
+        const firstScene = firstScenes[week] || "BarracksScene";
 
         const buttonY = SAFE_CENTER_Y - 50;
         
-        if (isViking) {
+        if (week === 3) {
+            this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | 2:00 | 1 hint | Fog + Curse", 0x4ade80, firstScene);
+            this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "5 objects | 1:30 | 0 hints | Fog + Curse + 4 Decoys", 0xfbbf24, firstScene);
+            this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "5 objects | 1:00 | 0 hints | Curse + Magnifier only", 0xef4444, firstScene);
+        } else if (week === 2) {
             this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | 2:30 | 2 hints | Fog", 0x4ade80, firstScene);
             this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "5 objects | 2:00 | 1 hint | Fog + Lightning", 0xfbbf24, firstScene);
             this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "5 objects | 1:30 | 0 hints | Fog + Lightning + 3 Decoys", 0xef4444, firstScene);
@@ -394,13 +401,17 @@ class DifficultySelectScene extends Phaser.Scene {
             this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "15 objects | 2 min | 1 hint | Fog + Decoys", 0xef4444, firstScene);
         }
         
-        // Back button
         const backBtn = this.add.text(SAFE_LEFT + 20, SAFE_TOP + 40, "← Back", {
             font: "bold 24px Arial", color: "#888888"
         }).setOrigin(0, 0.5).setInteractive({ useHandCursor: true });
         backBtn.on("pointerdown", () => this.scene.start("WeekSelectScene"));
 
-        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, isViking ? "Beware the storm — lightning blinds you!" : "Find all hidden objects — beware of decoys!", {
+        const footers: Record<number, string> = {
+            1: "Find all hidden objects — beware of decoys!",
+            2: "Beware the storm — lightning blinds you!",
+            3: "The Pharaoh's curse shuffles objects!"
+        };
+        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, footers[week] || "", {
             font: "24px Arial", color: "#666666"
         }).setOrigin(0.5);
     }
@@ -1714,6 +1725,481 @@ class VikingLonghouseScene extends HopaScene {
 }
 
 // ==========================================
+// WEEK 3 — PHARAOH'S CURSE SCENE
+// ==========================================
+
+class EgyptianTombScene extends HopaScene {
+    private curseTimer?: Phaser.Time.TimerEvent;
+    private flickerTimer?: Phaser.Time.TimerEvent;
+    private magnifierUsed: boolean = false;
+    private magnifierBtn?: Phaser.GameObjects.Rectangle;
+    private magnifierLabel?: Phaser.GameObjects.Text;
+    private tombAmbientNodes: { gainNode?: GainNode; sources: AudioBufferSourceNode[] } = { sources: [] };
+    private fogRT?: Phaser.GameObjects.RenderTexture;
+    private currentFogOpacity: number = 0.85;
+
+    constructor() {
+        super("EgyptianTombScene", "tomb", "AMB_Barracks", "barracks",
+            ["scarab_amulet", "golden_ankh", "papyrus_scroll", "jeweled_dagger", "eye_of_horus"]);
+    }
+
+    applyDifficulty() {
+        const isLandscape = GAME_WIDTH > GAME_HEIGHT;
+        const scaleFactor = isLandscape ? 0.55 : 1.0;
+        const week3Reduction = 0.5; // 50% smaller than Week 1
+
+        if (this.difficulty === "Easy") {
+            this.maxTime = 120; // 2:00
+            this.timeLeft = 120;
+            this.hints = 1;
+            this.objectScale = 0.12 * scaleFactor * week3Reduction;
+            this.fogEnabled = true;
+            this.decoyCount = 2;
+        } else if (this.difficulty === "Medium") {
+            this.maxTime = 90; // 1:30
+            this.timeLeft = 90;
+            this.hints = 0;
+            this.objectScale = 0.09 * scaleFactor * week3Reduction;
+            this.fogEnabled = true;
+            this.decoyCount = 4;
+        } else {
+            this.maxTime = 60; // 1:00
+            this.timeLeft = 60;
+            this.hints = 0;
+            this.objectScale = 0.07 * scaleFactor * week3Reduction;
+            this.fogEnabled = true;
+            this.decoyCount = 4;
+        }
+    }
+
+    create() {
+        this.magnifierUsed = false;
+        this.currentFogOpacity = 0.85;
+        super.create();
+        this.startCurseMechanic();
+        this.startTorchlightFlicker();
+        this.stopAmbient();
+        if (this.soundEnabled) this.startTombAmbient();
+        this.createMagnifierButton();
+    }
+
+    // Hint costs 20s in Week 3
+    useHint() {
+        if (this.narrative.isPlaying || this.isTransitioning) return;
+        if (this.hints <= 0) return;
+
+        const remaining = this.sprites.filter(s => s.visible);
+        if (remaining.length === 0) return;
+
+        this.hints--;
+        this.hintsText.setText("💡 " + this.hints);
+
+        if (this.timeLeft > 0) {
+            this.timeLeft = Math.max(1, this.timeLeft - 20);
+            this.timerText.setText(this.formatTime(this.timeLeft));
+            const penaltyText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 150, "-20s Hint Used!", {
+                font: "bold 24px Arial", color: "#fbbf24"
+            }).setOrigin(0.5).setDepth(50);
+            this.tweens.add({
+                targets: penaltyText, alpha: 0, y: penaltyText.y - 40, duration: 1500,
+                onComplete: () => penaltyText.destroy()
+            });
+        }
+
+        this.combo = 0;
+        this.updateComboDisplay();
+        if (this.soundEnabled) this.sound.play("SFX_Hint_Used");
+
+        const target = Phaser.Utils.Array.GetRandom(remaining);
+        const origTint = target.tintTopLeft;
+        target.clearTint();
+        target.setAlpha(1);
+        this.tweens.add({
+            targets: target, scale: this.objectScale * 1.5, yoyo: true, duration: 300, repeat: 3,
+            ease: "Sine.easeInOut",
+            onComplete: () => { target.setTint(origTint); target.setAlpha(0.6); }
+        });
+        const glow = this.add.circle(target.x, target.y, 80, 0xffd700, 0.5).setDepth(15);
+        this.tweens.add({
+            targets: glow, alpha: 0, scale: 1.5, duration: 1500,
+            onComplete: () => glow.destroy()
+        });
+    }
+
+    // Override fog — darker + flickering
+    setupFogOfWar() {
+        this.fogRT = this.add.renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT).setDepth(10);
+
+        this.events.on('update', () => {
+            if (!this.fogRT) return;
+            this.fogRT.clear();
+            this.fogRT.fill(0x000000, this.currentFogOpacity);
+
+            const pointer = this.input.activePointer;
+            const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+            const revealRadius = this.difficulty === "Hard" ? 70 : this.difficulty === "Medium" ? 90 : 110;
+            this.fogRT.erase(this.createRevealCircle(revealRadius), worldPoint.x - revealRadius, worldPoint.y - revealRadius);
+
+            this.sprites.forEach(s => {
+                if (!s.visible) {
+                    this.fogRT!.erase(this.createRevealCircle(35), s.x - 35, s.y - 35);
+                }
+            });
+        });
+    }
+
+    // Torchlight flicker: dims fog randomly every ~10s
+    startTorchlightFlicker() {
+        const doFlicker = () => {
+            if (this.isTransitioning) return;
+            // Briefly increase fog opacity (dim the lights)
+            const origOpacity = 0.85;
+            this.currentFogOpacity = 0.95;
+            
+            const flickerText = this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y, "🕯️ Torches flicker...", {
+                font: "bold 24px Arial", color: "#886622"
+            }).setOrigin(0.5).setDepth(50).setAlpha(0);
+            this.tweens.add({
+                targets: flickerText, alpha: 0.8, duration: 400, yoyo: true,
+                onComplete: () => flickerText.destroy()
+            });
+
+            this.time.delayedCall(2000, () => {
+                this.currentFogOpacity = origOpacity;
+            });
+        };
+
+        const scheduleFlicker = () => {
+            this.flickerTimer = this.time.delayedCall(Phaser.Math.Between(8000, 12000), () => {
+                if (this.isTransitioning) return;
+                doFlicker();
+                scheduleFlicker();
+            });
+        };
+        scheduleFlicker();
+    }
+
+    // Curse: every 40s, shuffle 2 object positions
+    startCurseMechanic() {
+        const doCurse = () => {
+            if (this.isTransitioning) return;
+
+            const remaining = this.sprites.filter(s => s.visible);
+            if (remaining.length < 2) return;
+
+            // Pick 2 random visible objects and swap positions
+            const shuffled = Phaser.Utils.Array.Shuffle([...remaining]);
+            const a = shuffled[0];
+            const b = shuffled[1];
+            const ax = a.x, ay = a.y;
+            const bx = b.x, by = b.y;
+
+            // Curse warning
+            const curseOverlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x440000, 0).setDepth(100);
+            const curseText = this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y, "💀 CURSE ACTIVATES! 💀", {
+                font: "bold 44px Arial", color: "#ff4444"
+            }).setOrigin(0.5).setDepth(101).setAlpha(0);
+
+            this.tweens.add({ targets: curseOverlay, alpha: 0.4, duration: 300, yoyo: true });
+            this.tweens.add({
+                targets: curseText, alpha: 1, scale: 1.2, duration: 400, yoyo: true,
+                hold: 600,
+                onComplete: () => curseText.destroy()
+            });
+
+            // Shake camera
+            this.cameras.main.shake(500, 0.01);
+            if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+
+            // Animate the swap
+            this.time.delayedCall(800, () => {
+                curseOverlay.destroy();
+                this.tweens.add({ targets: a, x: bx, y: by, duration: 500, ease: "Power2" });
+                this.tweens.add({ targets: b, x: ax, y: ay, duration: 500, ease: "Power2" });
+            });
+        };
+
+        const scheduleCurse = () => {
+            this.curseTimer = this.time.delayedCall(40000, () => {
+                if (this.isTransitioning) return;
+                doCurse();
+                scheduleCurse();
+            });
+        };
+        scheduleCurse();
+    }
+
+    // Magnifier tool: one-time zoom into an area
+    createMagnifierButton() {
+        const btnX = SAFE_CENTER_X;
+        const btnY = SAFE_BOTTOM - 50;
+        this.magnifierBtn = this.add.rectangle(btnX, btnY, 160, 60, 0xd4a017, 0.9)
+            .setInteractive({ useHandCursor: true }).setDepth(20);
+        this.magnifierLabel = this.add.text(btnX, btnY, "🔍 Magnify", {
+            font: "bold 20px Arial", color: "#000000"
+        }).setOrigin(0.5).setDepth(20);
+        this.magnifierBtn.on("pointerdown", () => this.useMagnifier());
+    }
+
+    useMagnifier() {
+        if (this.magnifierUsed || this.isTransitioning || this.narrative.isPlaying) return;
+        this.magnifierUsed = true;
+
+        if (this.magnifierBtn) { this.magnifierBtn.setAlpha(0.3); this.magnifierBtn.disableInteractive(); }
+        if (this.magnifierLabel) this.magnifierLabel.setText("🔍 Used");
+
+        // Zoom camera to pointer location for 3 seconds
+        const pointer = this.input.activePointer;
+        const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+
+        // Temporarily increase reveal radius by making fog very transparent
+        const origOpacity = this.currentFogOpacity;
+        this.currentFogOpacity = 0.3;
+
+        // Visual indicator
+        const magCircle = this.add.circle(worldPoint.x, worldPoint.y, 200, 0xffd700, 0.15)
+            .setDepth(50).setStrokeStyle(3, 0xffd700);
+        this.tweens.add({
+            targets: magCircle, scale: 1.5, alpha: 0, duration: 3000,
+            onComplete: () => magCircle.destroy()
+        });
+
+        const magText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 150, "🔍 Magnifier Active — 3s", {
+            font: "bold 28px Arial", color: "#ffd700"
+        }).setOrigin(0.5).setDepth(50);
+
+        this.time.delayedCall(3000, () => {
+            this.currentFogOpacity = origOpacity;
+            magText.destroy();
+        });
+
+        if (this.soundEnabled) this.sound.play("SFX_UI_Tap");
+    }
+
+    // Override placeObjects with Egyptian gold/sand tints
+    placeObjects() {
+        this.found = 0;
+        this.sprites = [];
+        const placed: { x: number; y: number }[] = [];
+        const minDist = 100;
+        const placeTop = SAFE_TOP + 120;
+        const placeBottom = SAFE_BOTTOM - 200;
+        const placeLeft = SAFE_LEFT + 40;
+        const placeRight = SAFE_RIGHT - 40;
+
+        // Sandy gold / stone tints
+        const blendTints = [0xb8860b, 0xa08050, 0x8b7355, 0x9c8c6e, 0x7a6a5a];
+
+        this.objects.forEach((key, idx) => {
+            let x = 0, y = 0, valid = false, tries = 0;
+            while (!valid && tries < 200) {
+                x = Phaser.Math.Between(placeLeft, placeRight);
+                y = Phaser.Math.Between(placeTop, placeBottom);
+                valid = !placed.some(p => Phaser.Math.Distance.Between(p.x, p.y, x, y) < minDist);
+                tries++;
+            }
+            placed.push({ x, y });
+
+            const sprite = this.add.image(x, y, key)
+                .setScale(this.objectScale)
+                .setInteractive({ useHandCursor: true })
+                .setDepth(5);
+
+            sprite.setTint(blendTints[idx % blendTints.length]);
+            sprite.setAlpha(0.6); // Very hidden
+            sprite.setAngle(Phaser.Math.Between(-20, 20));
+
+            sprite.on("pointerover", () => { sprite.setAlpha(0.75); });
+            sprite.on("pointerout", () => { sprite.setAlpha(0.6); });
+            sprite.on("pointerdown", () => this.pickObject(sprite));
+            this.sprites.push(sprite);
+        });
+    }
+
+    // Override decoys — Egyptian themed, red vignette + shake on click
+    placeDecoys() {
+        if (this.decoyCount === 0) return;
+        const decoyKeys = ["canopic_jar", "golden_cobra", "lotus_amulet", "clay_lamp"].slice(0, this.decoyCount);
+        const placeTop = SAFE_TOP + 120;
+        const placeBottom = SAFE_BOTTOM - 200;
+        const placeLeft = SAFE_LEFT + 40;
+        const placeRight = SAFE_RIGHT - 40;
+
+        decoyKeys.forEach(key => {
+            const x = Phaser.Math.Between(placeLeft, placeRight);
+            const y = Phaser.Math.Between(placeTop, placeBottom);
+            const sprite = this.add.image(x, y, key)
+                .setScale(this.objectScale * 0.85)
+                .setInteractive({ useHandCursor: true })
+                .setDepth(5)
+                .setAlpha(0.5)
+                .setAngle(Phaser.Math.Between(-25, 25));
+            sprite.setTint(0x8b6914);
+            sprite.on("pointerdown", () => this.hitTombDecoy(sprite));
+            this.decoySprites.push(sprite);
+        });
+    }
+
+    hitTombDecoy(sprite: Phaser.GameObjects.Image) {
+        if (this.isTransitioning || this.narrative.isPlaying) return;
+        sprite.disableInteractive();
+        if (this.soundEnabled) this.sound.play("SFX_Wrong_Tap");
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+
+        // Red vignette
+        const vignette = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0xff0000, 0).setDepth(90);
+        this.tweens.add({ targets: vignette, alpha: 0.35, duration: 200, yoyo: true, onComplete: () => vignette.destroy() });
+
+        // Screen shake
+        this.cameras.main.shake(400, 0.015);
+
+        // X mark
+        this.tweens.add({
+            targets: sprite, tint: 0xff0000, scale: this.objectScale * 1.3, duration: 200, yoyo: true,
+            onComplete: () => {
+                const xMark = this.add.text(sprite.x, sprite.y, "✗", { font: "bold 48px Arial", color: "#ff4444" }).setOrigin(0.5).setDepth(50);
+                this.tweens.add({ targets: [sprite, xMark], alpha: 0, duration: 500, onComplete: () => { sprite.destroy(); xMark.destroy(); } });
+            }
+        });
+
+        this.combo = 0;
+        this.updateComboDisplay();
+
+        if (this.timeLeft > 0) {
+            const penalty = 15;
+            this.timeLeft = Math.max(0, this.timeLeft - penalty);
+            this.timerText.setText(this.formatTime(this.timeLeft));
+            this.flashTimerRed();
+            const penaltyText = this.add.text(sprite.x, sprite.y - 60, `-${penalty}s CURSED!`, {
+                font: "bold 32px Arial", color: "#ff4444"
+            }).setOrigin(0.5).setDepth(50);
+            this.tweens.add({ targets: penaltyText, y: penaltyText.y - 80, alpha: 0, duration: 1200, onComplete: () => penaltyText.destroy() });
+            if (this.timeLeft <= 0) this.gameOver(false);
+        }
+        this.score = Math.max(0, this.score - 75);
+        this.scoreText.setText("Score: " + this.score);
+    }
+
+    // Override visual noise with tomb atmosphere
+    addVisualNoise() {
+        // Dust motes in lamp light
+        for (let i = 0; i < 20; i++) {
+            const dx = Phaser.Math.Between(0, GAME_WIDTH);
+            const dy = Phaser.Math.Between(SAFE_TOP, SAFE_BOTTOM);
+            const dust = this.add.circle(dx, dy, Phaser.Math.Between(1, 4), 0xdaa520, Phaser.Math.FloatBetween(0.05, 0.2)).setDepth(9);
+            this.tweens.add({
+                targets: dust,
+                x: dx + Phaser.Math.Between(-80, 80),
+                y: dy + Phaser.Math.Between(-150, -30),
+                alpha: 0,
+                duration: Phaser.Math.Between(5000, 10000),
+                repeat: -1,
+                onRepeat: () => { dust.setPosition(Phaser.Math.Between(0, GAME_WIDTH), SAFE_BOTTOM + 50); dust.setAlpha(Phaser.Math.FloatBetween(0.05, 0.2)); }
+            });
+        }
+
+        // Amber lamp glow spots
+        for (let i = 0; i < 3; i++) {
+            const lx = Phaser.Math.Between(SAFE_LEFT + 100, SAFE_RIGHT - 100);
+            const ly = Phaser.Math.Between(SAFE_TOP + 100, SAFE_CENTER_Y);
+            const glow = this.add.circle(lx, ly, Phaser.Math.Between(40, 80), 0xdaa520, 0.06).setDepth(2);
+            this.tweens.add({
+                targets: glow, alpha: 0.12, scaleX: 1.15, scaleY: 1.15,
+                duration: Phaser.Math.Between(1500, 3000), yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+            });
+        }
+
+        // Heavy shadow patches
+        for (let i = 0; i < 7; i++) {
+            const sx = Phaser.Math.Between(SAFE_LEFT, SAFE_RIGHT);
+            const sy = Phaser.Math.Between(SAFE_TOP + 80, SAFE_BOTTOM - 100);
+            const shadow = this.add.ellipse(sx, sy,
+                Phaser.Math.Between(200, 450), Phaser.Math.Between(150, 300),
+                0x000000, Phaser.Math.FloatBetween(0.25, 0.5)
+            ).setDepth(3);
+            this.tweens.add({
+                targets: shadow, x: sx + Phaser.Math.Between(-15, 15), alpha: shadow.alpha * 0.6,
+                duration: Phaser.Math.Between(5000, 9000), yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+            });
+        }
+    }
+
+    // Procedural tomb ambient: echoing drips + low rumble
+    startTombAmbient() {
+        try {
+            const ctx = (this.sound as any).context as AudioContext;
+            if (!ctx) return;
+            const masterGain = ctx.createGain();
+            masterGain.gain.value = 0.12;
+            masterGain.connect(ctx.destination);
+            this.tombAmbientNodes.gainNode = masterGain;
+
+            // Low rumble
+            const rumbleDuration = 8;
+            const rumbleBuffer = ctx.createBuffer(1, ctx.sampleRate * rumbleDuration, ctx.sampleRate);
+            const rumbleData = rumbleBuffer.getChannelData(0);
+            for (let i = 0; i < rumbleData.length; i++) {
+                rumbleData[i] = (Math.random() * 2 - 1) * 0.3;
+            }
+            const rumbleSource = ctx.createBufferSource();
+            rumbleSource.buffer = rumbleBuffer;
+            rumbleSource.loop = true;
+            const rumbleFilter = ctx.createBiquadFilter();
+            rumbleFilter.type = 'lowpass';
+            rumbleFilter.frequency.value = 150;
+            const rumbleGain = ctx.createGain();
+            rumbleGain.gain.value = 0.7;
+            rumbleSource.connect(rumbleFilter);
+            rumbleFilter.connect(rumbleGain);
+            rumbleGain.connect(masterGain);
+            rumbleSource.start();
+            this.tombAmbientNodes.sources.push(rumbleSource);
+
+            // Water drips — sparse clicks
+            const dripDuration = 10;
+            const dripBuffer = ctx.createBuffer(1, ctx.sampleRate * dripDuration, ctx.sampleRate);
+            const dripData = dripBuffer.getChannelData(0);
+            for (let i = 0; i < dripData.length; i++) {
+                dripData[i] = Math.random() > 0.998 ? (Math.random() * 2 - 1) * 0.6 : 0;
+            }
+            const dripSource = ctx.createBufferSource();
+            dripSource.buffer = dripBuffer;
+            dripSource.loop = true;
+            const dripFilter = ctx.createBiquadFilter();
+            dripFilter.type = 'bandpass';
+            dripFilter.frequency.value = 2000;
+            dripFilter.Q.value = 2;
+            const dripGain = ctx.createGain();
+            dripGain.gain.value = 0.5;
+            dripSource.connect(dripFilter);
+            dripFilter.connect(dripGain);
+            dripGain.connect(masterGain);
+            dripSource.start();
+            this.tombAmbientNodes.sources.push(dripSource);
+        } catch (e) {
+            console.warn('Tomb ambient audio failed:', e);
+        }
+    }
+
+    stopTombAmbient() {
+        this.tombAmbientNodes.sources.forEach(s => { try { s.stop(); } catch {} });
+        this.tombAmbientNodes.sources = [];
+        if (this.tombAmbientNodes.gainNode) { try { this.tombAmbientNodes.gainNode.disconnect(); } catch {} }
+    }
+
+    cleanupAllAudio() {
+        super.cleanupAllAudio();
+        this.stopTombAmbient();
+    }
+
+    nextScene() {
+        if (this.curseTimer) this.curseTimer.destroy();
+        if (this.flickerTimer) this.flickerTimer.destroy();
+        showVictoryScreen(this, 3);
+    }
+}
+
+// ==========================================
 // GAME FACTORY
 // ==========================================
 
@@ -1727,7 +2213,7 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
         type: Phaser.AUTO,
         parent: parent,
         backgroundColor: "#1a1a2e",
-        scene: [BootScene, WeekSelectScene, DifficultySelectScene, BarracksScene, MarketScene, ForumScene, VikingLonghouseScene],
+        scene: [BootScene, WeekSelectScene, DifficultySelectScene, BarracksScene, MarketScene, ForumScene, VikingLonghouseScene, EgyptianTombScene],
         scale: {
             mode: Phaser.Scale.FIT,
             autoCenter: Phaser.Scale.CENTER_BOTH,
