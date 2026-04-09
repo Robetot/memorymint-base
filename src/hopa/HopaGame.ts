@@ -281,7 +281,76 @@ class BootScene extends Phaser.Scene {
         this.registry.set("soundEnabled", true);
         this.registry.set("totalScore", 0);
         this.registry.set("totalCombo", 0);
-        this.scene.start("DifficultySelectScene");
+        this.registry.set("week", 1);
+        this.scene.start("WeekSelectScene");
+    }
+}
+
+// ==========================================
+// WEEK SELECT SCENE
+// ==========================================
+
+class WeekSelectScene extends Phaser.Scene {
+    constructor() { super("WeekSelectScene"); }
+
+    create() {
+        this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x0d0d1a);
+
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 80, "MEMORY MINT", {
+            font: "bold 72px Arial", color: "#ffd700"
+        }).setOrigin(0.5);
+
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 170, "Select Adventure", {
+            font: "36px Arial", color: "#aaaaaa"
+        }).setOrigin(0.5);
+
+        // Week 1 card
+        const w1y = SAFE_CENTER_Y - 80;
+        const w1bg = this.add.rectangle(SAFE_CENTER_X, w1y, 520, 160, 0x000000, 0.5)
+            .setStrokeStyle(3, 0xd4a574).setInteractive({ useHandCursor: true });
+        this.add.text(SAFE_CENTER_X, w1y - 30, "⚔️  Week 1 — Roman Adventure", {
+            font: "bold 30px Arial", color: "#d4a574"
+        }).setOrigin(0.5);
+        this.add.text(SAFE_CENTER_X, w1y + 20, "3 Scenes  •  Barracks → Market → Forum", {
+            font: "20px Arial", color: "#999999"
+        }).setOrigin(0.5);
+        const w1best = getLeaderboardByWeek(1);
+        if (w1best.length > 0) {
+            this.add.text(SAFE_CENTER_X, w1y + 52, `Best: ${w1best[0].score} pts`, {
+                font: "18px Arial", color: "#4ade80"
+            }).setOrigin(0.5);
+        }
+        w1bg.on("pointerover", () => w1bg.setFillStyle(0xd4a574, 0.15));
+        w1bg.on("pointerout", () => w1bg.setFillStyle(0x000000, 0.5));
+        w1bg.on("pointerdown", () => {
+            this.registry.set("week", 1);
+            if (this.registry.get("soundEnabled")) this.sound.play("SFX_UI_Tap");
+            this.scene.start("DifficultySelectScene");
+        });
+
+        // Week 2 card
+        const w2y = SAFE_CENTER_Y + 120;
+        const w2bg = this.add.rectangle(SAFE_CENTER_X, w2y, 520, 160, 0x000000, 0.5)
+            .setStrokeStyle(3, 0x4488cc).setInteractive({ useHandCursor: true });
+        this.add.text(SAFE_CENTER_X, w2y - 30, "🛡️  Week 2 — Viking Raid", {
+            font: "bold 30px Arial", color: "#6699dd"
+        }).setOrigin(0.5);
+        this.add.text(SAFE_CENTER_X, w2y + 20, "1 Scene  •  Longhouse  •  Lightning Storms", {
+            font: "20px Arial", color: "#999999"
+        }).setOrigin(0.5);
+        const w2best = getLeaderboardByWeek(2);
+        if (w2best.length > 0) {
+            this.add.text(SAFE_CENTER_X, w2y + 52, `Best: ${w2best[0].score} pts`, {
+                font: "18px Arial", color: "#4ade80"
+            }).setOrigin(0.5);
+        }
+        w2bg.on("pointerover", () => w2bg.setFillStyle(0x4488cc, 0.15));
+        w2bg.on("pointerout", () => w2bg.setFillStyle(0x000000, 0.5));
+        w2bg.on("pointerdown", () => {
+            this.registry.set("week", 2);
+            if (this.registry.get("soundEnabled")) this.sound.play("SFX_UI_Tap");
+            this.scene.start("DifficultySelectScene");
+        });
     }
 }
 
@@ -293,31 +362,50 @@ class DifficultySelectScene extends Phaser.Scene {
     constructor() { super("DifficultySelectScene"); }
 
     create() {
-        this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
+        const week = this.registry.get("week") || 1;
+        const isViking = week === 2;
+        
+        this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, isViking ? 0x0a1020 : 0x1a1a2e);
 
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 100, "MEMORY MINT", {
             font: "bold 72px Arial", color: "#ffd700"
         }).setOrigin(0.5);
 
-        this.add.text(SAFE_CENTER_X, SAFE_TOP + 200, "Week 1 - Roman Adventure", {
-            font: "40px Arial", color: "#ffffff"
+        const subtitle = isViking ? "Week 2 — Viking Raid" : "Week 1 — Roman Adventure";
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 200, subtitle, {
+            font: "40px Arial", color: isViking ? "#6699dd" : "#ffffff"
         }).setOrigin(0.5);
 
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 280, "Select Difficulty", {
             font: "32px Arial", color: "#aaaaaa"
         }).setOrigin(0.5);
 
+        const firstScene = isViking ? "VikingLonghouseScene" : "BarracksScene";
+
         const buttonY = SAFE_CENTER_Y - 50;
-        this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | 3 min | 3 hints", 0x4ade80);
-        this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "10 objects | 2.5 min | 2 hints | Fog", 0xfbbf24);
-        this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "15 objects | 2 min | 1 hint | Fog + Decoys", 0xef4444);
         
-        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, "Find all hidden objects — beware of decoys!", {
+        if (isViking) {
+            this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | 2:30 | 2 hints | Fog", 0x4ade80, firstScene);
+            this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "5 objects | 2:00 | 1 hint | Fog + Lightning", 0xfbbf24, firstScene);
+            this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "5 objects | 1:30 | 0 hints | Fog + Lightning + 3 Decoys", 0xef4444, firstScene);
+        } else {
+            this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | 3 min | 3 hints", 0x4ade80, firstScene);
+            this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "10 objects | 2.5 min | 2 hints | Fog", 0xfbbf24, firstScene);
+            this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "15 objects | 2 min | 1 hint | Fog + Decoys", 0xef4444, firstScene);
+        }
+        
+        // Back button
+        const backBtn = this.add.text(SAFE_LEFT + 20, SAFE_TOP + 40, "← Back", {
+            font: "bold 24px Arial", color: "#888888"
+        }).setOrigin(0, 0.5).setInteractive({ useHandCursor: true });
+        backBtn.on("pointerdown", () => this.scene.start("WeekSelectScene"));
+
+        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, isViking ? "Beware the storm — lightning blinds you!" : "Find all hidden objects — beware of decoys!", {
             font: "24px Arial", color: "#666666"
         }).setOrigin(0.5);
     }
 
-    createButton(x: number, y: number, label: string, desc: string, color: number) {
+    createButton(x: number, y: number, label: string, desc: string, color: number, firstScene: string) {
         const bg = this.add.rectangle(x, y, 500, 100, 0x000000, 0.5).setStrokeStyle(3, color);
         this.add.text(x, y - 12, label, { font: "bold 36px Arial", color: "#ffffff" }).setOrigin(0.5);
         this.add.text(x, y + 26, desc, { font: "18px Arial", color: "#aaaaaa" }).setOrigin(0.5);
@@ -329,7 +417,7 @@ class DifficultySelectScene extends Phaser.Scene {
             this.registry.set("totalScore", 0);
             this.registry.set("totalCombo", 0);
             if (this.registry.get("soundEnabled")) this.sound.play("SFX_UI_Tap");
-            this.scene.start("BarracksScene");
+            this.scene.start(firstScene);
         });
     }
 }
