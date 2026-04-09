@@ -1,19 +1,28 @@
 {
-  "_comment": "Scene configuration - placeholder for ChatGPT",
+  "_comment": "Scene configuration for HOPA game",
   "scenes": [
     {
       "id": "barracks",
+      "week": 1,
       "background": "/assets/images/backgrounds/scene_barracks.png",
       "objects": []
     },
     {
       "id": "market",
+      "week": 1,
       "background": "/assets/images/backgrounds/scene_market.png",
       "objects": []
     },
     {
       "id": "forum",
+      "week": 1,
       "background": "/assets/images/backgrounds/scene_forum.png",
+      "objects": []
+    },
+    {
+      "id": "longhouse",
+      "week": 2,
+      "background": "/assets/images/backgrounds/scene_longhouse.png",
       "objects": []
     }
   ]

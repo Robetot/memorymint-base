@@ -1,12 +1,15 @@
 {
-  "_comment": "Object definitions - placeholder for ChatGPT",
+  "_comment": "Object definitions for HOPA game",
   "objects": {
     "1x1": [
       "gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring",
-      "dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask", "mosaic_tile"
+      "dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask", "mosaic_tile",
+      "viking_helmet", "runestone", "thors_hammer", "silver_armband",
+      "mead_horn", "bone_comb", "iron_brooch"
     ],
     "2x3": [
-      "ceramic_vase", "centurion_helmet", "torch", "aquila_standard", "perfume_bottle"
+      "ceramic_vase", "centurion_helmet", "torch", "aquila_standard", "perfume_bottle",
+      "war_axe"
     ],
     "3x2": [
       "open_scroll", "gladius_sword", "empire_map", "legionary_shield"
