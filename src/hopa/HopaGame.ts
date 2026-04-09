@@ -360,28 +360,38 @@ class DifficultySelectScene extends Phaser.Scene {
 
     create() {
         const week = this.registry.get("week") || 1;
-        const isViking = week === 2;
         
-        this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, isViking ? 0x0a1020 : 0x1a1a2e);
+        const bgColors: Record<number, number> = { 1: 0x1a1a2e, 2: 0x0a1020, 3: 0x1a1408 };
+        this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, bgColors[week] || 0x1a1a2e);
 
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 100, "MEMORY MINT", {
             font: "bold 72px Arial", color: "#ffd700"
         }).setOrigin(0.5);
 
-        const subtitle = isViking ? "Week 2 — Viking Raid" : "Week 1 — Roman Adventure";
-        this.add.text(SAFE_CENTER_X, SAFE_TOP + 200, subtitle, {
-            font: "40px Arial", color: isViking ? "#6699dd" : "#ffffff"
+        const subtitles: Record<number, string> = {
+            1: "Week 1 — Roman Adventure",
+            2: "Week 2 — Viking Raid",
+            3: "Week 3 — Pharaoh's Curse"
+        };
+        const subtitleColors: Record<number, string> = { 1: "#ffffff", 2: "#6699dd", 3: "#d4a017" };
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 200, subtitles[week] || "", {
+            font: "40px Arial", color: subtitleColors[week] || "#ffffff"
         }).setOrigin(0.5);
 
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 280, "Select Difficulty", {
             font: "32px Arial", color: "#aaaaaa"
         }).setOrigin(0.5);
 
-        const firstScene = isViking ? "VikingLonghouseScene" : "BarracksScene";
+        const firstScenes: Record<number, string> = { 1: "BarracksScene", 2: "VikingLonghouseScene", 3: "EgyptianTombScene" };
+        const firstScene = firstScenes[week] || "BarracksScene";
 
         const buttonY = SAFE_CENTER_Y - 50;
         
-        if (isViking) {
+        if (week === 3) {
+            this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | 2:00 | 1 hint | Fog + Curse", 0x4ade80, firstScene);
+            this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "5 objects | 1:30 | 0 hints | Fog + Curse + 4 Decoys", 0xfbbf24, firstScene);
+            this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "5 objects | 1:00 | 0 hints | Curse + Magnifier only", 0xef4444, firstScene);
+        } else if (week === 2) {
             this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | 2:30 | 2 hints | Fog", 0x4ade80, firstScene);
             this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "5 objects | 2:00 | 1 hint | Fog + Lightning", 0xfbbf24, firstScene);
             this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "5 objects | 1:30 | 0 hints | Fog + Lightning + 3 Decoys", 0xef4444, firstScene);
@@ -391,13 +401,17 @@ class DifficultySelectScene extends Phaser.Scene {
             this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "15 objects | 2 min | 1 hint | Fog + Decoys", 0xef4444, firstScene);
         }
         
-        // Back button
         const backBtn = this.add.text(SAFE_LEFT + 20, SAFE_TOP + 40, "← Back", {
             font: "bold 24px Arial", color: "#888888"
         }).setOrigin(0, 0.5).setInteractive({ useHandCursor: true });
         backBtn.on("pointerdown", () => this.scene.start("WeekSelectScene"));
 
-        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, isViking ? "Beware the storm — lightning blinds you!" : "Find all hidden objects — beware of decoys!", {
+        const footers: Record<number, string> = {
+            1: "Find all hidden objects — beware of decoys!",
+            2: "Beware the storm — lightning blinds you!",
+            3: "The Pharaoh's curse shuffles objects!"
+        };
+        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, footers[week] || "", {
             font: "24px Arial", color: "#666666"
         }).setOrigin(0.5);
     }
