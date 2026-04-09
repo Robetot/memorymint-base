@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.admin-api]
 verify_jwt = false
+
+[functions.manage-admin-roles]
+verify_jwt = false

@@ -8,7 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with, x-admin-key",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -71,14 +71,7 @@ function getDefaultState(): AdminState {
 }
 
 async function verifyAdminAccess(req: Request): Promise<{ authorized: boolean; wallet?: string; error?: string }> {
-  // Check for admin key header
-  const adminKey = req.headers.get("x-admin-key");
-  if (adminKey) {
-    // In production, validate against stored admin keys
-    return { authorized: true, wallet: "api-key-auth" };
-  }
-
-  // Check for wallet-based auth via authorization header
+  // Wallet-based auth via authorization header (JWT from Supabase Auth)
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return { authorized: false, error: "Missing authorization" };
@@ -160,7 +153,7 @@ serve(async (req) => {
     const authResult = await verifyAdminAccess(req);
     if (!authResult.authorized) {
       return new Response(
-        JSON.stringify({ success: false, error: authResult.error ?? "Unauthorized" }),
+        JSON.stringify({ success: false, error: "Unauthorized" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -182,8 +175,6 @@ serve(async (req) => {
       adminStateCache.toggles[name] = value;
       adminStateCache.updatedAt = new Date().toISOString();
       lastCacheUpdate = Date.now();
-
-      console.log(`[admin-api] Toggle updated: ${name} = ${value} by ${authResult.wallet}`);
 
       return new Response(
         JSON.stringify({ success: true, toggle: { name, value } }),
@@ -342,8 +333,6 @@ serve(async (req) => {
       };
       lastCacheUpdate = Date.now();
 
-      console.log(`[admin-api] Full sync from contract by ${authResult.wallet}`);
-
       return new Response(
         JSON.stringify({ success: true, state: adminStateCache }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -363,7 +352,7 @@ serve(async (req) => {
 
     // Resource not found
     return new Response(
-      JSON.stringify({ success: false, error: `Unknown resource: ${resource}` }),
+      JSON.stringify({ success: false, error: "Not found" }),
       { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
@@ -372,10 +361,10 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
+        error: "Internal server error",
       }),
       { 
-        status: 200,
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" } 
       }
     );
