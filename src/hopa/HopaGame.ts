@@ -1316,8 +1316,10 @@ class ForumScene extends HopaScene {
 
 class VikingLonghouseScene extends HopaScene {
     private lightningTimer?: Phaser.Time.TimerEvent;
+    private vikingAmbientNodes: { gainNode?: GainNode; sources: AudioBufferSourceNode[] } = { sources: [] };
     
     constructor() {
+        // Use a dummy ambient key — we'll handle ambient ourselves
         super("VikingLonghouseScene", "longhouse", "AMB_Barracks", "barracks",
             ["viking_helmet", "runestone", "thors_hammer", "silver_armband", "war_axe"]);
     }
@@ -1325,25 +1327,24 @@ class VikingLonghouseScene extends HopaScene {
     applyDifficulty() {
         const isLandscape = GAME_WIDTH > GAME_HEIGHT;
         const scaleFactor = isLandscape ? 0.55 : 1.0;
-        // 40% smaller than Week 1 base
         const week2Reduction = 0.6;
         
         if (this.difficulty === "Easy") {
-            this.maxTime = 150; // 2:30
+            this.maxTime = 150;
             this.timeLeft = 150;
             this.hints = 2;
             this.objectScale = 0.12 * scaleFactor * week2Reduction;
             this.fogEnabled = true;
             this.decoyCount = 0;
         } else if (this.difficulty === "Medium") {
-            this.maxTime = 120; // 2:00
+            this.maxTime = 120;
             this.timeLeft = 120;
             this.hints = 1;
             this.objectScale = 0.09 * scaleFactor * week2Reduction;
             this.fogEnabled = true;
             this.decoyCount = 2;
         } else {
-            this.maxTime = 90; // 1:30
+            this.maxTime = 90;
             this.timeLeft = 90;
             this.hints = 0;
             this.objectScale = 0.07 * scaleFactor * week2Reduction;
@@ -1355,6 +1356,120 @@ class VikingLonghouseScene extends HopaScene {
     create() {
         super.create();
         this.startLightningStorms();
+        // Replace default ambient with procedural Viking ambient
+        this.stopAmbient();
+        if (this.soundEnabled) {
+            this.startVikingAmbient();
+        }
+    }
+
+    // Procedural ambient: wind/storm noise + crackling fire using Web Audio
+    startVikingAmbient() {
+        try {
+            const ctx = (this.sound as any).context as AudioContext;
+            if (!ctx) return;
+            
+            const masterGain = ctx.createGain();
+            masterGain.gain.value = 0.15;
+            masterGain.connect(ctx.destination);
+            this.vikingAmbientNodes.gainNode = masterGain;
+
+            // Storm wind: filtered white noise
+            const windDuration = 10;
+            const windBuffer = ctx.createBuffer(1, ctx.sampleRate * windDuration, ctx.sampleRate);
+            const windData = windBuffer.getChannelData(0);
+            for (let i = 0; i < windData.length; i++) {
+                windData[i] = (Math.random() * 2 - 1) * 0.5;
+            }
+            const windSource = ctx.createBufferSource();
+            windSource.buffer = windBuffer;
+            windSource.loop = true;
+            const windFilter = ctx.createBiquadFilter();
+            windFilter.type = 'lowpass';
+            windFilter.frequency.value = 400;
+            windFilter.Q.value = 1;
+            // Modulate filter for gusting effect
+            const windLFO = ctx.createOscillator();
+            const windLFOGain = ctx.createGain();
+            windLFO.frequency.value = 0.15;
+            windLFOGain.gain.value = 200;
+            windLFO.connect(windLFOGain);
+            windLFOGain.connect(windFilter.frequency);
+            windLFO.start();
+            
+            const windGain = ctx.createGain();
+            windGain.gain.value = 0.6;
+            windSource.connect(windFilter);
+            windFilter.connect(windGain);
+            windGain.connect(masterGain);
+            windSource.start();
+            this.vikingAmbientNodes.sources.push(windSource);
+
+            // Fire crackle: short bursts of filtered noise
+            const crackDuration = 8;
+            const crackBuffer = ctx.createBuffer(1, ctx.sampleRate * crackDuration, ctx.sampleRate);
+            const crackData = crackBuffer.getChannelData(0);
+            for (let i = 0; i < crackData.length; i++) {
+                // Random pops and crackles
+                crackData[i] = Math.random() > 0.97 ? (Math.random() * 2 - 1) * 0.8 : 
+                               Math.random() > 0.85 ? (Math.random() * 2 - 1) * 0.2 : 0;
+            }
+            const crackSource = ctx.createBufferSource();
+            crackSource.buffer = crackBuffer;
+            crackSource.loop = true;
+            const crackFilter = ctx.createBiquadFilter();
+            crackFilter.type = 'highpass';
+            crackFilter.frequency.value = 800;
+            const crackGain = ctx.createGain();
+            crackGain.gain.value = 0.4;
+            crackSource.connect(crackFilter);
+            crackFilter.connect(crackGain);
+            crackGain.connect(masterGain);
+            crackSource.start();
+            this.vikingAmbientNodes.sources.push(crackSource);
+
+            // Rain: filtered pink-ish noise
+            const rainDuration = 6;
+            const rainBuffer = ctx.createBuffer(1, ctx.sampleRate * rainDuration, ctx.sampleRate);
+            const rainData = rainBuffer.getChannelData(0);
+            let b0 = 0, b1 = 0, b2 = 0;
+            for (let i = 0; i < rainData.length; i++) {
+                const white = Math.random() * 2 - 1;
+                b0 = 0.99765 * b0 + white * 0.0990460;
+                b1 = 0.96300 * b1 + white * 0.2965164;
+                b2 = 0.57000 * b2 + white * 1.0526913;
+                rainData[i] = (b0 + b1 + b2 + white * 0.1848) * 0.06;
+            }
+            const rainSource = ctx.createBufferSource();
+            rainSource.buffer = rainBuffer;
+            rainSource.loop = true;
+            const rainFilter = ctx.createBiquadFilter();
+            rainFilter.type = 'bandpass';
+            rainFilter.frequency.value = 3000;
+            rainFilter.Q.value = 0.5;
+            const rainGain = ctx.createGain();
+            rainGain.gain.value = 0.3;
+            rainSource.connect(rainFilter);
+            rainFilter.connect(rainGain);
+            rainGain.connect(masterGain);
+            rainSource.start();
+            this.vikingAmbientNodes.sources.push(rainSource);
+        } catch (e) {
+            console.warn('Viking ambient audio failed:', e);
+        }
+    }
+
+    stopVikingAmbient() {
+        this.vikingAmbientNodes.sources.forEach(s => { try { s.stop(); } catch {} });
+        this.vikingAmbientNodes.sources = [];
+        if (this.vikingAmbientNodes.gainNode) {
+            try { this.vikingAmbientNodes.gainNode.disconnect(); } catch {}
+        }
+    }
+
+    cleanupAllAudio() {
+        super.cleanupAllAudio();
+        this.stopVikingAmbient();
     }
 
     // Override fog to be darker with smaller radius
