@@ -1305,16 +1305,8 @@ class ForumScene extends HopaScene {
     }
 
     nextScene() {
-        const prevTotal = this.registry.get("totalScore") || 0;
-        this.registry.set("totalScore", prevTotal + this.score);
-        const prevCombo = this.registry.get("totalCombo") || 0;
-        if (this.maxCombo > prevCombo) this.registry.set("totalCombo", this.maxCombo);
+        // totalScore already accumulated by parent pickObject
         showVictoryScreen(this, 1);
-    }
-
-    // Override pickObject's score accumulation since victory handles it
-    pickObject(sprite: Phaser.GameObjects.Image) {
-        super.pickObject(sprite);
     }
 }
 
