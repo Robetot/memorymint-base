@@ -1,6 +1,6 @@
-// Memory Mint Week 1 - Roman HOPA Adventure
-// Phaser 3 Implementation with World-Based Narrative Architecture
-// Virtual Resolution: 1080x1920 (Portrait Mobile)
+// Memory Mint Week 1 - Roman HOPA Adventure (Enhanced)
+// Phaser 3 Implementation with Harder Gameplay Mechanics
+// Features: Fog of war, decoys, combo multiplier, visual noise, leaderboard
 
 import Phaser from 'phaser';
 
@@ -8,7 +8,6 @@ import Phaser from 'phaser';
 // VIRTUAL RESOLUTION CONSTANTS
 // ==========================================
 
-// Dynamic resolution - computed at game creation based on viewport
 let GAME_WIDTH = 1080;
 let GAME_HEIGHT = 1920;
 
@@ -50,24 +49,46 @@ function computeLayout(isLandscape: boolean) {
 }
 
 // ==========================================
-// NARRATIVE CONTROLLER - Central Authority
+// LEADERBOARD MANAGER
+// ==========================================
+
+const LEADERBOARD_KEY = 'memorymint_hopa_leaderboard';
+const MAX_LEADERBOARD = 5;
+
+interface LeaderboardEntry {
+    name: string;
+    score: number;
+    difficulty: string;
+    date: string;
+}
+
+function getLeaderboard(): LeaderboardEntry[] {
+    try {
+        const stored = localStorage.getItem(LEADERBOARD_KEY);
+        return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+}
+
+function addToLeaderboard(entry: LeaderboardEntry): LeaderboardEntry[] {
+    const lb = getLeaderboard();
+    lb.push(entry);
+    lb.sort((a, b) => b.score - a.score);
+    const trimmed = lb.slice(0, MAX_LEADERBOARD);
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(trimmed));
+    return trimmed;
+}
+
+// ==========================================
+// NARRATIVE CONTROLLER
 // ==========================================
 
 const NARRATIVE_STORAGE_KEY = 'memorymint_world_narratives';
 
-// World-based narrative IDs
 type WorldNarrativeId = 
-    | 'world_barracks_intro'
-    | 'world_barracks_mid'
-    | 'world_barracks_complete'
-    | 'world_market_intro'
-    | 'world_market_mid'
-    | 'world_market_complete'
-    | 'world_forum_intro'
-    | 'world_forum_mid'
-    | 'world_forum_complete';
+    | 'world_barracks_intro' | 'world_barracks_mid' | 'world_barracks_complete'
+    | 'world_market_intro' | 'world_market_mid' | 'world_market_complete'
+    | 'world_forum_intro' | 'world_forum_mid' | 'world_forum_complete';
 
-// Map world narrative IDs to audio keys
 const NARRATIVE_AUDIO_MAP: Record<WorldNarrativeId, string> = {
     'world_barracks_intro': 'VO_Scene_Start',
     'world_barracks_mid': 'VO_Mid_Scene',
@@ -99,81 +120,37 @@ class NarrativeController {
         return NarrativeController.instance;
     }
     
-    // Load played narratives from localStorage
     private loadFromStorage(): Set<string> {
         try {
             const stored = localStorage.getItem(NARRATIVE_STORAGE_KEY);
-            if (stored) {
-                return new Set(JSON.parse(stored));
-            }
-        } catch (e) {
-            console.warn('Failed to load narrative state:', e);
-        }
+            if (stored) return new Set(JSON.parse(stored));
+        } catch (e) { console.warn('Failed to load narrative state:', e); }
         return new Set();
     }
     
-    // Save played narratives to localStorage
     private saveToStorage(): void {
         try {
-            localStorage.setItem(
-                NARRATIVE_STORAGE_KEY, 
-                JSON.stringify([...this.playedNarratives])
-            );
-        } catch (e) {
-            console.warn('Failed to save narrative state:', e);
-        }
+            localStorage.setItem(NARRATIVE_STORAGE_KEY, JSON.stringify([...this.playedNarratives]));
+        } catch (e) { console.warn('Failed to save narrative state:', e); }
     }
     
-    // Check if narrative has already been played
     hasPlayed(narrativeId: WorldNarrativeId): boolean {
         return this.playedNarratives.has(narrativeId);
     }
     
-    // Check if currently playing
-    get isPlaying(): boolean {
-        return this._isPlaying;
-    }
+    get isPlaying(): boolean { return this._isPlaying; }
     
-    // Play a world narrative - single instance, blocks gameplay
-    play(
-        narrativeId: WorldNarrativeId,
-        scene: Phaser.Scene,
-        onComplete?: () => void
-    ): void {
-        // RULE: Never replay if already played
-        if (this.hasPlayed(narrativeId)) {
-            console.log(`[Narrative] Skipped ${narrativeId} - already played`);
-            if (onComplete) onComplete();
-            return;
-        }
-        
-        // RULE: Never overlap - stop existing first
+    play(narrativeId: WorldNarrativeId, scene: Phaser.Scene, onComplete?: () => void): void {
+        if (this.hasPlayed(narrativeId)) { onComplete?.(); return; }
         this.stop();
-        
         const soundEnabled = scene.registry.get('soundEnabled');
-        
-        // If sound disabled, mark as played and continue
-        if (!soundEnabled) {
-            this.markAsPlayed(narrativeId);
-            if (onComplete) onComplete();
-            return;
-        }
-        
+        if (!soundEnabled) { this.markAsPlayed(narrativeId); onComplete?.(); return; }
         const audioKey = NARRATIVE_AUDIO_MAP[narrativeId];
-        if (!audioKey) {
-            console.warn(`[Narrative] Unknown narrative ID: ${narrativeId}`);
-            if (onComplete) onComplete();
-            return;
-        }
+        if (!audioKey) { onComplete?.(); return; }
         
-        // Set state
         this._isPlaying = true;
         this.currentScene = scene;
-        
-        // Show indicator
         this.showIndicator(scene);
-        
-        // Create and play audio
         this.currentAudio = scene.sound.add(audioKey, { loop: false, volume: 1.0 });
         
         const handleComplete = () => {
@@ -182,63 +159,35 @@ class NarrativeController {
             this.hideIndicator();
             this.currentAudio = null;
             this.currentScene = null;
-            console.log(`[Narrative] Completed ${narrativeId}`);
-            if (onComplete) onComplete();
+            onComplete?.();
         };
         
         this.currentAudio.once('complete', handleComplete);
         this.currentAudio.play();
-        console.log(`[Narrative] Playing ${narrativeId}`);
     }
     
-    // Stop current narrative (always restores input)
     stop(): void {
-        if (this.currentAudio) {
-            this.currentAudio.stop();
-            this.currentAudio.destroy();
-            this.currentAudio = null;
-        }
+        if (this.currentAudio) { this.currentAudio.stop(); this.currentAudio.destroy(); this.currentAudio = null; }
         this._isPlaying = false;
         this.hideIndicator();
         this.currentScene = null;
     }
     
-    // Mark narrative as played and persist
     private markAsPlayed(narrativeId: WorldNarrativeId): void {
         this.playedNarratives.add(narrativeId);
         this.saveToStorage();
     }
     
-    // Show "Narrating..." indicator (portrait position)
     private showIndicator(scene: Phaser.Scene): void {
         if (this.indicator) return;
-        
-        // Position in safe zone near bottom
         this.indicator = scene.add.container(SAFE_CENTER_X, SAFE_BOTTOM - 100);
-        
-        const bg = scene.add.rectangle(0, 0, 200, 44, 0x000000, 0.7)
-            .setStrokeStyle(2, 0xffd700);
-        
-        const text = scene.add.text(0, 0, "🎙️ Narrating...", {
-            font: "bold 20px Arial",
-            color: "#ffd700"
-        }).setOrigin(0.5);
-        
+        const bg = scene.add.rectangle(0, 0, 200, 44, 0x000000, 0.7).setStrokeStyle(2, 0xffd700);
+        const text = scene.add.text(0, 0, "🎙️ Narrating...", { font: "bold 20px Arial", color: "#ffd700" }).setOrigin(0.5);
         this.indicator.add([bg, text]);
         this.indicator.setDepth(1000);
-        
-        // Pulse animation
-        scene.tweens.add({
-            targets: this.indicator,
-            alpha: 0.7,
-            duration: 600,
-            yoyo: true,
-            repeat: -1,
-            ease: "Sine.easeInOut"
-        });
+        scene.tweens.add({ targets: this.indicator, alpha: 0.7, duration: 600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     }
     
-    // Hide indicator
     private hideIndicator(): void {
         if (this.indicator && this.currentScene) {
             this.currentScene.tweens.killTweensOf(this.indicator);
@@ -247,17 +196,8 @@ class NarrativeController {
         this.indicator = null;
     }
     
-    // Reset all world narratives (for testing/debug only)
-    resetAllProgress(): void {
-        this.playedNarratives.clear();
-        this.saveToStorage();
-        console.log('[Narrative] All world progress reset');
-    }
-    
-    // Get current progress (for debug)
-    getProgress(): string[] {
-        return [...this.playedNarratives];
-    }
+    resetAllProgress(): void { this.playedNarratives.clear(); this.saveToStorage(); }
+    getProgress(): string[] { return [...this.playedNarratives]; }
 }
 
 // ==========================================
@@ -265,25 +205,16 @@ class NarrativeController {
 // ==========================================
 
 class BootScene extends Phaser.Scene {
-    constructor() {
-        super("BootScene");
-    }
+    constructor() { super("BootScene"); }
 
     preload() {
-        // Use virtual resolution center
         const cx = SAFE_CENTER_X;
         const cy = SAFE_CENTER_Y;
-
         const progressBox = this.add.graphics();
         progressBox.fillStyle(0x222222, 0.8);
         progressBox.fillRoundedRect(cx - 200, cy - 30, 400, 60, 12);
-
         const progressBar = this.add.graphics();
-
-        const percentText = this.add.text(cx, cy, "0%", {
-            font: "24px Arial",
-            color: "#ffffff"
-        }).setOrigin(0.5);
+        const percentText = this.add.text(cx, cy, "0%", { font: "24px Arial", color: "#ffffff" }).setOrigin(0.5);
 
         this.load.on("progress", (value: number) => {
             percentText.setText(Math.floor(value * 100) + "%");
@@ -291,46 +222,41 @@ class BootScene extends Phaser.Scene {
             progressBar.fillStyle(0xffffff, 1);
             progressBar.fillRoundedRect(cx - 190, cy - 20, 380 * value, 40, 8);
         });
+        this.load.on("complete", () => { progressBox.destroy(); progressBar.destroy(); percentText.destroy(); });
 
-        this.load.on("complete", () => {
-            progressBox.destroy();
-            progressBar.destroy();
-            percentText.destroy();
-        });
-
-        // Load backgrounds
+        // Backgrounds
         ["barracks", "market", "forum"].forEach(bg => {
             this.load.image(bg, "/assets/images/backgrounds/scene_" + bg + ".png");
         });
 
-        // Load 1x1 objects
+        // 1x1 objects
         ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring",
          "dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask",
          "mosaic_tile"].forEach(obj => {
             this.load.image(obj, "/assets/images/objects/1x1/" + obj + ".png");
         });
 
-        // Load 2x3 objects
+        // 2x3 objects
         ["ceramic_vase", "centurion_helmet", "torch", "aquila_standard", "perfume_bottle"].forEach(obj => {
             this.load.image(obj, "/assets/images/objects/2x3/" + obj + ".png");
         });
 
-        // Load 3x2 objects
+        // 3x2 objects
         ["open_scroll", "gladius_sword", "empire_map", "legionary_shield"].forEach(obj => {
             this.load.image(obj, "/assets/images/objects/3x2/" + obj + ".png");
         });
 
-        // Load audio - SFX
+        // SFX
         ["SFX_Object_Found", "SFX_Wrong_Tap", "SFX_UI_Tap", "SFX_Hint_Used", "SFX_Scene_Load"].forEach(a => {
             this.load.audio(a, ["/assets/audio/sfx/" + a + ".mp3"]);
         });
 
-        // Load audio - Voice
+        // Voice
         ["VO_Scene_Start", "VO_Mid_Scene", "VO_Scene_Complete"].forEach(a => {
             this.load.audio(a, ["/assets/audio/voice/" + a + ".mp3"]);
         });
 
-        // Load ambient music
+        // Ambient
         ["AMB_Barracks", "AMB_Market", "AMB_Forum"].forEach(a => {
             this.load.audio(a, ["/weekly/roman/sounds/" + a + ".mp3"]);
         });
@@ -339,89 +265,63 @@ class BootScene extends Phaser.Scene {
     create() {
         this.registry.set("difficulty", "Medium");
         this.registry.set("soundEnabled", true);
+        this.registry.set("totalScore", 0);
+        this.registry.set("totalCombo", 0);
         this.scene.start("DifficultySelectScene");
     }
 }
 
 // ==========================================
-// DIFFICULTY SELECT SCENE (Portrait Layout)
+// DIFFICULTY SELECT SCENE
 // ==========================================
 
 class DifficultySelectScene extends Phaser.Scene {
-    constructor() {
-        super("DifficultySelectScene");
-    }
+    constructor() { super("DifficultySelectScene"); }
 
     create() {
-        // Full background
         this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
 
-        // Title - positioned in safe zone
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 100, "MEMORY MINT", {
-            font: "bold 72px Arial",
-            color: "#ffd700"
+            font: "bold 72px Arial", color: "#ffd700"
         }).setOrigin(0.5);
 
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 200, "Week 1 - Roman Adventure", {
-            font: "40px Arial",
-            color: "#ffffff"
+            font: "40px Arial", color: "#ffffff"
         }).setOrigin(0.5);
 
         this.add.text(SAFE_CENTER_X, SAFE_TOP + 280, "Select Difficulty", {
-            font: "32px Arial",
-            color: "#aaaaaa"
+            font: "32px Arial", color: "#aaaaaa"
         }).setOrigin(0.5);
 
-        // Buttons spaced vertically in portrait layout
         const buttonY = SAFE_CENTER_Y - 50;
-        this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | No timer | 3 hints", 0x4ade80);
-        this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "10 objects | 3 min timer | 2 hints", 0xfbbf24);
-        this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "15 objects | 2 min timer | 1 hint", 0xef4444);
+        this.createButton(SAFE_CENTER_X, buttonY, "Easy", "5 objects | 3 min | 3 hints", 0x4ade80);
+        this.createButton(SAFE_CENTER_X, buttonY + 140, "Medium", "10 objects | 2.5 min | 2 hints | Fog", 0xfbbf24);
+        this.createButton(SAFE_CENTER_X, buttonY + 280, "Hard", "15 objects | 2 min | 1 hint | Fog + Decoys", 0xef4444);
         
-        // Instructions at bottom of safe zone
-        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, "Find all hidden objects in each scene!", {
-            font: "24px Arial",
-            color: "#666666"
+        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 80, "Find all hidden objects — beware of decoys!", {
+            font: "24px Arial", color: "#666666"
         }).setOrigin(0.5);
     }
 
     createButton(x: number, y: number, label: string, desc: string, color: number) {
-        const bg = this.add.rectangle(x, y, 500, 100, 0x000000, 0.5)
-            .setStrokeStyle(3, color);
-        
-        const txt = this.add.text(x, y - 12, label, {
-            font: "bold 36px Arial",
-            color: "#ffffff"
-        }).setOrigin(0.5);
-
-        this.add.text(x, y + 26, desc, {
-            font: "18px Arial",
-            color: "#aaaaaa"
-        }).setOrigin(0.5);
-
+        const bg = this.add.rectangle(x, y, 500, 100, 0x000000, 0.5).setStrokeStyle(3, color);
+        this.add.text(x, y - 12, label, { font: "bold 36px Arial", color: "#ffffff" }).setOrigin(0.5);
+        this.add.text(x, y + 26, desc, { font: "18px Arial", color: "#aaaaaa" }).setOrigin(0.5);
         bg.setInteractive({ useHandCursor: true });
-        
-        bg.on("pointerover", () => {
-            bg.setFillStyle(color, 0.3);
-        });
-        
-        bg.on("pointerout", () => {
-            bg.setFillStyle(0x000000, 0.5);
-        });
-        
+        bg.on("pointerover", () => bg.setFillStyle(color, 0.3));
+        bg.on("pointerout", () => bg.setFillStyle(0x000000, 0.5));
         bg.on("pointerdown", () => {
             this.registry.set("difficulty", label);
-            if (this.registry.get("soundEnabled")) {
-                this.sound.play("SFX_UI_Tap");
-            }
-            // NOTE: World narratives persist - no reset here!
+            this.registry.set("totalScore", 0);
+            this.registry.set("totalCombo", 0);
+            if (this.registry.get("soundEnabled")) this.sound.play("SFX_UI_Tap");
             this.scene.start("BarracksScene");
         });
     }
 }
 
 // ==========================================
-// BASE HOPA SCENE (Portrait Layout)
+// BASE HOPA SCENE (Enhanced with new mechanics)
 // ==========================================
 
 class HopaScene extends Phaser.Scene {
@@ -432,10 +332,12 @@ class HopaScene extends Phaser.Scene {
     protected difficulty!: string;
     protected soundEnabled!: boolean;
     protected timeLeft!: number;
+    protected maxTime!: number;
     protected hints!: number;
     protected objectScale!: number;
     protected found!: number;
     protected sprites!: Phaser.GameObjects.Image[];
+    protected decoySprites!: Phaser.GameObjects.Image[];
     protected counter!: Phaser.GameObjects.Text;
     protected timerText!: Phaser.GameObjects.Text;
     protected hintsText!: Phaser.GameObjects.Text;
@@ -443,18 +345,28 @@ class HopaScene extends Phaser.Scene {
     protected ambientMusic?: Phaser.Sound.BaseSound;
     protected isTransitioning: boolean = false;
     
-    // Get the central narrative controller
+    // New mechanics
+    protected score: number = 0;
+    protected combo: number = 0;
+    protected maxCombo: number = 0;
+    protected comboTimer?: Phaser.Time.TimerEvent;
+    protected comboText!: Phaser.GameObjects.Text;
+    protected scoreText!: Phaser.GameObjects.Text;
+    protected fogEnabled: boolean = false;
+    protected fogMask?: Phaser.GameObjects.Graphics;
+    protected fogOverlay?: Phaser.GameObjects.Graphics;
+    protected decoyCount: number = 0;
+    protected ambientToggleBtn?: Phaser.GameObjects.Container;
+    
+    // Particle layers
+    protected dustEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
+    protected lightFlares: Phaser.GameObjects.Image[] = [];
+    
     protected get narrative(): NarrativeController {
         return NarrativeController.getInstance();
     }
 
-    constructor(
-        key: string, 
-        bgKey: string, 
-        ambientKey: string, 
-        worldId: 'barracks' | 'market' | 'forum',
-        objects: string[]
-    ) {
+    constructor(key: string, bgKey: string, ambientKey: string, worldId: 'barracks' | 'market' | 'forum', objects: string[]) {
         super(key);
         this.bgKey = bgKey;
         this.ambientKey = ambientKey;
@@ -462,43 +374,28 @@ class HopaScene extends Phaser.Scene {
         this.objects = objects;
     }
     
-    // Get world narrative ID for intro
-    protected getWorldIntroId(): WorldNarrativeId {
-        return `world_${this.worldId}_intro` as WorldNarrativeId;
-    }
-    
-    // Get world narrative ID for mid-scene
-    protected getWorldMidId(): WorldNarrativeId {
-        return `world_${this.worldId}_mid` as WorldNarrativeId;
-    }
-    
-    // Get world narrative ID for completion
-    protected getWorldCompleteId(): WorldNarrativeId {
-        return `world_${this.worldId}_complete` as WorldNarrativeId;
-    }
+    protected getWorldIntroId(): WorldNarrativeId { return `world_${this.worldId}_intro` as WorldNarrativeId; }
+    protected getWorldMidId(): WorldNarrativeId { return `world_${this.worldId}_mid` as WorldNarrativeId; }
+    protected getWorldCompleteId(): WorldNarrativeId { return `world_${this.worldId}_complete` as WorldNarrativeId; }
 
     create() {
         this.isTransitioning = false;
+        this.score = 0;
+        this.combo = 0;
+        this.maxCombo = 0;
+        this.decoySprites = [];
+        this.lightFlares = [];
         
-        // Background image - cover the game area (16:9 source scaled to fill)
-        // Portrait: show center portion of landscape background
+        // Background
         const bg = this.add.image(SAFE_CENTER_X, SAFE_CENTER_Y, this.bgKey);
-        
-        // Scale background to cover the play area (maintain aspect, fill height)
-        const bgRatio = 1280 / 720; // Original background aspect ratio (16:9)
+        const bgRatio = 1280 / 720;
         const gameRatio = GAME_WIDTH / GAME_HEIGHT;
-        
         if (gameRatio < bgRatio) {
-            // Portrait mode: scale to height, crop sides
-            const scale = GAME_HEIGHT / 720;
-            bg.setScale(scale);
+            bg.setScale(GAME_HEIGHT / 720);
         } else {
-            // Scale to width
-            const scale = GAME_WIDTH / 1280;
-            bg.setScale(scale);
+            bg.setScale(GAME_WIDTH / 1280);
         }
         
-        // Make background interactive for wrong tap detection
         bg.setInteractive({ useHandCursor: false });
         bg.on("pointerdown", () => this.handleWrongTap());
 
@@ -507,97 +404,79 @@ class HopaScene extends Phaser.Scene {
 
         if (this.soundEnabled) {
             this.sound.play("SFX_Scene_Load");
-            
-            // Play world intro narrative (only if never played before)
             this.time.delayedCall(500, () => {
-                if (!this.isTransitioning) {
-                    this.narrative.play(this.getWorldIntroId(), this);
-                }
+                if (!this.isTransitioning) this.narrative.play(this.getWorldIntroId(), this);
             });
-            
-            // Start ambient music with looping
             this.ambientMusic = this.sound.add(this.ambientKey, { loop: true, volume: 0.4 });
             this.ambientMusic.play();
         }
 
         this.applyDifficulty();
         this.placeObjects();
+        this.placeDecoys();
+        this.addVisualNoise();
         this.createUI();
         this.startTimer();
+        
+        if (this.fogEnabled) {
+            this.setupFogOfWar();
+        }
     }
 
-    // Handle wrong tap on empty space
     handleWrongTap() {
-        // Block during narrative or transition
         if (this.isTransitioning || this.narrative.isPlaying) return;
         
-        if (this.soundEnabled) {
-            this.sound.play("SFX_Wrong_Tap");
-        }
+        if (this.soundEnabled) this.sound.play("SFX_Wrong_Tap");
+        if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
         
-        // Haptic feedback - double buzz pattern for wrong tap
-        if (navigator.vibrate) {
-            navigator.vibrate([30, 20, 30]);
-        }
+        // Reset combo on wrong tap
+        this.combo = 0;
+        this.updateComboDisplay();
         
-        // Hard mode penalty: -5 seconds
-        if (this.difficulty === "Hard" && this.timeLeft > 0) {
-            this.timeLeft = Math.max(0, this.timeLeft - 5);
+        // Time penalty for Medium and Hard
+        if (this.difficulty !== "Easy" && this.timeLeft > 0) {
+            const penalty = this.difficulty === "Hard" ? 5 : 3;
+            this.timeLeft = Math.max(0, this.timeLeft - penalty);
             this.timerText.setText(this.formatTime(this.timeLeft));
-            
-            // Flash timer red to indicate penalty
-            this.tweens.add({
-                targets: this.timerText,
-                scale: 1.3,
-                duration: 100,
-                yoyo: true,
-                onStart: () => this.timerText.setColor("#ff0000"),
-                onComplete: () => {
-                    if (this.timeLeft <= 30) {
-                        this.timerText.setColor("#ef4444");
-                    } else {
-                        this.timerText.setColor("#ffffff");
-                    }
-                }
-            });
-            
-            if (this.timeLeft <= 0) {
-                this.gameOver(false);
-            }
+            this.flashTimerRed();
+            if (this.timeLeft <= 0) this.gameOver(false);
         }
     }
 
     stopAmbient() {
-        if (this.ambientMusic) {
-            this.ambientMusic.stop();
-            this.ambientMusic.destroy();
-            this.ambientMusic = undefined;
-        }
+        if (this.ambientMusic) { this.ambientMusic.stop(); this.ambientMusic.destroy(); this.ambientMusic = undefined; }
     }
 
-    // Full cleanup for force-termination
     cleanupAllAudio() {
         this.narrative.stop();
         this.stopAmbient();
     }
 
     applyDifficulty() {
-        // Scale objects smaller on landscape (wider viewport) to look proportional
         const isLandscape = GAME_WIDTH > GAME_HEIGHT;
-        const scaleFactor = isLandscape ? 0.55 : 1.0; // ~55% size on landscape
-
+        const scaleFactor = isLandscape ? 0.55 : 1.0;
+        // Objects are 30-50% smaller than before (old: 0.18/0.15/0.12)
         if (this.difficulty === "Easy") {
-            this.timeLeft = 0; // No timer
-            this.hints = 3;
-            this.objectScale = 0.18 * scaleFactor;
-        } else if (this.difficulty === "Medium") {
+            this.maxTime = 180;
             this.timeLeft = 180;
+            this.hints = 3;
+            this.objectScale = 0.12 * scaleFactor;  // was 0.18
+            this.fogEnabled = false;
+            this.decoyCount = 0;
+        } else if (this.difficulty === "Medium") {
+            this.maxTime = 150;
+            this.timeLeft = 150;
             this.hints = 2;
-            this.objectScale = 0.15 * scaleFactor;
+            this.objectScale = 0.09 * scaleFactor;  // was 0.15
+            this.fogEnabled = true;
+            this.decoyCount = 2;
         } else {
+            this.maxTime = 120;
             this.timeLeft = 120;
             this.hints = 1;
-            this.objectScale = 0.12 * scaleFactor;
+            this.objectScale = 0.07 * scaleFactor;  // was 0.12
+            this.fogEnabled = true;
+            this.decoyCount = 3;
         }
     }
 
@@ -605,98 +484,329 @@ class HopaScene extends Phaser.Scene {
         this.found = 0;
         this.sprites = [];
         const placed: { x: number; y: number }[] = [];
-        const minDist = 120; // Minimum distance between objects
+        const minDist = 100;
 
-        // Object placement zone (within safe area, below UI bar)
         const placeTop = SAFE_TOP + 120;
         const placeBottom = SAFE_BOTTOM - 200;
         const placeLeft = SAFE_LEFT + 40;
         const placeRight = SAFE_RIGHT - 40;
 
-        this.objects.forEach(key => {
-            let x: number, y: number, valid = false, tries = 0;
-            
+        // Warm tint colors that blend with medieval backgrounds
+        const blendTints = [0xd4a574, 0xc4956a, 0xb8860b, 0xa0785a, 0x8b7355, 0x9c8c6e];
+
+        this.objects.forEach((key, idx) => {
+            let x: number = 0, y: number = 0, valid = false, tries = 0;
             while (!valid && tries < 200) {
                 x = Phaser.Math.Between(placeLeft, placeRight);
                 y = Phaser.Math.Between(placeTop, placeBottom);
-                valid = !placed.some(p => Phaser.Math.Distance.Between(p.x, p.y, x!, y!) < minDist);
+                valid = !placed.some(p => Phaser.Math.Distance.Between(p.x, p.y, x, y) < minDist);
                 tries++;
             }
+            placed.push({ x, y });
 
-            placed.push({ x: x!, y: y! });
-
-            const sprite = this.add.image(x!, y!, key)
+            const sprite = this.add.image(x, y, key)
                 .setScale(this.objectScale)
-                .setInteractive({ useHandCursor: true });
+                .setInteractive({ useHandCursor: true })
+                .setDepth(5);
 
-            // Add glow effect on hover
-            sprite.on("pointerover", () => {
-                sprite.setTint(0xffffaa);
-            });
+            // Tint objects to blend with background
+            const tint = blendTints[idx % blendTints.length];
+            sprite.setTint(tint);
+            
+            // Reduce alpha slightly so objects blend more
+            sprite.setAlpha(0.75);
 
-            sprite.on("pointerout", () => {
-                sprite.clearTint();
-            });
+            // Random slight rotation for embedding feel
+            sprite.setAngle(Phaser.Math.Between(-15, 15));
 
+            sprite.on("pointerover", () => { sprite.setAlpha(0.9); });
+            sprite.on("pointerout", () => { sprite.setAlpha(0.75); });
             sprite.on("pointerdown", () => this.pickObject(sprite));
             this.sprites.push(sprite);
         });
     }
 
-    createUI() {
-        // Dark UI bar at top (within safe zone)
-        this.add.rectangle(SAFE_CENTER_X, SAFE_TOP + 40, SAFE_WIDTH, 80, 0x000000, 0.7)
-            .setStrokeStyle(2, 0x333333);
+    placeDecoys() {
+        if (this.decoyCount === 0) return;
+        
+        const allObjectKeys = ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring",
+            "dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask", "mosaic_tile"];
+        
+        // Pick decoy keys not already in the scene objects
+        const available = allObjectKeys.filter(k => !this.objects.includes(k));
+        const decoyKeys = Phaser.Utils.Array.Shuffle(available).slice(0, this.decoyCount);
 
-        // Found counter (left side)
-        this.counter = this.add.text(SAFE_LEFT + 20, SAFE_TOP + 40, "Found: 0 / " + this.objects.length, {
-            font: "bold 28px Arial",
-            color: "#ffffff"
-        }).setOrigin(0, 0.5);
+        const placeTop = SAFE_TOP + 120;
+        const placeBottom = SAFE_BOTTOM - 200;
+        const placeLeft = SAFE_LEFT + 40;
+        const placeRight = SAFE_RIGHT - 40;
 
-        // Timer (center, if applicable)
+        decoyKeys.forEach(key => {
+            const x = Phaser.Math.Between(placeLeft, placeRight);
+            const y = Phaser.Math.Between(placeTop, placeBottom);
+
+            const sprite = this.add.image(x, y, key)
+                .setScale(this.objectScale * 0.9) // slightly smaller
+                .setInteractive({ useHandCursor: true })
+                .setDepth(5)
+                .setAlpha(0.65)
+                .setAngle(Phaser.Math.Between(-20, 20));
+            
+            // Slightly reddish tint for decoys (subtle, not obvious)
+            sprite.setTint(0xc49070);
+
+            sprite.on("pointerdown", () => this.hitDecoy(sprite));
+            this.decoySprites.push(sprite);
+        });
+    }
+
+    hitDecoy(sprite: Phaser.GameObjects.Image) {
+        if (this.isTransitioning || this.narrative.isPlaying) return;
+        
+        sprite.disableInteractive();
+        
+        if (this.soundEnabled) this.sound.play("SFX_Wrong_Tap");
+        if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
+        
+        // Flash red and shake
+        this.tweens.add({
+            targets: sprite,
+            tint: 0xff0000,
+            scale: this.objectScale * 1.3,
+            duration: 200,
+            yoyo: true,
+            onComplete: () => {
+                // X mark then fade
+                const xMark = this.add.text(sprite.x, sprite.y, "✗", {
+                    font: "bold 48px Arial", color: "#ff4444"
+                }).setOrigin(0.5).setDepth(50);
+                this.tweens.add({
+                    targets: [sprite, xMark],
+                    alpha: 0,
+                    duration: 500,
+                    onComplete: () => { sprite.destroy(); xMark.destroy(); }
+                });
+            }
+        });
+        
+        // Penalty: lose time and score
+        this.combo = 0;
+        this.updateComboDisplay();
+        
         if (this.timeLeft > 0) {
-            this.timerText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 40, this.formatTime(this.timeLeft), {
-                font: "bold 32px Arial",
-                color: "#ffffff"
-            }).setOrigin(0.5);
+            const penalty = this.difficulty === "Hard" ? 10 : 5;
+            this.timeLeft = Math.max(0, this.timeLeft - penalty);
+            this.timerText.setText(this.formatTime(this.timeLeft));
+            this.flashTimerRed();
+            
+            // Show penalty text
+            const penaltyText = this.add.text(sprite.x, sprite.y - 60, `-${penalty}s DECOY!`, {
+                font: "bold 28px Arial", color: "#ff4444"
+            }).setOrigin(0.5).setDepth(50);
+            this.tweens.add({
+                targets: penaltyText, y: penaltyText.y - 80, alpha: 0, duration: 1200,
+                onComplete: () => penaltyText.destroy()
+            });
+            
+            if (this.timeLeft <= 0) this.gameOver(false);
+        }
+        
+        this.score = Math.max(0, this.score - 50);
+        this.scoreText.setText("Score: " + this.score);
+    }
+
+    addVisualNoise() {
+        // Shadow overlays - dark patches that make scanning harder
+        const shadowCount = this.difficulty === "Hard" ? 6 : this.difficulty === "Medium" ? 4 : 2;
+        for (let i = 0; i < shadowCount; i++) {
+            const sx = Phaser.Math.Between(SAFE_LEFT, SAFE_RIGHT);
+            const sy = Phaser.Math.Between(SAFE_TOP + 100, SAFE_BOTTOM - 150);
+            const shadow = this.add.ellipse(sx, sy, 
+                Phaser.Math.Between(150, 350), Phaser.Math.Between(100, 250), 
+                0x000000, Phaser.Math.FloatBetween(0.15, 0.35)
+            ).setDepth(3);
+            
+            // Slowly drift shadows
+            this.tweens.add({
+                targets: shadow, x: sx + Phaser.Math.Between(-30, 30), alpha: shadow.alpha * 0.7,
+                duration: Phaser.Math.Between(3000, 6000), yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+            });
         }
 
-        // Hints (right side)
-        this.hintsText = this.add.text(SAFE_RIGHT - 20, SAFE_TOP + 40, "Hints: " + this.hints, {
-            font: "bold 28px Arial",
-            color: "#4ade80"
-        }).setOrigin(1, 0.5);
+        // Light flares - bright spots that distract
+        const flareCount = this.difficulty === "Hard" ? 4 : 2;
+        for (let i = 0; i < flareCount; i++) {
+            const fx = Phaser.Math.Between(SAFE_LEFT + 50, SAFE_RIGHT - 50);
+            const fy = Phaser.Math.Between(SAFE_TOP + 150, SAFE_BOTTOM - 200);
+            const flare = this.add.circle(fx, fy, Phaser.Math.Between(20, 50), 0xffd700, 0.15).setDepth(8);
+            this.tweens.add({
+                targets: flare, alpha: Phaser.Math.FloatBetween(0.05, 0.25), 
+                scaleX: 1.3, scaleY: 1.3,
+                duration: Phaser.Math.Between(2000, 4000), yoyo: true, repeat: -1, ease: "Sine.easeInOut"
+            });
+        }
+
+        // Dust particles using graphics-based approach
+        for (let i = 0; i < 15; i++) {
+            const dx = Phaser.Math.Between(0, GAME_WIDTH);
+            const dy = Phaser.Math.Between(SAFE_TOP, SAFE_BOTTOM);
+            const size = Phaser.Math.Between(2, 5);
+            const dust = this.add.circle(dx, dy, size, 0xffeedd, Phaser.Math.FloatBetween(0.1, 0.3)).setDepth(9);
+            this.tweens.add({
+                targets: dust,
+                x: dx + Phaser.Math.Between(-100, 100),
+                y: dy + Phaser.Math.Between(-200, -50),
+                alpha: 0,
+                duration: Phaser.Math.Between(4000, 8000),
+                repeat: -1,
+                onRepeat: () => {
+                    dust.setPosition(Phaser.Math.Between(0, GAME_WIDTH), SAFE_BOTTOM + 50);
+                    dust.setAlpha(Phaser.Math.FloatBetween(0.1, 0.3));
+                }
+            });
+        }
+    }
+
+    setupFogOfWar() {
+        // Create dark overlay
+        this.fogOverlay = this.add.graphics().setDepth(10);
+        this.fogOverlay.fillStyle(0x000000, 0.7);
+        this.fogOverlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        
+        // Use a mask to reveal area around pointer
+        this.fogMask = this.add.graphics().setDepth(10);
+        
+        // Create a render texture for the fog
+        const fogRT = this.add.renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT).setDepth(10);
+        
+        // Clear the simple overlay, we'll use renderTexture approach
+        this.fogOverlay.destroy();
+        
+        // Update fog each frame
+        this.events.on('update', () => {
+            fogRT.clear();
+            fogRT.fill(0x000000, 0.65);
+            
+            // Get pointer position in game coords
+            const pointer = this.input.activePointer;
+            const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+            
+            // Clear a circle around the pointer (reveal area)
+            const revealRadius = this.difficulty === "Hard" ? 120 : 160;
+            fogRT.erase(this.createRevealCircle(revealRadius), worldPoint.x - revealRadius, worldPoint.y - revealRadius);
+            
+            // Also reveal found-object locations slightly
+            this.sprites.forEach(s => {
+                if (!s.visible) {
+                    fogRT.erase(this.createRevealCircle(60), s.x - 60, s.y - 60);
+                }
+            });
+        });
+    }
+    
+    private revealCircleTexture?: Phaser.GameObjects.Graphics;
+    
+    createRevealCircle(radius: number): Phaser.GameObjects.Graphics {
+        if (this.revealCircleTexture) this.revealCircleTexture.destroy();
+        const g = this.add.graphics().setVisible(false);
+        g.fillStyle(0xffffff, 1);
+        g.fillCircle(radius, radius, radius);
+        // Soft edge
+        g.fillStyle(0xffffff, 0.5);
+        g.fillCircle(radius, radius, radius * 1.2);
+        this.revealCircleTexture = g;
+        return g;
+    }
+
+    createUI() {
+        // Top UI bar
+        this.add.rectangle(SAFE_CENTER_X, SAFE_TOP + 40, SAFE_WIDTH, 80, 0x000000, 0.8)
+            .setStrokeStyle(2, 0x333333).setDepth(20);
+
+        // Found counter (left)
+        this.counter = this.add.text(SAFE_LEFT + 20, SAFE_TOP + 40, "Found: 0 / " + this.objects.length, {
+            font: "bold 28px Arial", color: "#ffffff"
+        }).setOrigin(0, 0.5).setDepth(20);
+
+        // Timer (center)
+        this.timerText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 40, this.formatTime(this.timeLeft), {
+            font: "bold 32px Arial", color: "#ffffff"
+        }).setOrigin(0.5).setDepth(20);
+
+        // Hints (right)
+        this.hintsText = this.add.text(SAFE_RIGHT - 20, SAFE_TOP + 40, "💡 " + this.hints, {
+            font: "bold 28px Arial", color: "#4ade80"
+        }).setOrigin(1, 0.5).setDepth(20);
+
+        // Score bar (second row)
+        this.add.rectangle(SAFE_CENTER_X, SAFE_TOP + 100, SAFE_WIDTH, 50, 0x000000, 0.6)
+            .setStrokeStyle(1, 0x444444).setDepth(20);
+        
+        this.scoreText = this.add.text(SAFE_LEFT + 20, SAFE_TOP + 100, "Score: 0", {
+            font: "bold 24px Arial", color: "#ffd700"
+        }).setOrigin(0, 0.5).setDepth(20);
+
+        // Combo display (center of score bar)
+        this.comboText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 100, "", {
+            font: "bold 28px Arial", color: "#ff6b35"
+        }).setOrigin(0.5).setDepth(20);
+
+        // Ambient toggle (top right corner)
+        this.createAmbientToggle();
 
         // Bottom button bar
         this.add.rectangle(SAFE_CENTER_X, SAFE_BOTTOM - 50, SAFE_WIDTH, 100, 0x000000, 0.7)
-            .setStrokeStyle(2, 0x333333);
+            .setStrokeStyle(2, 0x333333).setDepth(20);
 
-        // Hint button (right)
+        // Hint button
         const hintBtn = this.add.rectangle(SAFE_RIGHT - 100, SAFE_BOTTOM - 50, 160, 60, 0x4ade80, 0.9)
-            .setInteractive({ useHandCursor: true });
-        
+            .setInteractive({ useHandCursor: true }).setDepth(20);
         this.add.text(SAFE_RIGHT - 100, SAFE_BOTTOM - 50, "Use Hint", {
-            font: "bold 22px Arial",
-            color: "#000000"
-        }).setOrigin(0.5);
-
+            font: "bold 22px Arial", color: "#000000"
+        }).setOrigin(0.5).setDepth(20);
         hintBtn.on("pointerdown", () => this.useHint());
 
-        // Exit button (left)
+        // Exit button
         const backBtn = this.add.rectangle(SAFE_LEFT + 100, SAFE_BOTTOM - 50, 160, 60, 0xef4444, 0.9)
-            .setInteractive({ useHandCursor: true });
-        
+            .setInteractive({ useHandCursor: true }).setDepth(20);
         this.add.text(SAFE_LEFT + 100, SAFE_BOTTOM - 50, "Exit", {
-            font: "bold 22px Arial",
-            color: "#ffffff"
-        }).setOrigin(0.5);
-
+            font: "bold 22px Arial", color: "#ffffff"
+        }).setOrigin(0.5).setDepth(20);
         backBtn.on("pointerdown", () => {
             if (this.timerEvent) this.timerEvent.destroy();
             this.cleanupAllAudio();
             this.scene.start("DifficultySelectScene");
         });
+    }
+
+    createAmbientToggle() {
+        const x = SAFE_RIGHT - 30;
+        const y = SAFE_TOP + 100;
+        const btn = this.add.container(x, y).setDepth(25);
+        
+        const circle = this.add.circle(0, 0, 22, 0x000000, 0.6).setStrokeStyle(2, 0xaaaaaa);
+        const icon = this.add.text(0, 0, this.soundEnabled ? "🔊" : "🔇", {
+            font: "20px Arial"
+        }).setOrigin(0.5);
+        
+        btn.add([circle, icon]);
+        circle.setInteractive({ useHandCursor: true });
+        
+        circle.on("pointerdown", () => {
+            this.soundEnabled = !this.soundEnabled;
+            this.registry.set("soundEnabled", this.soundEnabled);
+            icon.setText(this.soundEnabled ? "🔊" : "🔇");
+            
+            if (this.soundEnabled) {
+                if (this.ambientMusic && !(this.ambientMusic as any).isPlaying) {
+                    this.ambientMusic.play();
+                }
+            } else {
+                this.sound.pauseAll();
+            }
+        });
+        
+        this.ambientToggleBtn = btn;
     }
 
     startTimer() {
@@ -708,15 +818,34 @@ class HopaScene extends Phaser.Scene {
                 this.timeLeft--;
                 this.timerText.setText(this.formatTime(this.timeLeft));
 
-                if (this.timeLeft <= 30) {
+                // Color transitions
+                if (this.timeLeft <= 10) {
+                    this.timerText.setColor("#ff0000");
+                    this.timerText.setFontSize(38);
+                    // Pulse effect
+                    this.tweens.add({
+                        targets: this.timerText, scale: 1.2, duration: 100, yoyo: true
+                    });
+                } else if (this.timeLeft <= 30) {
                     this.timerText.setColor("#ef4444");
+                } else if (this.timeLeft <= 60) {
+                    this.timerText.setColor("#fbbf24");
                 }
 
-                if (this.timeLeft <= 0) {
-                    this.gameOver(false);
-                }
+                if (this.timeLeft <= 0) this.gameOver(false);
             },
             loop: true
+        });
+    }
+
+    flashTimerRed() {
+        this.tweens.add({
+            targets: this.timerText, scale: 1.3, duration: 100, yoyo: true,
+            onStart: () => this.timerText.setColor("#ff0000"),
+            onComplete: () => {
+                if (this.timeLeft <= 30) this.timerText.setColor("#ef4444");
+                else this.timerText.setColor("#ffffff");
+            }
         });
     }
 
@@ -727,34 +856,75 @@ class HopaScene extends Phaser.Scene {
     }
 
     pickObject(sprite: Phaser.GameObjects.Image) {
-        // Block during narrative or transition
         if (this.narrative.isPlaying || this.isTransitioning) return;
-        
-        // Haptic feedback - subtle tap on find
-        if (navigator.vibrate) {
-            navigator.vibrate(10);
-        }
+        if (navigator.vibrate) navigator.vibrate(10);
         
         sprite.disableInteractive();
 
-        // Animate and hide
+        // Calculate score with combo
+        this.combo++;
+        if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+        
+        const comboMultiplier = Math.min(this.combo, 5); // Max 5x
+        const basePoints = 100;
+        const timeBonus = Math.floor(this.timeLeft / this.maxTime * 50);
+        const points = (basePoints + timeBonus) * comboMultiplier;
+        this.score += points;
+        
+        // Reset combo timer
+        if (this.comboTimer) this.comboTimer.destroy();
+        this.comboTimer = this.time.delayedCall(3000, () => {
+            this.combo = 0;
+            this.updateComboDisplay();
+        });
+
+        // Animate found object with sparkle effect
         this.tweens.add({
-            targets: sprite,
-            scale: 0,
-            alpha: 0,
-            duration: 300,
-            ease: "Power2",
+            targets: sprite, scale: this.objectScale * 1.5, alpha: 0, duration: 400, ease: "Power2",
             onComplete: () => sprite.setVisible(false)
         });
 
-        if (this.soundEnabled) {
-            this.sound.play("SFX_Object_Found");
+        // Score popup
+        const popupText = this.add.text(sprite.x, sprite.y - 40, `+${points}`, {
+            font: "bold 32px Arial", color: "#ffd700"
+        }).setOrigin(0.5).setDepth(50);
+        this.tweens.add({
+            targets: popupText, y: popupText.y - 80, alpha: 0, duration: 1000,
+            onComplete: () => popupText.destroy()
+        });
+
+        // Sparkle particles around found object
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            const spark = this.add.circle(
+                sprite.x + Math.cos(angle) * 20, sprite.y + Math.sin(angle) * 20,
+                4, 0xffd700, 1
+            ).setDepth(50);
+            this.tweens.add({
+                targets: spark,
+                x: sprite.x + Math.cos(angle) * 80,
+                y: sprite.y + Math.sin(angle) * 80,
+                alpha: 0, scale: 0,
+                duration: 600, ease: "Power2",
+                onComplete: () => spark.destroy()
+            });
         }
+
+        if (this.soundEnabled) this.sound.play("SFX_Object_Found");
 
         this.found++;
         this.counter.setText("Found: " + this.found + " / " + this.objects.length);
+        this.scoreText.setText("Score: " + this.score);
+        this.updateComboDisplay();
 
-        // Check for mid-scene narrative (only play once per WORLD, ever)
+        // Pulse the counter
+        this.tweens.add({
+            targets: this.counter, scale: 1.3, duration: 150, yoyo: true,
+            onStart: () => this.counter.setColor("#4ade80"),
+            onComplete: () => this.counter.setColor("#ffffff")
+        });
+
+        // Mid-scene narrative
         if (this.found === Math.floor(this.objects.length / 2) && this.soundEnabled) {
             this.narrative.play(this.getWorldMidId(), this);
         }
@@ -764,23 +934,91 @@ class HopaScene extends Phaser.Scene {
             this.stopAmbient();
             this.isTransitioning = true;
             
-            // Gate level transition on narrative completion
-            this.time.delayedCall(500, () => {
-                this.narrative.play(this.getWorldCompleteId(), this, () => {
-                    // Only transition after narrative completes
-                    this.nextScene();
-                });
-            });
+            // Store score
+            const prevTotal = this.registry.get("totalScore") || 0;
+            this.registry.set("totalScore", prevTotal + this.score);
+            const prevCombo = this.registry.get("totalCombo") || 0;
+            if (this.maxCombo > prevCombo) this.registry.set("totalCombo", this.maxCombo);
             
-            // Fallback if sound disabled
-            if (!this.soundEnabled) {
-                this.time.delayedCall(1000, () => this.nextScene());
-            }
+            // Dramatic completion animation
+            this.playCompletionAnimation(() => {
+                this.narrative.play(this.getWorldCompleteId(), this, () => this.nextScene());
+                if (!this.soundEnabled) this.time.delayedCall(1000, () => this.nextScene());
+            });
+        }
+    }
+
+    playCompletionAnimation(onDone: () => void) {
+        // Full-screen flash
+        const flash = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0xffd700, 0).setDepth(100);
+        
+        // Flash in
+        this.tweens.add({
+            targets: flash, alpha: 0.6, duration: 300, yoyo: true, repeat: 1,
+        });
+
+        // Big "SCENE COMPLETE" text
+        const completeText = this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y, "✨ SCENE COMPLETE ✨", {
+            font: "bold 56px Arial", color: "#ffd700"
+        }).setOrigin(0.5).setDepth(101).setScale(0);
+
+        this.tweens.add({
+            targets: completeText, scale: 1, duration: 500, ease: "Back.easeOut",
+            delay: 300
+        });
+
+        // Score summary
+        const scoreSummary = this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y + 80, `Score: ${this.score}  |  Max Combo: x${this.maxCombo}`, {
+            font: "bold 28px Arial", color: "#ffffff"
+        }).setOrigin(0.5).setDepth(101).setAlpha(0);
+
+        this.tweens.add({
+            targets: scoreSummary, alpha: 1, duration: 400, delay: 700
+        });
+
+        // Celebration particles
+        for (let i = 0; i < 20; i++) {
+            const px = Phaser.Math.Between(SAFE_LEFT, SAFE_RIGHT);
+            const py = SAFE_BOTTOM;
+            const colors = [0xffd700, 0xff6b35, 0x4ade80, 0x60a5fa, 0xff4444];
+            const particle = this.add.circle(px, py, Phaser.Math.Between(4, 10), 
+                colors[i % colors.length], 1).setDepth(102);
+            this.tweens.add({
+                targets: particle,
+                y: Phaser.Math.Between(SAFE_TOP, SAFE_CENTER_Y),
+                x: px + Phaser.Math.Between(-100, 100),
+                alpha: 0,
+                duration: Phaser.Math.Between(1000, 2000),
+                delay: Phaser.Math.Between(0, 500),
+                onComplete: () => particle.destroy()
+            });
+        }
+
+        // Continue after animation
+        this.time.delayedCall(2500, () => {
+            completeText.destroy();
+            scoreSummary.destroy();
+            flash.destroy();
+            onDone();
+        });
+    }
+
+    updateComboDisplay() {
+        if (this.combo >= 2) {
+            const label = this.combo >= 5 ? "🔥 LEGENDARY x" + this.combo :
+                          this.combo >= 4 ? "⚡ ON FIRE x" + this.combo :
+                          this.combo >= 3 ? "🌟 COMBO x" + this.combo :
+                          "✨ x" + this.combo;
+            this.comboText.setText(label);
+            this.tweens.add({
+                targets: this.comboText, scale: 1.3, duration: 150, yoyo: true
+            });
+        } else {
+            this.comboText.setText("");
         }
     }
 
     useHint() {
-        // Block during narrative or transition
         if (this.narrative.isPlaying || this.isTransitioning) return;
         if (this.hints <= 0) return;
 
@@ -788,68 +1026,77 @@ class HopaScene extends Phaser.Scene {
         if (remaining.length === 0) return;
 
         this.hints--;
-        this.hintsText.setText("Hints: " + this.hints);
+        this.hintsText.setText("💡 " + this.hints);
 
-        if (this.soundEnabled) {
-            this.sound.play("SFX_Hint_Used");
+        // Hint costs 15 seconds
+        if (this.timeLeft > 0) {
+            this.timeLeft = Math.max(1, this.timeLeft - 15);
+            this.timerText.setText(this.formatTime(this.timeLeft));
+            
+            const penaltyText = this.add.text(SAFE_CENTER_X, SAFE_TOP + 150, "-15s Hint Used!", {
+                font: "bold 24px Arial", color: "#fbbf24"
+            }).setOrigin(0.5).setDepth(50);
+            this.tweens.add({
+                targets: penaltyText, alpha: 0, y: penaltyText.y - 40, duration: 1500,
+                onComplete: () => penaltyText.destroy()
+            });
         }
 
-        // Flash a random remaining object
+        // Reset combo
+        this.combo = 0;
+        this.updateComboDisplay();
+
+        if (this.soundEnabled) this.sound.play("SFX_Hint_Used");
+
         const target = Phaser.Utils.Array.GetRandom(remaining);
+        
+        // Temporarily remove tint and boost alpha to make visible
+        const origTint = target.tintTopLeft;
+        target.clearTint();
+        target.setAlpha(1);
+        
         this.tweens.add({
-            targets: target,
-            scale: this.objectScale * 1.5,
-            yoyo: true,
-            duration: 300,
-            repeat: 3,
-            ease: "Sine.easeInOut"
+            targets: target, scale: this.objectScale * 1.5, yoyo: true, duration: 300, repeat: 3,
+            ease: "Sine.easeInOut",
+            onComplete: () => {
+                target.setTint(origTint);
+                target.setAlpha(0.75);
+            }
         });
 
-        // Add glow circle
-        const glow = this.add.circle(target.x, target.y, 80, 0xffd700, 0.5);
+        const glow = this.add.circle(target.x, target.y, 80, 0xffd700, 0.5).setDepth(15);
         this.tweens.add({
-            targets: glow,
-            alpha: 0,
-            scale: 1.5,
-            duration: 1500,
+            targets: glow, alpha: 0, scale: 1.5, duration: 1500,
             onComplete: () => glow.destroy()
         });
     }
 
     gameOver(won: boolean) {
         if (this.timerEvent) this.timerEvent.destroy();
+        if (this.comboTimer) this.comboTimer.destroy();
         this.cleanupAllAudio();
         this.isTransitioning = true;
         
-        // Haptic feedback based on outcome
         if (navigator.vibrate) {
-            if (won) {
-                // Victory pattern - celebratory
-                navigator.vibrate([20, 10, 20, 10, 50]);
-            } else {
-                // Failure pattern - longer buzz
-                navigator.vibrate([100, 50, 100]);
-            }
+            navigator.vibrate(won ? [20, 10, 20, 10, 50] : [100, 50, 100]);
         }
 
-        const overlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.85);
+        const overlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.85).setDepth(200);
         
-        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y - 100, won ? "Scene Complete!" : "Time's Up!", {
-            font: "bold 56px Arial",
-            color: won ? "#4ade80" : "#ef4444"
-        }).setOrigin(0.5);
+        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y - 150, won ? "Scene Complete!" : "⏰ Time's Up!", {
+            font: "bold 56px Arial", color: won ? "#4ade80" : "#ef4444"
+        }).setOrigin(0.5).setDepth(201);
+
+        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y - 70, `Score: ${this.score}  |  Found: ${this.found}/${this.objects.length}`, {
+            font: "bold 28px Arial", color: "#ffffff"
+        }).setOrigin(0.5).setDepth(201);
 
         const retryBtn = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y + 50, 280, 70, 0xfbbf24)
-            .setInteractive({ useHandCursor: true });
-        
+            .setInteractive({ useHandCursor: true }).setDepth(201);
         this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y + 50, "Try Again", {
-            font: "bold 32px Arial",
-            color: "#000000"
-        }).setOrigin(0.5);
-
-        retryBtn.on("pointerdown", () => {
-            this.scene.restart();
-        });
+            font: "bold 32px Arial", color: "#000000"
+        }).setOrigin(0.5).setDepth(201);
+        retryBtn.on("pointerdown", () => this.scene.restart());
     }
 
     nextScene() {
@@ -863,73 +1110,83 @@ class HopaScene extends Phaser.Scene {
 
 class BarracksScene extends HopaScene {
     constructor() {
-        super(
-            "BarracksScene",
-            "barracks",
-            "AMB_Barracks",
-            "barracks",
-            ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring"]
-        );
+        super("BarracksScene", "barracks", "AMB_Barracks", "barracks",
+            ["gold_coin", "roman_key", "laurel_crown", "oil_lamp", "gem_ring"]);
     }
-
-    nextScene() {
-        this.scene.start("MarketScene");
-    }
+    nextScene() { this.scene.start("MarketScene"); }
 }
 
 class MarketScene extends HopaScene {
     constructor() {
-        super(
-            "MarketScene",
-            "market",
-            "AMB_Market",
-            "market",
+        super("MarketScene", "market", "AMB_Market", "market",
             ["dice", "statue_hand", "coin_purse", "wax_tablet", "theatre_mask",
-             "mosaic_tile", "ceramic_vase", "centurion_helmet", "torch", "aquila_standard"]
-        );
+             "mosaic_tile", "ceramic_vase", "centurion_helmet", "torch", "aquila_standard"]);
     }
-
-    nextScene() {
-        this.scene.start("ForumScene");
-    }
+    nextScene() { this.scene.start("ForumScene"); }
 }
 
 class ForumScene extends HopaScene {
     constructor() {
-        super(
-            "ForumScene",
-            "forum",
-            "AMB_Forum",
-            "forum",
-            ["perfume_bottle", "open_scroll", "gladius_sword", "empire_map", "legionary_shield"]
-        );
+        super("ForumScene", "forum", "AMB_Forum", "forum",
+            ["perfume_bottle", "open_scroll", "gladius_sword", "empire_map", "legionary_shield"]);
     }
 
     nextScene() {
-        // Show victory screen then return to difficulty select
-        const overlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.9);
+        // Final victory + leaderboard
+        const totalScore = (this.registry.get("totalScore") || 0) + this.score;
+        const maxCombo = Math.max(this.registry.get("totalCombo") || 0, this.maxCombo);
+        const difficulty = this.difficulty;
+
+        const overlay = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.92).setDepth(200);
         
-        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y - 150, "Congratulations!", {
-            font: "bold 64px Arial",
-            color: "#ffd700"
-        }).setOrigin(0.5);
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 80, "🏆 ADVENTURE COMPLETE!", {
+            font: "bold 56px Arial", color: "#ffd700"
+        }).setOrigin(0.5).setDepth(201);
 
-        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y - 50, "You completed all scenes!", {
-            font: "36px Arial",
-            color: "#ffffff"
-        }).setOrigin(0.5);
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 160, `Final Score: ${totalScore}  |  Best Combo: x${maxCombo}`, {
+            font: "bold 28px Arial", color: "#ffffff"
+        }).setOrigin(0.5).setDepth(201);
 
-        const menuBtn = this.add.rectangle(SAFE_CENTER_X, SAFE_CENTER_Y + 80, 300, 80, 0x4ade80)
-            .setInteractive({ useHandCursor: true });
+        // Prompt for name
+        const nameLabel = this.add.text(SAFE_CENTER_X, SAFE_TOP + 240, "Enter your name:", {
+            font: "24px Arial", color: "#aaaaaa"
+        }).setOrigin(0.5).setDepth(201);
+
+        // Use a simple default name since we can't have text input in Phaser easily
+        const playerName = "Explorer";
         
-        this.add.text(SAFE_CENTER_X, SAFE_CENTER_Y + 80, "Play Again", {
-            font: "bold 32px Arial",
-            color: "#000000"
-        }).setOrigin(0.5);
-
-        menuBtn.on("pointerdown", () => {
-            this.scene.start("DifficultySelectScene");
+        // Add to leaderboard
+        const leaderboard = addToLeaderboard({
+            name: playerName,
+            score: totalScore,
+            difficulty,
+            date: new Date().toISOString()
         });
+
+        // Display leaderboard
+        this.add.text(SAFE_CENTER_X, SAFE_TOP + 310, "📊 TOP 5 LEADERBOARD", {
+            font: "bold 36px Arial", color: "#ffd700"
+        }).setOrigin(0.5).setDepth(201);
+
+        const lbStartY = SAFE_TOP + 380;
+        leaderboard.forEach((entry, idx) => {
+            const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`;
+            const isCurrentRun = entry.score === totalScore && entry.difficulty === difficulty;
+            const color = isCurrentRun ? "#ffd700" : "#cccccc";
+            
+            this.add.text(SAFE_CENTER_X, lbStartY + idx * 55, 
+                `${medal}  ${entry.name}  —  ${entry.score} pts  (${entry.difficulty})`, {
+                font: `${isCurrentRun ? 'bold ' : ''}26px Arial`, color
+            }).setOrigin(0.5).setDepth(201);
+        });
+
+        // Play again button
+        const menuBtn = this.add.rectangle(SAFE_CENTER_X, SAFE_BOTTOM - 120, 300, 80, 0x4ade80)
+            .setInteractive({ useHandCursor: true }).setDepth(201);
+        this.add.text(SAFE_CENTER_X, SAFE_BOTTOM - 120, "Play Again", {
+            font: "bold 32px Arial", color: "#000000"
+        }).setOrigin(0.5).setDepth(201);
+        menuBtn.on("pointerdown", () => this.scene.start("DifficultySelectScene"));
     }
 }
 
@@ -938,7 +1195,6 @@ class ForumScene extends HopaScene {
 // ==========================================
 
 export function createHopaGame(parent: HTMLElement): Phaser.Game {
-    // Detect viewport orientation and compute layout
     const parentWidth = parent.clientWidth || window.innerWidth;
     const parentHeight = parent.clientHeight || window.innerHeight;
     const isLandscape = parentWidth > parentHeight;
@@ -948,65 +1204,38 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
         type: Phaser.AUTO,
         parent: parent,
         backgroundColor: "#1a1a2e",
-        scene: [
-            BootScene,
-            DifficultySelectScene,
-            BarracksScene,
-            MarketScene,
-            ForumScene
-        ],
+        scene: [BootScene, DifficultySelectScene, BarracksScene, MarketScene, ForumScene],
         scale: {
             mode: Phaser.Scale.FIT,
             autoCenter: Phaser.Scale.CENTER_BOTH,
             width: GAME_WIDTH,
             height: GAME_HEIGHT
         },
-        input: {
-            activePointers: 3,
-            touch: true
-        },
-        fps: {
-            target: 60,
-            smoothStep: true
-        },
-        render: {
-            antialias: true,
-            roundPixels: true,
-            powerPreference: 'low-power'
-        }
+        input: { activePointers: 3, touch: true },
+        fps: { target: 60, smoothStep: true },
+        render: { antialias: true, roundPixels: true, powerPreference: 'low-power' }
     };
 
     const game = new Phaser.Game(config);
     
-    // Pause game when backgrounded (battery + audio)
     game.events.on('blur', () => {
         game.scene.scenes.forEach(scene => {
-            if (scene.scene.isActive()) {
-                scene.scene.pause();
-                scene.sound?.pauseAll();
-            }
+            if (scene.scene.isActive()) { scene.scene.pause(); scene.sound?.pauseAll(); }
         });
     });
     
     game.events.on('focus', () => {
         game.scene.scenes.forEach(scene => {
-            if (scene.scene.isPaused()) {
-                scene.scene.resume();
-                scene.sound?.resumeAll();
-            }
+            if (scene.scene.isPaused()) { scene.scene.resume(); scene.sound?.resumeAll(); }
         });
     });
     
-    // Orientation lock only on mobile devices
     const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isMobileDevice && screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('portrait').catch(() => {
-            console.log('Orientation lock not supported');
-        });
+        screen.orientation.lock('portrait').catch(() => {});
     }
     
     return game;
 }
 
-// Export controller for debug access
 export { NarrativeController };
