@@ -582,18 +582,22 @@ class HopaScene extends Phaser.Scene {
     }
 
     applyDifficulty() {
+        // Scale objects smaller on landscape (wider viewport) to look proportional
+        const isLandscape = GAME_WIDTH > GAME_HEIGHT;
+        const scaleFactor = isLandscape ? 0.55 : 1.0; // ~55% size on landscape
+
         if (this.difficulty === "Easy") {
             this.timeLeft = 0; // No timer
             this.hints = 3;
-            this.objectScale = 0.18; // Larger for portrait view
+            this.objectScale = 0.18 * scaleFactor;
         } else if (this.difficulty === "Medium") {
             this.timeLeft = 180;
             this.hints = 2;
-            this.objectScale = 0.15;
+            this.objectScale = 0.15 * scaleFactor;
         } else {
             this.timeLeft = 120;
             this.hints = 1;
-            this.objectScale = 0.12;
+            this.objectScale = 0.12 * scaleFactor;
         }
     }
 
