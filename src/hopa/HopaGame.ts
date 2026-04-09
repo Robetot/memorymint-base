@@ -8,22 +8,46 @@ import Phaser from 'phaser';
 // VIRTUAL RESOLUTION CONSTANTS
 // ==========================================
 
-const GAME_WIDTH = 1080;
-const GAME_HEIGHT = 1920;
+// Dynamic resolution - computed at game creation based on viewport
+let GAME_WIDTH = 1080;
+let GAME_HEIGHT = 1920;
 
-// Safe zone (80-85% of screen) - avoid edges for notches/home indicators
-const SAFE_MARGIN_X = 80;  // ~7.5% from each side
-const SAFE_MARGIN_TOP = 160;  // Extra margin for notch/dynamic island
-const SAFE_MARGIN_BOTTOM = 120;  // Margin for home indicator
+let SAFE_MARGIN_X = 80;
+let SAFE_MARGIN_TOP = 160;
+let SAFE_MARGIN_BOTTOM = 120;
 
-const SAFE_LEFT = SAFE_MARGIN_X;
-const SAFE_RIGHT = GAME_WIDTH - SAFE_MARGIN_X;
-const SAFE_TOP = SAFE_MARGIN_TOP;
-const SAFE_BOTTOM = GAME_HEIGHT - SAFE_MARGIN_BOTTOM;
-const SAFE_WIDTH = SAFE_RIGHT - SAFE_LEFT;
-const SAFE_HEIGHT = SAFE_BOTTOM - SAFE_TOP;
-const SAFE_CENTER_X = GAME_WIDTH / 2;
-const SAFE_CENTER_Y = GAME_HEIGHT / 2;
+let SAFE_LEFT = SAFE_MARGIN_X;
+let SAFE_RIGHT = GAME_WIDTH - SAFE_MARGIN_X;
+let SAFE_TOP = SAFE_MARGIN_TOP;
+let SAFE_BOTTOM = GAME_HEIGHT - SAFE_MARGIN_BOTTOM;
+let SAFE_WIDTH = SAFE_RIGHT - SAFE_LEFT;
+let SAFE_HEIGHT = SAFE_BOTTOM - SAFE_TOP;
+let SAFE_CENTER_X = GAME_WIDTH / 2;
+let SAFE_CENTER_Y = GAME_HEIGHT / 2;
+
+function computeLayout(isLandscape: boolean) {
+    if (isLandscape) {
+        GAME_WIDTH = 1920;
+        GAME_HEIGHT = 1080;
+        SAFE_MARGIN_X = 120;
+        SAFE_MARGIN_TOP = 80;
+        SAFE_MARGIN_BOTTOM = 80;
+    } else {
+        GAME_WIDTH = 1080;
+        GAME_HEIGHT = 1920;
+        SAFE_MARGIN_X = 80;
+        SAFE_MARGIN_TOP = 160;
+        SAFE_MARGIN_BOTTOM = 120;
+    }
+    SAFE_LEFT = SAFE_MARGIN_X;
+    SAFE_RIGHT = GAME_WIDTH - SAFE_MARGIN_X;
+    SAFE_TOP = SAFE_MARGIN_TOP;
+    SAFE_BOTTOM = GAME_HEIGHT - SAFE_MARGIN_BOTTOM;
+    SAFE_WIDTH = SAFE_RIGHT - SAFE_LEFT;
+    SAFE_HEIGHT = SAFE_BOTTOM - SAFE_TOP;
+    SAFE_CENTER_X = GAME_WIDTH / 2;
+    SAFE_CENTER_Y = GAME_HEIGHT / 2;
+}
 
 // ==========================================
 // NARRATIVE CONTROLLER - Central Authority
