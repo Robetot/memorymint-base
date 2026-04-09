@@ -934,6 +934,12 @@ class ForumScene extends HopaScene {
 // ==========================================
 
 export function createHopaGame(parent: HTMLElement): Phaser.Game {
+    // Detect viewport orientation and compute layout
+    const parentWidth = parent.clientWidth || window.innerWidth;
+    const parentHeight = parent.clientHeight || window.innerHeight;
+    const isLandscape = parentWidth > parentHeight;
+    computeLayout(isLandscape);
+
     const config: Phaser.Types.Core.GameConfig = {
         type: Phaser.AUTO,
         parent: parent,
@@ -952,17 +958,17 @@ export function createHopaGame(parent: HTMLElement): Phaser.Game {
             height: GAME_HEIGHT
         },
         input: {
-            activePointers: 3, // Multi-touch support
+            activePointers: 3,
             touch: true
         },
         fps: {
             target: 60,
-            smoothStep: true // Prevents stutter on frame drops
+            smoothStep: true
         },
         render: {
             antialias: true,
-            roundPixels: true, // Crisper rendering
-            powerPreference: 'low-power' // Battery optimization
+            roundPixels: true,
+            powerPreference: 'low-power'
         }
     };
 
