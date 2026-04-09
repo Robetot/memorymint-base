@@ -41,6 +41,34 @@ interface SyncResult {
   timestamp: string;
 }
 
+async function verifyAdminAccess(req: Request): Promise<{ authorized: boolean; wallet?: string }> {
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return { authorized: false };
+  }
+
+  try {
+    const token = authHeader.replace("Bearer ", "");
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data.user) {
+      return { authorized: false };
+    }
+
+    const { data: isAdmin, error: rolesError } = await supabase
+      .rpc("wallet_is_admin", { _wallet: data.user.id });
+
+    if (rolesError || !isAdmin) {
+      return { authorized: false };
+    }
+
+    return { authorized: true, wallet: data.user.id };
+  } catch {
+    return { authorized: false };
+  }
+}
+
 // Compare contract state with admin state
 function detectMismatches(contractState: Record<string, unknown>, adminState: Record<string, unknown>): Mismatch[] {
   const mismatches: Mismatch[] = [];
@@ -131,7 +159,14 @@ function detectMismatches(contractState: Record<string, unknown>, adminState: Re
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  // Require admin authentication
+  const authResult = await verifyAdminAccess(req);
+  if (!authResult.authorized) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Unauthorized" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
 
   try {
     const body = await req.json();
@@ -155,19 +190,6 @@ serve(async (req) => {
     const mismatches = detectMismatches(contractState, adminState);
     const actions: string[] = [];
 
-    // Create audit log entry
-    const auditEntry = {
-      timestamp: new Date().toISOString(),
-      mode: config.mode,
-      dryRun: config.dryRun,
-      mismatchCount: mismatches.length,
-      criticalCount: mismatches.filter(m => m.severity === "critical").length,
-      contractState,
-      adminState,
-    };
-
-    console.log("[sync-state] Audit:", JSON.stringify(auditEntry));
-
     // In dry run mode, just report mismatches
     if (config.dryRun) {
       actions.push("DRY_RUN: No changes applied");
@@ -175,19 +197,17 @@ serve(async (req) => {
       // Apply sync based on mode
       switch (config.mode) {
         case "CONTRACT_TO_ADMIN":
-          // Contract is source of truth - update admin state
           actions.push(`CONTRACT_TO_ADMIN: Would update ${mismatches.length} fields in admin panel`);
           break;
         case "ADMIN_TO_CONTRACT":
-          // Admin is source of truth - would need wallet signing
           actions.push(`ADMIN_TO_CONTRACT: ${mismatches.length} contract writes required (needs wallet)`);
           break;
-        case "BIDIRECTIONAL":
-          // Smart sync based on timestamps/priority
+        case "BIDIRECTIONAL": {
           const toAdmin = mismatches.filter(m => m.suggestedAction === "sync_to_admin").length;
           const toContract = mismatches.filter(m => m.suggestedAction === "sync_to_contract").length;
           actions.push(`BIDIRECTIONAL: ${toAdmin} to admin, ${toContract} to contract`);
           break;
+        }
         case "MANUAL":
           actions.push("MANUAL: Review required for all mismatches");
           break;
@@ -213,11 +233,11 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
+        error: "Internal server error",
         timestamp: new Date().toISOString(),
       }),
       { 
-        status: 200,
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" } 
       }
     );
